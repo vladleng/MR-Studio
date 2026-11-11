@@ -3,7 +3,6 @@
 #include "GraphiteWindow.h"
 #include "TranscriptionRuntime.h"
 #include <mrs/sha256.hpp>
-#include <transcription_engine.h>
 #include <transcription_profile.h>
 #include <algorithm>
 #include <atomic>
@@ -37,11 +36,10 @@ juce::String failure(const std::string& e){
 // captures values/shared progress, never a Component or Application pointer.
 class TranscriptionSetup {
 public:
-    struct Status {bool failed{},busy{},model{},engine{},present{},runtime{},runtime_present{};double progress{};juce::String message;};
+    struct Status {bool failed{},busy{},model{},present{},runtime{},runtime_present{};double progress{};juce::String message;};
     TranscriptionSetup(ModelStore models,Request engine,std::shared_ptr<TranscriptionRuntime> runtime={}):models_(std::move(models)),engine_(std::move(engine)),runtime_(std::move(runtime)){refresh();}
     ~TranscriptionSetup(){shutdown();}
     ModelStore models()const{return models_;}
-    Request engine()const{return engine_;}
     Request pythonEngine()const{
         need(runtime_!=nullptr,"Python runtime unavailable");auto r=engine_;r.backend=Backend::python_medium;
         r.executable=path(runtime_->python());r.executable_sha256=mrs::sha256_file(r.executable);r.memory_bytes=8ULL*1024*1024*1024;
@@ -81,8 +79,6 @@ private:
             if(stop.stop_requested()){out.message="Model operation cancelled.";return out;}
             try{out.present=fs::exists(models.directory());if(out.present){const auto lease=models.acquire();(void)lease;out.model=true;}}
             catch(const std::exception& e){out.failed=true;out.message=failure(e.what());}
-            try{out.engine=!engine.executable_sha256.empty()&&fs::is_regular_file(engine.executable)&&fs::file_size(engine.executable)<32*1024*1024&&mrs::sha256_file(engine.executable,stop)==engine.executable_sha256;}
-            catch(...){out.engine=false;}
             if(out.message.isEmpty())out.message=out.model?"Model installed and available offline.":"Download Medium or choose an authorized local folder.";
             if(runtime){out.runtime_present=runtime->present();out.runtime=runtime->python().existsAsFile()&&runtime->directory().getChildFile("managed.json").existsAsFile();}
             out.progress=1;return out;
@@ -96,10 +92,7 @@ namespace {
 std::shared_ptr<TranscriptionSetup> setup(){
     const auto app=juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory();
     const auto root=juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("MoonRiverStudio").getChildFile("transcription");
-    Request settings;settings.executable=path(app.getChildFile("ace-midi.exe"));settings.executable_sha256=mrs::transcription_engine_sha256;settings.cpu_threads=0;
-    if(optimized_cpu_available()&&std::string(mrs::transcription_avx2_sha256).size()==64&&app.getChildFile("ace-midi-avx2.exe").existsAsFile()){
-        settings.executable=path(app.getChildFile("ace-midi-avx2.exe"));settings.executable_sha256=mrs::transcription_avx2_sha256;
-    }
+    Request settings;settings.cpu_threads=0;
     settings.worker_script=path(app.getChildFile("mr_transcription_worker.py"));settings.worker_sha256=mrs::transcription_worker_sha256;
     settings.temporary_root=path(root.getChildFile("jobs"));
     // Worker requires a pre-existing trusted temp root; no model download here.
@@ -117,9 +110,9 @@ public:
         cpu_label_.setText("CPU threads",juce::dontSendNotification);stem_label_.setText("Stem instrument",juce::dontSendNotification);
         cpu_.addItem("Auto ("+juce::String(choose_cpu_threads())+")",1);for(int n=1;n<=32;++n)cpu_.addItem(juce::String(n),n+1);cpu_.setSelectedId(owner_.view.transcriptionCpuThreads+1,juce::dontSendNotification);cpu_.setTitle("CPU threads for background inference");
         cpu_.setTooltip("Auto reserves one logical CPU, up to 16 threads. Manual choices are capped to available CPUs (maximum 32).");
-        stem_.addItem("Auto / full mix",1);int role_id=2;for(const auto& role:mrs::ace_midi_instruments())stem_.addItem(text(std::string(role.role)).replaceCharacter('_',' '),role_id++);stem_.setSelectedId(1,juce::dontSendNotification);stem_.setTitle("Instrument of the input stem");stem_.setTooltip("For an isolated stem, constrain native decoding to this category. No separation, pitch shift or monophonic forcing; accuracy still needs checking.");
+        stem_.addItem("Auto / full mix",1);int role_id=2;for(const auto& role:mrs::ace_midi_instruments())stem_.addItem(text(std::string(role.role)).replaceCharacter('_',' '),role_id++);stem_.setSelectedId(1,juce::dontSendNotification);stem_.setTitle("Instrument of the input stem");stem_.setTooltip("For an isolated stem, constrain Python decoding to this category. No separation, pitch shift or monophonic forcing; accuracy still needs checking.");
         addAndMakeVisible(cpu_);addAndMakeVisible(stem_);
-        backend_.addItem("Python MuScriptor Medium (main)",1);backend_.addItem("HOT-Step C++ (experimental A/B)",2);backend_.setSelectedId(owner_.view.transcriptionBackend,juce::dontSendNotification);backend_.setTitle("Recognition backend");addAndMakeVisible(backend_);
+        backend_.addItem("Python MuScriptor Medium",1);owner_.view.transcriptionBackend=1;backend_.setSelectedId(1,juce::dontSendNotification);backend_.setTitle("Transcription model");addAndMakeVisible(backend_);
         compatibility_.setButtonText("Compatibility CPU (disable AVX2 dispatch)");compatibility_.setToggleState(owner_.view.transcriptionCompatibility,juce::dontSendNotification);addAndMakeVisible(compatibility_);
         const auto persist=[this]{owner_.view.transcriptionCpuThreads=cpu_.getSelectedId()-1;owner_.view.transcriptionBackend=backend_.getSelectedId();owner_.view.transcriptionCompatibility=compatibility_.getToggleState();owner_.saveSettings();update();};
         cpu_.onChange=persist;backend_.onChange=persist;compatibility_.onClick=persist;
@@ -145,8 +138,7 @@ public:
         download_.onClick=[this]{invoke([&]{need(terms_.getToggleState(),"Accept the official model terms first");auto token=token_.getText().trim().toStdString();token_.clear();setup_->download(std::move(token),fixture_fetch_);});};
         local_.onClick=[this]{invoke([&]{need(terms_.getToggleState(),"Accept the official model terms first");chooser_=std::make_unique<juce::FileChooser>("Choose an authorized official Medium folder");juce::Component::SafePointer<TranscriptionPanel> safe(this);chooser_->launchAsync(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectDirectories,[safe](const juce::FileChooser& chooser){if(safe&&chooser.getResult().isDirectory())safe->invoke([&]{need(safe->terms_.getToggleState(),"Accept the official model terms first");safe->setup_->local(path(chooser.getResult()));});});});};
         verify_.onClick=[this]{invoke([&]{setup_->check();});};remove_.onClick=[this]{invoke([&]{setup_->remove();});};
-        start_.onClick=[this]{invoke([&]{need(source_.has_value(),"Select an audio clip");auto request=backend_.getSelectedId()==1?setup_->pythonEngine():setup_->engine();request.compatibility_cpu=compatibility_.getToggleState();
-            if(request.backend==Backend::native_experimental&&request.compatibility_cpu){const auto app=juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory();request.executable=path(app.getChildFile("ace-midi.exe"));request.executable_sha256=mrs::transcription_engine_sha256;}
+        start_.onClick=[this]{invoke([&]{need(source_.has_value(),"Select an audio clip");auto request=setup_->pythonEngine();request.compatibility_cpu=compatibility_.getToggleState();
             request.cpu_threads=static_cast<unsigned>((std::max)(1,cpu_.getSelectedId())-1);
             if(stem_.getSelectedId()>1)request.stem_instrument=std::string(mrs::ace_midi_instruments()[static_cast<std::size_t>(stem_.getSelectedId()-2)].role);
             if(request.backend==Backend::python_medium){request.instruments=instruments_selected_;if(request.instruments.empty()&&!request.stem_instrument.empty())request.instruments.push_back(request.stem_instrument);request.stem_instrument.clear();}
@@ -200,7 +192,7 @@ private:
         const auto model=setup_->status();const auto job=owner_.app.transcription_status();const auto clip=source();const auto* result=owner_.app.transcription_preview();
         source_info_.setText(clip?"Clip to analyze: "+text(clip->name)+"   |   "+juce::String(static_cast<double>(clip->length)/owner_.project()->sample_rate,2)+" s (trimmed clip only)":"Select an audio clip in Arrange.",juce::dontSendNotification);
         const bool python=backend_.getSelectedId()==1;
-        model_info_.setText("MuScriptor Medium - CPU - 1.23 GB - CC BY-NC 4.0 (non-commercial)\n"+juce::String(model.model?"Model installed/offline":"Model not installed or not verified")+"   |   "+(model.engine?(setup_->engine().executable.filename()=="ace-midi-avx2.exe"?"Native CPU AVX2 verified":"Native CPU compatibility verified"):"Native engine unavailable; reinstall this build")+juce::String(python?(model.runtime?" | Python runtime installed":" | Install Python runtime"):" | Experimental A/B"),juce::dontSendNotification);
+        model_info_.setText("MuScriptor Medium - CPU - 1.23 GB - CC BY-NC 4.0 (non-commercial)\n"+juce::String(model.model?"Model installed/offline":"Model not installed or not verified")+(model.runtime?" | Python runtime installed":" | Install Python runtime"),juce::dontSendNotification);
         const auto signature=result?result->midi_sha256+result->clip_id.value:std::string{};
         if(signature!=signature_){signature_=signature;roles_.clear();counts_.clear();if(result)for(const auto& role:mrs::ace_midi_instruments()){const auto count=static_cast<std::size_t>(std::count_if(result->notes.begin(),result->notes.end(),[&](const auto& n){return n.instrument==role.role;}));if(count){roles_.push_back(std::string(role.role));counts_.push_back(count);}}parts_.updateContent();parts_.deselectAllRows();if(!roles_.empty())parts_.selectRangeOfRows(0,getNumRows()-1);}
         juce::String status;
@@ -229,7 +221,7 @@ private:
         terms_.setEnabled(!model.busy&&!occupied);token_.setEnabled(!model.busy&&!occupied);
         download_.setEnabled(!model.busy&&!occupied&&!model.present&&terms_.getToggleState()&&!token_.getText().trim().isEmpty());local_.setEnabled(!model.busy&&!occupied&&!model.present&&terms_.getToggleState());
         verify_.setEnabled(!model.busy&&!occupied);remove_.setEnabled(!model.busy&&!occupied&&model.present);
-        start_.setEnabled(!model.busy&&!occupied&&!pending&&!recording&&model.model&&(python?model.runtime:model.engine)&&clip.has_value()&&!processed);
+        start_.setEnabled(!model.busy&&!occupied&&!pending&&!recording&&model.model&&model.runtime&&clip.has_value()&&!processed);
         cancel_.setEnabled(model.busy||occupied);discard_.setEnabled(pending&&!occupied);place_.setEnabled(job.state==JobState::ready&&!recording&&owner_.displayState().playback!=mrs::PlaybackState::playing&&parts_.getNumSelectedRows()>0);
         if(!model.busy&&model.message!=last_model_message_){last_model_message_=model.message;message_.setText(model.message,juce::dontSendNotification);}
     }
@@ -283,6 +275,7 @@ void transcriptionSmoke(const juce::File& fake){
     for(const auto* name:{"config.json","model.safetensors","README.md"}){const auto file=path(authorized.getChildFile(name));spec.files.push_back({name,mrs::sha256_file(file),fs::file_size(file)});}
     const auto jobs=root.getChildFile("jobs");need(jobs.createDirectory().wasOk(),"Fixture job folder");
     Request engine;engine.executable=path(fake);engine.executable_sha256=mrs::sha256_file(engine.executable);engine.temporary_root=path(jobs);engine.timeout=std::chrono::seconds(5);
+    const auto fixture_script=root.getChildFile("worker-fixture.py");need(fixture_script.replaceWithText("# synthetic process fixture"),"Create worker fixture");engine.worker_script=path(fixture_script);engine.worker_sha256=mrs::sha256_file(engine.worker_script);
     // A metadata-only runtime fixture cannot pass an inventory/probe. Opening
     // the converter and preparing a request must nevertheless avoid either.
     auto runtime=std::make_shared<TranscriptionRuntime>(root.getChildFile("runtime-fixture"),root.getChildFile("unused-requirements.txt"));
@@ -293,13 +286,15 @@ void transcriptionSmoke(const juce::File& fake){
     need(!quick->status().failed&&quick->status().runtime&&!quick->pythonEngine().verify_runtime,"Opening converter/request must not verify runtime automatically");quick.reset();
     Desktop owner(true);owner.view.transcriptionBackend=2;owner.app.new_project(16000);owner.app.import_wavs({path(source)});owner.refresh();
     const auto clip=owner.project()->clips.front().id;const auto before=*owner.project();
-    owner.transcriptionSetup=std::make_shared<TranscriptionSetup>(ModelStore(path(root.getChildFile("models")),spec),engine);
+    owner.transcriptionSetup=std::make_shared<TranscriptionSetup>(ModelStore(path(root.getChildFile("models")),spec),engine,runtime);
     showTranscription(owner,clip);auto* host=dynamic_cast<TranscriptionHost*>(owner.transcriptionWindow->getContentComponent());need(host!=nullptr,"Transcription panel missing");auto* view=&host->panel();host->setSize(640,480);need(host->canScroll(),"Small/DPI-constrained window must scroll to all controls");host->setSize(820,800);
+    need(view->backend_.getNumItems()==1&&view->backend_.getSelectedId()==1,"Python must be the only model backend");
     view->cpu_.setSelectedId(8,juce::sendNotificationSync);view->compatibility_.setToggleState(true,juce::sendNotificationSync);view->compatibility_.onClick();
-    need(owner.view.transcriptionCpuThreads==7&&owner.view.transcriptionBackend==2&&owner.view.transcriptionCompatibility,"Persist transcription choices before inference");
+    need(owner.view.transcriptionCpuThreads==7&&owner.view.transcriptionBackend==1&&owner.view.transcriptionCompatibility,"Persist transcription choices before inference");
     const auto preferences=root.getChildFile("transcription-view.json");publishSettings(preferences,owner.view.encode());const auto restored=ViewSettings::decode(preferences.loadFileAsString());
-    need(restored.transcriptionCpuThreads==7&&restored.transcriptionBackend==2&&restored.transcriptionCompatibility,"Restore transcription preferences from disk");
+    need(restored.transcriptionCpuThreads==7&&restored.transcriptionBackend==1&&restored.transcriptionCompatibility,"Restore transcription preferences from disk");
     auto malformed=juce::JSON::parse(owner.view.encode());malformed.getDynamicObject()->setProperty("transcriptionCpuThreads",99);malformed.getDynamicObject()->setProperty("transcriptionBackend",99);malformed.getDynamicObject()->setProperty("transcriptionCompatibility","yes");
+    auto legacy=juce::JSON::parse(owner.view.encode());legacy.getDynamicObject()->setProperty("transcriptionBackend",2);need(ViewSettings::decode(juce::JSON::toString(legacy)).transcriptionBackend==1,"Legacy native preference must migrate to Python");
     const auto defaults=ViewSettings::decode(juce::JSON::toString(malformed));need(defaults.transcriptionCpuThreads==0&&defaults.transcriptionBackend==1&&!defaults.transcriptionCompatibility,"Malformed transcription preferences use safe defaults");
     view->compatibility_.setToggleState(false,juce::dontSendNotification);view->compatibility_.onClick();
     const auto wait=[&](const std::function<bool()>& pending){const auto until=std::chrono::steady_clock::now()+std::chrono::seconds(10);while(pending()){need(std::chrono::steady_clock::now()<until,"Transcription GUI timeout");view->tick();juce::Thread::sleep(2);}};
@@ -314,7 +309,7 @@ void transcriptionSmoke(const juce::File& fake){
     owner.transcriptionSetup->check();wait([&]{return owner.transcriptionSetup->status().busy;});need(owner.transcriptionSetup->status().failed,"Manual model Verify must still detect corruption");
     need(installed.getChildFile("model.safetensors").replaceWithText("fixture"),"Restore model fixture");owner.transcriptionSetup->check();wait([&]{return owner.transcriptionSetup->status().busy;});view->tick();need(!owner.transcriptionSetup->status().failed,"Manual model Verify after repair");
     view->cpu_.setSelectedId(2,juce::dontSendNotification);int bass=2;for(const auto& role:mrs::ace_midi_instruments()){if(role.role=="electric_bass")break;++bass;}view->stem_.setSelectedId(bass,juce::dontSendNotification);
-    view->start_.onClick();wait([&]{return busy(owner.app.transcription_status().state);});view->tick();need(owner.app.transcription_preview()&&!owner.app.transcription_preview()->notes.empty()&&owner.app.transcription_preview()->notes.front().instrument=="electric_bass"&&owner.app.transcription_status().cpu_threads==1,"CPU/stem selection not passed to native");need(owner.app.transcription_status().state==JobState::ready&&view->roles_.size()==1&&view->place_.isEnabled(),"Recognition/parts selection missing");
+    view->start_.onClick();wait([&]{return busy(owner.app.transcription_status().state);});view->tick();need(owner.app.transcription_preview()&&!owner.app.transcription_preview()->notes.empty()&&owner.app.transcription_preview()->notes.front().instrument=="electric_bass"&&owner.app.transcription_status().cpu_threads==1,"CPU/instrument selection not passed to Python transport");need(owner.app.transcription_status().state==JobState::ready&&view->roles_.size()==1&&view->place_.isEnabled(),"Recognition/parts selection missing");
     view->parts_.deselectAllRows();view->update();need(!view->place_.isEnabled(),"Empty selection must not place");view->parts_.selectRow(0);view->update();
     for(const auto scale:{1.,1.25,1.5,2.}){
         auto image=view->createComponentSnapshot(view->getLocalBounds(),true,static_cast<float>(scale));need(image.isValid(),"Transcription software preview");

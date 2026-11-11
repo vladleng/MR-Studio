@@ -32,7 +32,7 @@ struct ViewSettings {
     std::vector<SectionTemplate> sectionTemplates;
     bool sidebar{true},snap{},controllersOpen{true},editorAttached{};
     int transcriptionCpuThreads{};
-    int transcriptionBackend{1}; // 1 Python main, 2 native experimental
+    int transcriptionBackend{1}; // Python only; legacy native selections migrate to 1
     bool transcriptionCompatibility{};
     int separationCpuThreads{}; // 0 Auto; user intent, not an affinity-capped count
     juce::String separationModel; // Stable catalogue ID; app preference, never project state
@@ -59,7 +59,7 @@ struct ViewSettings {
         juce::Array<juce::var> templates;for(const auto& item:sectionTemplates){auto* entry=new juce::DynamicObject;entry->setProperty("name",item.name);entry->setProperty("color",static_cast<int>(item.color));templates.add(juce::var(entry));}object->setProperty("sectionTemplates",templates);
         object->setProperty("snap",snap);object->setProperty("browserWidth",browserWidth);
         object->setProperty("noteClipColors",noteClipColors);
-        object->setProperty("transcriptionCpuThreads",transcriptionCpuThreads);object->setProperty("transcriptionBackend",transcriptionBackend);object->setProperty("transcriptionCompatibility",transcriptionCompatibility);
+        object->setProperty("transcriptionCpuThreads",transcriptionCpuThreads);object->setProperty("transcriptionBackend",1);object->setProperty("transcriptionCompatibility",transcriptionCompatibility);
         object->setProperty("separationCpuThreads",separationCpuThreads);object->setProperty("separationModel",separationModel);
         object->setProperty("trackHeight",trackHeight);object->setProperty("pixelsPerSecond",pixelsPerSecond);
         object->setProperty("mixerHeight",mixerHeight);object->setProperty("editorHeight",editorHeight);object->setProperty("controllersOpen",controllersOpen);object->setProperty("editorAttached",editorAttached);
@@ -77,7 +77,6 @@ struct ViewSettings {
             throw std::runtime_error("Invalid JUCE view settings");
         if(value.hasProperty("liveRestoreLastShow")){if(!value["liveRestoreLastShow"].isBool())throw std::runtime_error("Invalid Live startup mode");result.liveRestoreLastShow=static_cast<bool>(value["liveRestoreLastShow"]);}
         if(value["transcriptionCpuThreads"].isInt()){const auto n=static_cast<int>(value["transcriptionCpuThreads"]);if(n>=0&&n<=32)result.transcriptionCpuThreads=n;}
-        if(value["transcriptionBackend"].isInt()&&static_cast<int>(value["transcriptionBackend"])==2)result.transcriptionBackend=2;
         if(value["transcriptionCompatibility"].isBool())result.transcriptionCompatibility=static_cast<bool>(value["transcriptionCompatibility"]);
         if(value["separationCpuThreads"].isInt()){
             const auto n=static_cast<int>(value["separationCpuThreads"]);

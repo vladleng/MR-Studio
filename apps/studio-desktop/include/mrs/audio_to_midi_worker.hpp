@@ -8,7 +8,8 @@
 
 namespace mrs::transcription {
 inline constexpr std::string_view python_source_commit="8a1ef88672cc23c26619adaff37ec48d82c0b906";
-enum class Backend { native_experimental, python_medium };
+// protocol_fixture is a synthetic process transport used by contract tests only.
+enum class Backend { python_medium, protocol_fixture };
 // NON-RT job phases; no project persistence or audio callback state.
 enum class Phase { checking_files, checking_runtime, preparing_audio, starting_worker,
                    importing_runtime, loading_model, reading_audio, recognizing,
@@ -44,7 +45,7 @@ bool avx2_usable(std::uint32_t leaf1_ecx,std::uint32_t leaf7_ebx,std::uint64_t x
 bool optimized_cpu_available();
 struct SourceRange {Sample offset{},frames{};std::uint32_t rate{};}; // project sample domain
 struct Request {
-    Backend backend{Backend::native_experimental};
+    Backend backend{Backend::python_medium};
     std::filesystem::path worker_script;
     std::string worker_sha256;
     std::vector<std::string> instruments; // Python official vocabulary; empty = Auto
@@ -66,7 +67,7 @@ struct Request {
     std::uint64_t memory_bytes{4ULL*1024*1024*1024};
 };
 struct Result {
-    Backend backend{Backend::native_experimental};
+    Backend backend{Backend::python_medium};
     MusicalOptions musical;
     std::string cpu_capability;
     std::uint64_t peak_memory_bytes{}; // process peak working set (Windows) / RSS (Linux)

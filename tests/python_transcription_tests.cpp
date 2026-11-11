@@ -14,6 +14,7 @@ void check(bool b){if(!b)throw std::runtime_error("Python worker contract assert
 void text(const fs::path& p,const std::string& value){std::ofstream out(p,std::ios::binary);out<<value;check(out.good());}
 void wav(const fs::path& p,int mode){std::string b="RIFF";const auto le=[&](unsigned n,int bytes){while(bytes--){b+=static_cast<char>(n&255);n>>=8;}};le(32036,4);b+="WAVEfmt ";le(16,4);le(1,2);le(1,2);le(16000,4);le(32000,4);le(2,2);le(16,2);b+="data";le(32000,4);b.resize(32044,0);b[44]=static_cast<char>(mode);text(p,b);}
 int main(int argc,char** argv){try{
+    check(Request{}.backend==Backend::python_medium);
     check(argc==3);const auto root=fs::temp_directory_path()/("mrs-python-midi-"+new_id().value);fs::create_directory(root);
     struct Cleanup{fs::path p;~Cleanup(){std::error_code ec;fs::remove_all(p,ec);}} cleanup{root};
     Request r;r.backend=Backend::python_medium;r.executable=fs::absolute(argv[1]);r.executable_sha256=sha256_file(r.executable);r.worker_script=fs::absolute(argv[2]);r.worker_sha256=sha256_file(r.worker_script);r.model_directory=root/"model";fs::create_directory(r.model_directory);r.temporary_root=root/"jobs";fs::create_directory(r.temporary_root);r.source=root/"source.wav";

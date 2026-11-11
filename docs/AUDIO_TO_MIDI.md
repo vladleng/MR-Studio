@@ -1,7 +1,12 @@
 # MR Audio-to-MIDI — Python Medium (#368 / 0.10.2)
 
-Python/PyTorch MuScriptor Medium is the main backend; preserved HOT-Step C++ is
-experimental A/B. Only Medium is supported. Source pin:
+**User decision 2026-11-11:** Python/PyTorch MuScriptor Medium is the only
+transcription backend in MR Studio. User A/B tests found Python more accurate;
+HOT-Step C++ is removed from the product, build and runtime artifacts. Old native
+backend preferences migrate to Python. The shared JSONL/MIDI transport and
+synthetic process fixtures remain for cancellation, integrity and placement tests;
+they contain no model engine and are not distributed as recognition backends.
+Additional model integrations are a subsequent, separate scope. Only Medium is supported. Source pin:
 `muscriptor/muscriptor@8a1ef88672cc23c26619adaff37ec48d82c0b906`;
 weights remain the existing official hash-pinned Medium installation.
 This is an implementation checkpoint, not user acceptance.
@@ -71,6 +76,11 @@ benchmarks remain acceptance gates. Linux/synthetic checks do not establish them
 ---
 
 ## Historical native implementation contract (0.10.1)
+
+The remainder of this document records the removed native implementation and past
+checks. It is archival, not an instruction to build, package or restore HOT-Step.
+The original C++ engine build script, port patch and native-only controller driver
+have been removed. Existing project MIDI/provenance remains readable.
 
 The following describes the preserved experimental implementation. Historical
 statements below that call native the only/main backend are superseded above.

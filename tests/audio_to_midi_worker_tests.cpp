@@ -28,7 +28,7 @@ int main(int argc,char** argv){try{
     check(argc==2);const auto root=fs::temp_directory_path()/("mrs-midi-tests "+new_id().value);fs::create_directory(root);
     struct Cleanup{fs::path p;~Cleanup(){std::error_code ec;fs::remove_all(p,ec);}} cleanup{root};
     const auto model=root/"model with spaces & symbols";fs::create_directory(model);const auto jobs=root/"jobs";fs::create_directory(jobs);
-    Request request;request.executable=root/"native fixture & symbols.exe";fs::copy_file(fs::absolute(argv[1]),request.executable);request.model_directory=model;request.source=root/"source.wav";request.temporary_root=jobs;
+    Request request;request.backend=Backend::protocol_fixture;request.executable=root/"native fixture & symbols.exe";fs::copy_file(fs::absolute(argv[1]),request.executable);request.model_directory=model;request.source=root/"source.wav";request.temporary_root=jobs;
     request.executable_sha256=sha256_file(request.executable);request.model_id="fake-fixture";request.model_revision="test";request.model_license="self-generated fixture";request.project_id=new_id();request.clip_id=new_id();request.project_revision=17;request.timeout=std::chrono::seconds(5);
     const auto prepare=[&](int mode){write(model/"config.json","{}");write(model/"model.safetensors","fixture");wav(request.source,mode);request.config_sha256=sha256_file(model/"config.json");request.weights_sha256=sha256_file(model/"model.safetensors");};
     // The child must override inherited backend/probe settings and strip secrets.
@@ -66,5 +66,9 @@ int main(int argc,char** argv){try{
     std::error_code link_error;const auto link=root/"linked.wav";fs::create_symlink(request.source,link,link_error);
     if(!link_error){bad=request;bad.source=link;check(run(bad).state==State::failed&&fs::is_empty(jobs));}
     bad=request;bad.timeout=std::chrono::milliseconds(0);check(run(bad).state==State::failed&&fs::is_empty(jobs));
+    // The same synthetic process exercises Python argv/sidecars for the GUI
+    // smoke without a real interpreter, ML packages or model weights.
+    prepare(0);request.backend=Backend::python_medium;request.worker_script=root/"fixture.py";write(request.worker_script,"# synthetic adapter");request.worker_sha256=sha256_file(request.worker_script);
+    const auto python_transport=run(request);check(python_transport.state==State::ready&&python_transport.notes.size()==1&&python_transport.notes.front().start==.25&&fs::is_empty(jobs));
     std::cout<<"PASS isolated native transcription worker\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

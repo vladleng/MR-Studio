@@ -80,7 +80,7 @@ void snapshot_range(const audio::WavFile& wav,Sample first,Sample frames,const f
     out.close();need(out.good(),"io_error");
 }
 [[maybe_unused]] std::vector<std::string> arguments(const Request& r,const fs::path& work){
-    if(r.backend==Backend::native_experimental){
+    if(r.backend==Backend::protocol_fixture){
         auto args=ace_midi_arguments(r.model_directory.string(),(work/"source.wav").string(),(work/"output.mid").string());
         if(!r.stem_instrument.empty()){args.push_back("--instrument");args.push_back(r.stem_instrument);}return args;
     }
@@ -152,8 +152,8 @@ struct Child {
         need(n>0&&n<system.size(),"process_environment");
         const std::wstring root(system.data());
         // Explicit allowlist: no inherited HF_TOKEN, proxy credentials, probe
-        // variables, GPU overrides or Python paths reach the native child.
-        std::vector<std::wstring> vars{L"GGML_BACKEND=CPU",L"GGML_N_THREADS="+std::to_wstring(r.cpu_threads),L"OMP_NUM_THREADS="+std::to_wstring(r.cpu_threads),L"PATH="+root+L"\\System32",L"SystemRoot="+root,L"TEMP="+work.wstring(),L"TMP="+work.wstring(),L"WINDIR="+root,L"ATEN_CPU_CAPABILITY="+std::wstring(r.compatibility_cpu||!optimized_cpu_available()?L"default":L"avx2"),L"ONEDNN_MAX_CPU_ISA="+std::wstring(r.compatibility_cpu||!optimized_cpu_available()?L"SSE41":L"AVX2"),L"MKL_ENABLE_INSTRUCTIONS="+std::wstring(r.compatibility_cpu||!optimized_cpu_available()?L"SSE4_2":L"AVX2"),L"HF_HUB_OFFLINE=1",L"HF_HUB_DISABLE_TELEMETRY=1",L"TORCH_HOME="+(r.executable.parent_path()/"torch-cache").wstring(),L"MKL_NUM_THREADS="+std::to_wstring(r.cpu_threads),L"OPENBLAS_NUM_THREADS="+std::to_wstring(r.cpu_threads)};
+        // variables, GPU overrides or Python paths reach the child.
+        std::vector<std::wstring> vars{L"OMP_NUM_THREADS="+std::to_wstring(r.cpu_threads),L"PATH="+root+L"\\System32",L"SystemRoot="+root,L"TEMP="+work.wstring(),L"TMP="+work.wstring(),L"WINDIR="+root,L"ATEN_CPU_CAPABILITY="+std::wstring(r.compatibility_cpu||!optimized_cpu_available()?L"default":L"avx2"),L"ONEDNN_MAX_CPU_ISA="+std::wstring(r.compatibility_cpu||!optimized_cpu_available()?L"SSE41":L"AVX2"),L"MKL_ENABLE_INSTRUCTIONS="+std::wstring(r.compatibility_cpu||!optimized_cpu_available()?L"SSE4_2":L"AVX2"),L"HF_HUB_OFFLINE=1",L"HF_HUB_DISABLE_TELEMETRY=1",L"TORCH_HOME="+(r.executable.parent_path()/"torch-cache").wstring(),L"MKL_NUM_THREADS="+std::to_wstring(r.cpu_threads),L"OPENBLAS_NUM_THREADS="+std::to_wstring(r.cpu_threads)};
         // MuScriptor/Hugging Face resolve Path.home() during import. Use the
         // private job folder, never inherit the user's profile or credentials.
         if(r.backend==Backend::python_medium){vars.push_back(L"USERPROFILE="+work.wstring());vars.push_back(L"HOME="+work.wstring());}
@@ -189,7 +189,7 @@ struct Child {
         need(fcntl(output.value,F_SETFL,O_NONBLOCK)==0&&fcntl(error.value,F_SETFL,O_NONBLOCK)==0,"process_start");
         auto args=arguments(r,work);args.insert(args.begin(),r.executable.string());
         std::vector<char*> argv;for(auto& arg:args)argv.push_back(arg.data());argv.push_back(nullptr);
-        std::vector<std::string> vars{"GGML_BACKEND=CPU","GGML_N_THREADS="+std::to_string(r.cpu_threads),"OMP_NUM_THREADS="+std::to_string(r.cpu_threads),"PATH=/usr/bin:/bin","TMPDIR="+work.string(),std::string("ATEN_CPU_CAPABILITY=")+(r.compatibility_cpu||!optimized_cpu_available()?"default":"avx2"),std::string("ONEDNN_MAX_CPU_ISA=")+(r.compatibility_cpu||!optimized_cpu_available()?"SSE41":"AVX2"),std::string("MKL_ENABLE_INSTRUCTIONS=")+(r.compatibility_cpu||!optimized_cpu_available()?"SSE4_2":"AVX2"),"HF_HUB_OFFLINE=1","TORCH_HOME="+(r.executable.parent_path()/"torch-cache").string(),"MKL_NUM_THREADS="+std::to_string(r.cpu_threads),"OPENBLAS_NUM_THREADS="+std::to_string(r.cpu_threads)};
+        std::vector<std::string> vars{"OMP_NUM_THREADS="+std::to_string(r.cpu_threads),"PATH=/usr/bin:/bin","TMPDIR="+work.string(),std::string("ATEN_CPU_CAPABILITY=")+(r.compatibility_cpu||!optimized_cpu_available()?"default":"avx2"),std::string("ONEDNN_MAX_CPU_ISA=")+(r.compatibility_cpu||!optimized_cpu_available()?"SSE41":"AVX2"),std::string("MKL_ENABLE_INSTRUCTIONS=")+(r.compatibility_cpu||!optimized_cpu_available()?"SSE4_2":"AVX2"),"HF_HUB_OFFLINE=1","TORCH_HOME="+(r.executable.parent_path()/"torch-cache").string(),"MKL_NUM_THREADS="+std::to_string(r.cpu_threads),"OPENBLAS_NUM_THREADS="+std::to_string(r.cpu_threads)};
         if(r.backend==Backend::python_medium)vars.push_back("HOME="+work.string());
         std::vector<char*> env;for(auto& v:vars)env.push_back(v.data());env.push_back(nullptr);
         const auto exe=r.executable.string(),cwd=work.string();const rlimit limit{static_cast<rlim_t>(r.memory_bytes),static_cast<rlim_t>(r.memory_bytes)};
@@ -262,7 +262,7 @@ Result run(const Request& r,std::stop_token external,const std::function<void(in
         report_phase(Phase::checking_files);
         stopped(token);plain(r.temporary_root,true);plain(r.model_directory,true);plain(r.source);
         need(r.stem_instrument.empty()||std::any_of(ace_midi_instruments().begin(),ace_midi_instruments().end(),[&](const auto& i){return i.role==r.stem_instrument;}),"invalid_instrument");
-        need(r.backend==Backend::native_experimental||r.backend==Backend::python_medium,"invalid_backend");
+        need(r.backend==Backend::protocol_fixture||r.backend==Backend::python_medium,"invalid_backend");
         if(r.backend==Backend::python_medium){
             report_phase(Phase::checking_runtime);
             if(r.verify_runtime)try{r.verify_runtime(token);}catch(const std::exception& e){result.diagnostics=std::string("Python runtime verification: ")+std::string(e.what()).substr(0,256);throw Failure{"runtime_verification_failed"};}
@@ -331,7 +331,7 @@ Result run(const Request& r,std::stop_token external,const std::function<void(in
                 if(result.diagnostics.size()>65536)result.diagnostics.erase(0,result.diagnostics.size()-65536);
                 if(r.backend==Backend::python_medium&&!error.empty())read_phase(error);
                 if(!out.empty())protocol.feed(out);
-                if(r.backend==Backend::native_experimental&&protocol.total()>0&&result.phase!=Phase::recognizing)report_phase(Phase::recognizing);
+                if(r.backend==Backend::protocol_fixture&&protocol.total()>0&&result.phase!=Phase::recognizing)report_phase(Phase::recognizing);
                 if(protocol.completed()!=completed){completed=protocol.completed();if(progress)progress(completed,protocol.total());}
                 const auto exit=child.exit_code();
                 if(exit!=-1&&out.empty()&&error.empty()){result.peak_memory_bytes=child.memory();need(exit==0,"process_exit");break;}

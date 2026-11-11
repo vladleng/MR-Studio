@@ -64,7 +64,7 @@ int main(int argc,char** argv){try{
     downloaded.download(downloads,true,fetch,{},[&](auto now,auto total){check(now<=total&&now>=downloaded_bytes);downloaded_bytes=now;});downloaded.verify();check(fetched&&fs::is_empty(downloads));downloaded.remove();
     rejects([&]{downloaded.download(downloads,true,[&](const auto&,const fs::path& target,auto,std::stop_token,const ModelDownloadProgress&){write(target,"corrupt");});});check(!fs::exists(downloaded.directory())&&fs::is_empty(downloads));
     const auto source=root/"source.wav";wav(source);const auto jobs=root/"jobs";fs::create_directory(jobs);
-    Request settings;settings.executable=fs::absolute(argv[1]);settings.executable_sha256=sha256_file(settings.executable);settings.temporary_root=jobs;settings.timeout=std::chrono::seconds(3);
+    Request settings;settings.backend=Backend::protocol_fixture;settings.executable=fs::absolute(argv[1]);settings.executable_sha256=sha256_file(settings.executable);settings.temporary_root=jobs;settings.timeout=std::chrono::seconds(3);
     auto project=fixture(source);std::shared_ptr<IProjectStore> store=std::make_shared<ProjectStore>(project);Controller controller;
     const auto launch=[&]{controller.start(store,{},project.clips[0].id,source,models,settings);};
     const auto poll=[&]{controller.poll(store,{});};const auto status=[&]{return controller.status();};

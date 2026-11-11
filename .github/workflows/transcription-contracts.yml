@@ -20,6 +20,9 @@ jobs:
           python-version: '3.11'
       - name: Python worker diagnostic contracts (no ML or model downloads)
         run: python -m unittest discover -s tests -p test_transcription_diagnostics.py -v
+      - name: Reject removed native resources in Windows artifacts
+        shell: pwsh
+        run: ./tools/ci/Test-RemovedNativePackage.ps1
       - name: Configure headless contracts with the runner Python alias
         shell: pwsh
         run: |

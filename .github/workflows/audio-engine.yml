@@ -1,6 +1,6 @@
 name: Windows Studio Release
 # Product versions are validated against the source header before building.
-run-name: ${{ (inputs.checks == 'studio' || github.head_ref == 'codex/368-python-muscriptor' || github.head_ref == 'codex/342-native-audio-midi' || github.ref_name == 'codex/368-python-muscriptor' || github.ref_name == 'codex/342-native-audio-midi' || github.head_ref == 'codex/74-separation-contract' || github.ref_name == 'codex/74-separation-contract') && inputs.checks != 'live' && !inputs.integration && 'MR Studio 0.10.2-fix3 — Windows Release' || 'MR Studio 0.10.2-fix3 / MR Live 0.8.13-fix1 — Windows Release' }}
+run-name: ${{ (inputs.checks == 'studio' || github.head_ref == 'codex/368-python-muscriptor' || github.head_ref == 'codex/342-native-audio-midi' || github.ref_name == 'codex/368-python-muscriptor' || github.ref_name == 'codex/342-native-audio-midi' || github.head_ref == 'codex/74-separation-contract' || github.ref_name == 'codex/74-separation-contract') && inputs.checks != 'live' && !inputs.integration && 'MR Studio 0.10.2-fix4 — Windows Release' || 'MR Studio 0.10.2-fix4 / MR Live 0.8.13-fix1 — Windows Release' }}
 # Heavy Windows acceptance packages are opt-in. Fast Core contracts and
 # component-specific CI continue running automatically on relevant changes.
 on:
@@ -23,7 +23,7 @@ permissions:
   contents: read
   actions: read  # Preflight queries CI results for the dispatched SHA.
 env:
-  RELEASE_BANNER: 'MR Studio 0.10.2-fix3 / MR Live 0.8.13-fix1 — Windows Release'
+  RELEASE_BANNER: 'MR Studio 0.10.2-fix4 / MR Live 0.8.13-fix1 — Windows Release'
 concurrency:
   group: windows-${{ github.ref }}
   cancel-in-progress: true
@@ -149,10 +149,6 @@ jobs:
           if($LASTEXITCODE){throw 'Python MIDI interchange tests failed'}
           python tools/separation/probe_cpu.py --output build/separation-cpu-runtime.json
           if($LASTEXITCODE){throw 'Torch CPU dispatch probe failed'}
-      - name: Build pinned native ace-midi CPU
-        if: env.CHECK_SCOPE != 'live'
-        shell: pwsh
-        run: ./tools/ci/Prepare-AceMidi.ps1
       - name: Configure JUCE VST3 ASIO
         shell: pwsh
         run: ./tools/ci/Configure-Windows.ps1 -Ara:($env:BUILD_ARA -eq 'true') -StudioOnly:($env:STUDIO_ONLY -eq 'true')
@@ -163,11 +159,11 @@ jobs:
           $args=@('--build','build/windows','--config','Release','--parallel','2')
           if($env:CHECK_SCOPE -eq 'separation'){$args+=@('--target','mrs_separation_check')}
           elseif($env:CHECK_SCOPE -eq 'separation-ui'){$args+=@('--target','MoonRiverStudioJuce')}
-          elseif($env:CHECK_SCOPE -eq 'studio'){$args+=@('--target','mrs_transcription_runtime_check','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_python_transcription_tests','mrs_transcription_controller_tests','mrs_transcription_controller_check','mrs_midi_import_tests','mrs_separation_assets_tests','mrs_persistence_tests','mrs_desktop_tests','mrs_wav_import_tests','mrs_separation_check')}
-          elseif($env:CHECK_SCOPE -eq 'studio-live'){$args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_python_transcription_tests','mrs_transcription_controller_tests','mrs_transcription_controller_check','mrs_midi_import_tests','mrs_separation_assets_tests','mrs_persistence_tests','mrs_desktop_tests','mrs_wav_import_tests','mrs_separation_check')}
+          elseif($env:CHECK_SCOPE -eq 'studio'){$args+=@('--target','mrs_transcription_runtime_check','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_python_transcription_tests','mrs_transcription_controller_tests','mrs_midi_import_tests','mrs_separation_assets_tests','mrs_persistence_tests','mrs_desktop_tests','mrs_wav_import_tests','mrs_separation_check')}
+          elseif($env:CHECK_SCOPE -eq 'studio-live'){$args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_python_transcription_tests','mrs_transcription_controller_tests','mrs_midi_import_tests','mrs_separation_assets_tests','mrs_persistence_tests','mrs_desktop_tests','mrs_wav_import_tests','mrs_separation_check')}
           elseif($env:CHECK_SCOPE -eq 'live'){$args+=@('--target','MRLiveJuce','mrs_audio_tests','mrs_live_preload_tests','mrs_parallel_tests')}
           elseif($env:INTEGRATION -ne 'true'){
-            $args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_python_transcription_tests','mrs_transcription_controller_tests','mrs_transcription_controller_check','mrs_midi_import_tests','mrs_core_check','mrs_ai_tests','mrs_ai_query_tests','mrs_ai_tool_tests','mrs_audio_tests','mrs_ahead_tests','mrs_mixed_tests','mrs_desktop_tests','mrs_sample_library_tests','mrs_wav_import_tests','mrs_clip_stretch_tests','mrs_track_stretch_mode_tests','mrs_clip_response_tests','mr_timestretch_drums_tests','mr_timestretch_drums_example','mrs_stretch_contract_tests','mrs_stretch_tests','mrs_stretch_bench')
+            $args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_python_transcription_tests','mrs_transcription_controller_tests','mrs_midi_import_tests','mrs_core_check','mrs_ai_tests','mrs_ai_query_tests','mrs_ai_tool_tests','mrs_audio_tests','mrs_ahead_tests','mrs_mixed_tests','mrs_desktop_tests','mrs_sample_library_tests','mrs_wav_import_tests','mrs_clip_stretch_tests','mrs_track_stretch_mode_tests','mrs_clip_response_tests','mr_timestretch_drums_tests','mr_timestretch_drums_example','mrs_stretch_contract_tests','mrs_stretch_tests','mrs_stretch_bench')
             $args+=@('mrs_separation_check','mrs_separation_assets_tests','mrs_persistence_tests')
             if($env:BUILD_ARA -eq 'true'){$args+=@('mrs_ara_tests','mrs_ara_clip_tests','mrs_ai_ara_tests')}
           }

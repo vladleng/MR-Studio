@@ -2,8 +2,7 @@
 #include <mrs/core.hpp>
 
 namespace mrs {
-inline constexpr std::string_view ace_midi_source_commit = "ee7286d14232b48ace3b6eed0fcf3048081ef0d1";
-// Native JSONL note_start/note_end pairs, in seconds relative to the FULL
+// Worker JSONL note_start/note_end pairs, in seconds relative to the FULL
 // source file. A worker transcribing an extracted range must rebase first.
 // Velocity is not predicted by MuScriptor.
 struct TranscribedNote {
@@ -16,8 +15,8 @@ struct TranscriptionInstrument {
     int program; // zero-based GM; 128 denotes drums, never a MIDI channel
 };
 std::span<const TranscriptionInstrument> ace_midi_instruments();
-// Argument vector, never a shell command. CPU baseline; launcher must also
-// override inherited GGML_BACKEND (upstream gives the environment precedence).
+// Legacy flat-argv transport used by synthetic process contract fixtures.
+// Product transcription uses the isolated Python adapter argument vector.
 std::vector<std::string> ace_midi_arguments(std::string model, std::string wav, std::string output);
 
 // Non-RT preparation only. Creates independent instrument tracks and existing

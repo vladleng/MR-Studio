@@ -29,8 +29,7 @@ foreach($resource in @('mr_transcription_worker.py','mr_transcription_requiremen
 }
 if($manifest.application -eq 'MR Live' -and $manifest.ara){throw 'MR Live-only package must be ARA-free'}
 foreach($native in @('ace-midi.exe','ace-midi-avx2.exe','ace-midi-NOTICES.txt')){
- if($manifest.application -ne 'MR Live' -and !$names.Contains($native)){throw "Native MIDI runtime missing: $native"}
- if($manifest.application -eq 'MR Live' -and $names.Contains($native)){throw "Studio-only MIDI runtime in Live: $native"}
+ if($names.Contains($native)){throw "Removed HOT-Step runtime must not be packaged: $native"}
 }
 [string[]]$applications=if($manifest.application -eq 'MR Live'){@('MR Live.exe')}elseif($manifest.application -eq 'MR Studio'){@('Moon River Studio JUCE.exe')}else{@('Moon River Studio JUCE.exe','MR Live.exe')}
 if($manifest.application -eq 'MR Studio' -and $names.Contains('MR Live.exe')){throw 'Live executable forbidden in Studio-only package'}
