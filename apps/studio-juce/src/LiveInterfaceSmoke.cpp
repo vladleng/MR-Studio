@@ -7,6 +7,8 @@
 #include "../../../tests/live_performance_checks.hpp"
 #include "../../../tests/live_performance_edit_checks.hpp"
 #include "../../../tests/live_show_value_checks.hpp"
+#include "../../../tests/live_patch_checks.hpp"
+#include "../../../tests/live_subpatch_checks.hpp"
 #include "../../../tests/live_edit_protocol_checks.hpp"
 #include "../../../tests/live_show_context_import_checks.hpp"
 #include "../../../tests/live_studio_one_reader_checks.hpp"
@@ -1190,6 +1192,167 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
     liveCheck(live::find(editing.liveDocument->interfaceState,"items",id)["notes"].toString()==oldNotes && !editing.liveDirty,
               "One Notes Undo restores saved text and clears the show dirty flag");
 }
+// #309 point 4: native Studio-style channel DnD must be ONE show undo
+// operation and must never reinterpret Backing as the next Playback root.
+void liveChannelReorderSmoke(const juce::File& fixture) {
+    Desktop host(true,false,true);
+    host.importLiveShow(fixture);
+    host.setSize(1400,850);
+    const auto root=live::primaryPlaybackId(host.liveDocument->interfaceState);
+    liveCheck(root.isNotEmpty(),"#309 channel reorder fixture has primary Playback");
+    auto* previewTimeline=dynamic_cast<LiveTimeline*>(liveComponent(host,"live-show-timeline"));
+    liveCheck(previewTimeline!=nullptr,"#309 has native Timeline for drag preview");
+    previewTimeline->refresh();
+    const auto singleLane=previewTimeline->channelDragPreviewBounds(root);
+    const auto dragImage=previewTimeline->channelDragPreview(root);
+    liveCheck(!singleLane.isEmpty() && !dragImage.isNull() &&
+              singleLane.getHeight()<=124 && dragImage.getHeight()==singleLane.getHeight() &&
+              dragImage.getWidth()==singleLane.getWidth() &&
+              dragImage.getHeight()<previewTimeline->getHeight(),
+              "#309 Timeline drag thumbnail shows ONE channel, not the entire Timeline");
+    // Mixer uses JUCE's default 60%-alpha ghost; the manually cropped
+    // Timeline preview must match it so the insertion line is visible below.
+    const int ghostAlpha=dragImage.getPixelAt(dragImage.getWidth()/2,
+                                               dragImage.getHeight()/2).getAlpha();
+    liveCheck(ghostAlpha>=150 && ghostAlpha<=155,
+              "#309 Timeline one-channel drag ghost matches Mixer 60% opacity");
+    juce::String alternate,player;
+    host.editLiveInterface("Prepare channel order", [&](auto& state) {
+        alternate=live::addChannel(state,"Playback","Alternate Backing");
+        live::put(live::require(state,"channels",alternate),"playbackIndependent",true);
+        player=live::addChannel(state,"Player","Reorder Player");
+    });
+    auto before=host.liveDocument->interfaceState.clone();
+    std::map<juce::String,juce::String> originalChannels;
+    for(const auto& row:*before["channels"].getArray())
+        originalChannels[row["id"].toString()]=live::canonical(row);
+    const auto channelIndex=[](const juce::var& show,const juce::String& channel) {
+        if(const auto* rows=show["channels"].getArray())
+            for(int i=0;i<rows->size();++i)
+                if((*rows)[i]["id"].toString()==channel)return i;
+        return -1;
+    };
+    const auto engine=host.app.engine();
+    const auto revision=host.liveUiRevision;
+    host.reorderLiveChannel(root,alternate,true);
+    const auto& moved=host.liveDocument->interfaceState;
+    liveCheck(channelIndex(moved,root)>channelIndex(moved,alternate) &&
+              moved["performance"]["primaryPlaybackChannel"]==root &&
+              live::primaryPlaybackId(moved)==root &&
+              host.liveUiRevision==revision+1 &&
+              host.app.engine()==engine,
+              "#309 moving Backing below another Playback retains original primary identity and Core");
+    for(const auto& row:*moved["channels"].getArray())
+        liveCheck(originalChannels.at(row["id"].toString())==live::canonical(row),
+                  "#309 reorder preserves each channel ID, mix, FX and routing");
+    auto* timeline=dynamic_cast<LiveTimeline*>(liveComponent(host,"live-show-timeline"));
+    auto* mixer=dynamic_cast<LiveMixer*>(liveComponent(host,"live-mixer"));
+    liveCheck(timeline && mixer,"#309 uses real native Timeline and Mixer");
+    timeline->refresh();mixer->sync();
+    auto* rootStrip=liveComponent(*mixer,"live-mixer-strip-"+root);
+    auto* alternateStrip=liveComponent(*mixer,"live-mixer-strip-"+alternate);
+    liveCheck(rootStrip && alternateStrip,"#309 Mixer contains stable root and alternate strips");
+    juce::DragAndDropTarget::SourceDetails primaryDrag(
+        juce::var("mr-live-channel:"+root),mixer,{rootStrip->getX()+6,16});
+    liveCheck(mixer->isInterestedInDragSource(primaryDrag),
+              "#309 primary Playback root remains draggable from Mixer");
+    liveCheck(rootStrip && alternateStrip &&
+              rootStrip->getX()>alternateStrip->getX() &&
+              timeline->playbackStemLaneBounds(root).getY()>
+              timeline->playbackStemLaneBounds(alternate).getY(),
+              "#309 Timeline and Mixer use the same new root channel order");
+    host.undoLiveInterface();
+    timeline->refresh();mixer->sync();
+    liveCheck(live::sameShowValue(host.liveDocument->interfaceState,before) &&
+              live::primaryPlaybackId(host.liveDocument->interfaceState)==root &&
+              timeline->playbackStemLaneBounds(root).getY()<
+              timeline->playbackStemLaneBounds(alternate).getY(),
+              "#309 a single Undo restores all order and primary metadata");
+    host.undoLiveInterface(true);
+    timeline->refresh();mixer->sync();
+    liveCheck(live::primaryPlaybackId(host.liveDocument->interfaceState)==root &&
+              timeline->playbackStemLaneBounds(root).getY()>
+              timeline->playbackStemLaneBounds(alternate).getY(),
+              "#309 Redo restores both views without reassigning Playback");
+    // Exercise the real Timeline drop target (not a direct model-only call).
+    const auto bounds=timeline->playbackStemLaneBounds(alternate);
+    // Channel lanes can extend beyond the visible viewport at 1400x850;
+    // scroll the real JUCE viewport before sending a local-position drop.
+    auto* timelineViewport=dynamic_cast<juce::Viewport*>(timeline->getChildComponent(0));
+    liveCheck(timelineViewport!=nullptr,"#309 timeline exposes a scrolling channel viewport");
+    timelineViewport->setViewPosition(timelineViewport->getViewPositionX(),
+        juce::jmax(0,bounds.getY()-timeline->getHeight()/2));
+    const int dropY=bounds.getY()+3-timelineViewport->getViewPositionY();
+    liveCheck(dropY>=0 && dropY<timeline->getHeight(),
+              "#309 synthetic drag target is inside the visible timeline");
+    juce::DragAndDropTarget::SourceDetails fromTimeline(
+        juce::var("mr-live-channel:"+root),timeline,{8,dropY});
+    liveCheck(timeline->isInterestedInDragSource(fromTimeline),
+              "#309 Timeline accepts channel drag payload");
+    timeline->itemDropped(fromTimeline);
+    livePump();timeline->refresh();mixer->sync();
+    liveCheck(live::primaryPlaybackId(host.liveDocument->interfaceState)==root &&
+              timeline->playbackStemLaneBounds(root).getY()<
+              timeline->playbackStemLaneBounds(alternate).getY(),
+              "#309 Timeline drop updates the same show order");
+    // And the independent Mixer drop target, with stable channel IDs.
+    auto* playerStrip=liveComponent(*mixer,"live-mixer-strip-"+player);
+    rootStrip=liveComponent(*mixer,"live-mixer-strip-"+root);
+    liveCheck(playerStrip && rootStrip,"#309 mixer keeps stable channel IDs after a drop");
+    const int playerIndexBefore=channelIndex(host.liveDocument->interfaceState,player);
+    juce::DragAndDropTarget::SourceDetails fromMixer(
+        juce::var("mr-live-channel:"+player),mixer,{rootStrip->getX()+6,16});
+    liveCheck(mixer->isInterestedInDragSource(fromMixer),
+              "#309 Mixer accepts the same channel drag payload");
+    mixer->itemDropped(fromMixer);
+    livePump();timeline->refresh();mixer->sync();
+    liveCheck(live::primaryPlaybackId(host.liveDocument->interfaceState)==root &&
+              channelIndex(host.liveDocument->interfaceState,player)<
+              channelIndex(host.liveDocument->interfaceState,root) &&
+              channelIndex(host.liveDocument->interfaceState,player)!=playerIndexBefore,
+              "#309 Mixer drop actually changes show order without changing Backing identity");
+    const auto saved=fixture.getSiblingFile("live-channel-reorder-smoke.mrlive");
+    host.saveFile(saved);
+    const auto savedOrder=live::canonical(host.liveDocument->interfaceState["channels"]);
+    host.openFile(saved);
+    liveCheck(live::canonical(host.liveDocument->interfaceState["channels"])==savedOrder &&
+              live::primaryPlaybackId(host.liveDocument->interfaceState)==root,
+              "#309 Save/Reopen persists the order and stable Playback root");
+    saved.deleteFile();
+    // Synthesise Playback parent/stem metadata only in a detached model:
+    // a stem may reorder within its group, but cannot escape its parent.
+    auto grouped=host.liveDocument->interfaceState.clone();
+    const auto firstStem=live::addChannel(grouped,"Playback","Stem 1");
+    const auto nextStem=live::addChannel(grouped,"Playback","Stem 2");
+    live::put(live::require(grouped,"channels",firstStem),"playbackParent",root);
+    live::put(live::require(grouped,"channels",nextStem),"playbackParent",root);
+    auto source=live::object(),stem1=live::object(),stem2=live::object();
+    live::put(source,"file","root.wav");
+    live::put(stem1,"id",firstStem);live::put(stem1,"file","stem1.wav");
+    live::put(stem2,"id",nextStem);live::put(stem2,"file","stem2.wav");
+    live::put(source,"stems",juce::Array<juce::var>{stem1,stem2});
+    live::put(live::map(live::performance(grouped),"nativePlayback"),
+              grouped["currentItem"].toString(),source);
+    // Hidden stem lanes cannot originate a drag. Expand the group before
+    // testing valid per-stem reordering (the native Timeline uses this flag).
+    live::put(live::performance(grouped),"stemsExpanded",false);
+    auto hiddenOrder=grouped["channels"].clone();
+    liveCheck(!live::reorderChannel(hiddenOrder,grouped,nextStem,firstStem,false),
+              "#309 collapsed Playback stems cannot start a hidden-lane reorder");
+    live::put(live::performance(grouped),"stemsExpanded",true);
+    auto rootOrder=grouped["channels"].clone();
+    liveCheck(live::reorderChannel(rootOrder,grouped,root,alternate,true),
+              "#309 primary Backing stays a draggable root even with a visible WAV/stem child");
+    auto order=grouped["channels"].clone();
+    liveCheck(live::reorderChannel(order,grouped,nextStem,firstStem,false),
+              "#309 accepts a stem reorder inside its Playback group");
+    live::put(grouped,"channels",order);
+    auto invalid=grouped["channels"].clone();
+    liveCheck(!live::reorderChannel(invalid,grouped,firstStem,player,true) &&
+              live::canonical(invalid)==live::canonical(order) &&
+              live::primaryPlaybackId(grouped)==root,
+              "#309 rejects a stem drop outside its owning Playback group");
+}
 } // namespace
 void liveInterfaceSmoke(const juce::File &fixture) {
     live::test::playbackViews();
@@ -1201,11 +1364,23 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     live::test::performanceModeEdits();
     live::test::performanceModeEditTimings();
     live::test::showValueEquality();
+    live::test::channelPatchLibrary();
+    live::test::subPatchChainVariants();
     live::test::editProtocol();
     live::test::notesDirtyRoundTrip();
     live::test::showContextSelection();
     live::test::studioOneShowReader();
     live::test::studioOneImportPlan();
+    // #309 point 5: left-of-centre advances naturally, then centred follow
+    // starts, with a bounded first correction and no backwards/end jumps.
+    liveCheck(LiveTimeline::followScrollX(80,0,400,1600)==0 &&
+              LiveTimeline::followScrollX(199,0,400,1600)==0 &&
+              LiveTimeline::followScrollX(264,0,400,1600)==64 &&
+              LiveTimeline::followScrollX(360,64,400,1600,true)==160 &&
+              LiveTimeline::followScrollX(300,160,400,1600,true)==160 &&
+              LiveTimeline::followScrollX(2500,1450,400,1600,true)==1600,
+              "#309 Follow Playhead waits for centre, follows, clamps end and never jumps backwards");
+    liveChannelReorderSmoke(fixture);
     // 0.8.11-Upd3: Live dock preference is independent of Studio mixer,
     // backwards-compatible and never stored inside a .mrlive show.
     {
@@ -1469,18 +1644,91 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         // a second VSTi selector, and must not overwrite the .mrlive MIDI role.
         {
             Desktop uiPilot(true,false,true);uiPilot.importLiveShow(fixture);
-            juce::String midiChannelId;
+            juce::String midiChannelId,playerChannelId;
             uiPilot.editLiveInterface("MIDI channel control UI",[&](auto& state) {
                 midiChannelId=live::addChannel(state,"Instrument","Test MIDI");
+                playerChannelId=live::addChannel(state,"Player","Test Guitar");
                 live::put(live::require(state,"channels",midiChannelId),"liveInput",midiProfile.clone());
             });
             LiveMixer realMixer(uiPilot);
             realMixer.setSize(500,340);realMixer.sync();
+            // #309 FX layout: one shared splitter aligns Playback, Player and
+            // Instrument faders irrespective of VSTi or insert-row content.
+            const auto playbackId=live::playbackContainer(uiPilot.liveDocument->interfaceState);
+            auto* instrumentGain=liveComponent(realMixer,"live-mixer-gain-"+midiChannelId);
+            auto* playerGain=liveComponent(realMixer,"live-mixer-gain-"+playerChannelId);
+            auto* playbackGain=liveComponent(realMixer,"live-mixer-gain-"+playbackId);
+            auto* fxViewport=liveComponent(realMixer,"live-mixer-inserts-"+midiChannelId);
+            auto* faderDivider=liveComponent(realMixer,"live-mixer-fader-divider");
+            liveCheck(instrumentGain && playerGain && playbackGain && fxViewport && faderDivider &&
+                      instrumentGain->getY()==playerGain->getY() &&
+                      instrumentGain->getY()==playbackGain->getY() &&
+                      instrumentGain->getHeight()==playerGain->getHeight() &&
+                      instrumentGain->getHeight()==playbackGain->getHeight(),
+                      "#309 all mixer channel types share identical fader position and length");
+            const int originalFader=instrumentGain->getHeight();
+            const int originalInserts=fxViewport->getHeight();
+            realMixer.setSize(500,540);
+            liveCheck(instrumentGain->getHeight()==originalFader &&
+                      fxViewport->getHeight()>originalInserts &&
+                      instrumentGain->getHeight()==playerGain->getHeight() &&
+                      instrumentGain->getHeight()==playbackGain->getHeight(),
+                      "#309 expanding mixer dock grows inserts, not the lower fader zone");
+            const int expandedInserts=fxViewport->getHeight();
+            const int originalDivider=faderDivider->getY();
+            realMixer.setFaderAreaHeight(realMixer.currentFaderHeight()+40);
+            liveCheck(instrumentGain->getHeight()==originalFader+40 &&
+                      playerGain->getHeight()==instrumentGain->getHeight() &&
+                      playbackGain->getHeight()==instrumentGain->getHeight() &&
+                      fxViewport->getHeight()==expandedInserts-40 &&
+                      faderDivider->getY()==originalDivider-40,
+                      "#309 inner divider independently resizes a single common fader zone");
             auto* instrumentPick=dynamic_cast<juce::TextButton*>(
                 liveComponent(realMixer,"live-mixer-instrument-"+midiChannelId));
             liveCheck(instrumentPick && instrumentPick->isVisible() &&
                       instrumentPick->getButtonText()=="Choose VSTi",
-                      "Instrument VSTi selector is present in Mixer under pan/level");
+                      "Instrument selector remains available in the mixer");
+            // #309 user's layout refinement: routing belongs BELOW the
+            // divider; Input/Instrument, Output, Balance, M/S, level, in that
+            // order for every role. The insert '+' belongs to channel header.
+            auto* playerInput=liveComponent(realMixer,"live-channel-input-"+playerChannelId);
+            auto* playerOutput=liveComponent(realMixer,"live-channel-output-"+playerChannelId);
+            auto* instrumentOutput=liveComponent(realMixer,"live-channel-output-"+midiChannelId);
+            auto* playerPan=liveComponent(realMixer,"live-mixer-pan-"+playerChannelId);
+            auto* instrumentPan=liveComponent(realMixer,"live-mixer-pan-"+midiChannelId);
+            auto* playbackPan=liveComponent(realMixer,"live-mixer-pan-"+playbackId);
+            auto* playerMute=liveComponent(realMixer,"live-mixer-mute-"+playerChannelId);
+            auto* instrumentMute=liveComponent(realMixer,"live-mixer-mute-"+midiChannelId);
+            auto* playbackMute=liveComponent(realMixer,"live-mixer-mute-"+playbackId);
+            auto* insertAdd=liveComponent(realMixer,"live-mixer-add-insert-"+midiChannelId);
+            auto* insertTitle=liveComponent(realMixer,"live-mixer-insert-title-"+midiChannelId);
+            const auto yInMixer=[&](juce::Component* component) {
+                return realMixer.getLocalPoint(component,juce::Point<int>{}).getY();
+            };
+            const auto xInMixer=[&](juce::Component* component) {
+                return realMixer.getLocalPoint(component,juce::Point<int>{}).getX();
+            };
+            liveCheck(playerInput && playerOutput && instrumentOutput && playerPan &&
+                      instrumentPan && playbackPan && playerMute && instrumentMute &&
+                      playbackMute && insertAdd && insertTitle &&
+                      playerInput->isVisible() && playerOutput->isVisible() &&
+                      instrumentOutput->isVisible() &&
+                      yInMixer(playerInput)==yInMixer(instrumentPick) &&
+                      yInMixer(playerOutput)==yInMixer(instrumentOutput) &&
+                      yInMixer(playerInput)>yInMixer(faderDivider) &&
+                      yInMixer(playerInput)<yInMixer(playerOutput) &&
+                      yInMixer(playerOutput)<yInMixer(playerPan) &&
+                      yInMixer(playerPan)<yInMixer(playerMute) &&
+                      yInMixer(playerMute)<yInMixer(playerGain) &&
+                      yInMixer(playerPan)==yInMixer(instrumentPan) &&
+                      yInMixer(playerPan)==yInMixer(playbackPan) &&
+                      yInMixer(playerMute)==yInMixer(instrumentMute) &&
+                      yInMixer(playerMute)==yInMixer(playbackMute),
+                      "#309 mixer lower bank aligns Input/VSTi, Output, Balance, M/S, faders");
+            liveCheck(insertAdd->isVisible() &&
+                      yInMixer(insertAdd)<yInMixer(insertTitle) &&
+                      xInMixer(insertAdd)>xInMixer(insertTitle),
+                      "#309 insert plus resides on channel title, above FX rack");
             LiveTimeline realTimeline(uiPilot);
             realTimeline.setSize(600,540);realTimeline.refresh();
             auto* editorIcon=dynamic_cast<juce::Button*>(
@@ -1510,8 +1758,9 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             liveCheck(midiLoaded.outputs==std::vector<int>{0,1} &&
                       mixerInput && !mixerInput->isVisible() &&
                       mixerOutput && mixerOutput->isVisible() && mixerOutput->getButtonText()=="Out 1" &&
-                      mixerFx && mixerFx->isVisible() && mixerFx->getButtonText()=="Audio FX (0)",
-                      "Instrument Mixer retains assigned physical output and audio FX, without duplicated MIDI/VSTi");
+                      mixerFx && !mixerFx->isVisible() &&
+                      liveComponent(realMixer,"live-mixer-add-insert-"+midiChannelId)!=nullptr,
+                      "Instrument Mixer shows physical output plus dedicated FX insert rack, not the old popup button");
             // The same Mixer selector must display Master for an intentionally
             // empty physical output route (and never overwrite MIDI channel).
             // Regression for Windows #383: the original fixture has Out 1,
@@ -1786,6 +2035,36 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   !live::findPluginClass(mixedCatalog,"unknown.vst3","00000000000000000000000000000004")->instrument.has_value(),
                   "Unknown plugin class stays distinct from a confirmed audio effect");
         inputPilot.setLiveInputEffects(showChannel,{fx});
+        // #309 common enhancement 1: MR Studio MixerInsert parity. The Live
+        // rack must expose the saved FX identity, editor and independent power
+        // button; bypass must remain a normal Undoable .mrlive chain edit.
+        channelMixer.sync();
+        auto* liveFxRow=dynamic_cast<MixerInsert*>(liveComponent(
+            channelMixer,"live-mixer-insert:"+juce::String::fromUTF8(fx.id.value.c_str())));
+        auto* liveFxAdd=dynamic_cast<juce::TextButton*>(liveComponent(
+            channelMixer,"live-mixer-add-insert-"+showChannel));
+        liveCheck(liveFxRow && liveFxRow->editor.getButtonText()=="Same Name" &&
+                  liveFxAdd && liveFxAdd->isEnabled() &&
+                  liveFxRow->bypass.isEnabled() && !liveFxRow->bypass.getToggleState(),
+                  "#309 Live Mixer renders each real FX insert with direct editor, add and bypass");
+        liveFxRow->bypass.triggerClick();
+        livePump();channelMixer.sync();
+        const auto bypassProfile=live::decodeLiveInputProfile(
+            live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["liveInput"]);
+        liveCheck(bypassProfile.inserts.size()==1 && bypassProfile.inserts.front().id==fx.id &&
+                  bypassProfile.inserts.front().bypass,
+                  "#309 Live insert power changes the saved chain without changing slot identity");
+        inputPilot.undoLiveInterface();
+        auto reverted=live::decodeLiveInputProfile(
+            live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["liveInput"]);
+        liveCheck(reverted.inserts.size()==1 && !reverted.inserts.front().bypass,
+                  "#309 Live Mixer FX power is Undoable");
+        inputPilot.undoLiveInterface(true);
+        const auto restored=live::decodeLiveInputProfile(
+            live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["liveInput"]);
+        liveCheck(restored.inserts.size()==1 && restored.inserts.front().bypass,
+                  "#309 Live Mixer FX power supports Redo without losing slot");
+        inputPilot.undoLiveInterface();
         const auto fxBeforeRejected=live::canonical(live::find(inputPilot.liveDocument->interfaceState,"channels",showChannel)["liveInput"]);
         refused=false;
         try{inputPilot.setLiveInputEffects(showChannel,{vsti});}catch(const std::exception&){refused=true;}
@@ -2036,6 +2315,143 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     livePump();
     auto *playbackSurface = liveComponent(desktop, "live-playback-panel");
     liveCheck(playbackSurface != nullptr, "Browser dismissal test has Playback/Stems panel");
+    // #309 common improvement 2 — reproduce the originally missing UI switch:
+    // the panel can be hidden/reopened without deleting show or stem selection.
+    auto *panelToggle=dynamic_cast<juce::Button*>(
+        liveComponent(desktop,"live-playback-panel-toggle"));
+    auto *panelSetlistSurface=liveComponent(desktop,"live-setlist");
+    liveCheck(panelToggle && panelSetlistSurface && playbackSurface->isVisible() &&
+                  panelToggle->getToggleState() && panelToggle->getButtonText().isEmpty(),
+              "#309 Playback/Stems starts visible with an icon-only toggle in the toolbar");
+    // #309 point 5: transport Follow is a real icon toggle, not a fake
+    // playback command or an edit to the saved show/Undo.
+    {
+        auto* follow=dynamic_cast<juce::TextButton*>(
+            liveComponent(desktop,"live-transport-follow-playhead"));
+        liveCheck(follow && follow->isVisible() && follow->getButtonText().isEmpty() &&
+                  follow->getTooltip().isNotEmpty() && !follow->getToggleState() &&
+                  !timeline->followsPlayhead(),
+                  "#309 Follow Playhead starts off as an accessible Transport icon");
+        const auto sample=desktop.app.engine()->state().sample;
+        const auto unchanged=desktop.liveDocument->signature();
+        const auto history=desktop.liveUndo.canUndo();
+        follow->triggerClick();
+        livePump(); // JUCE Button::triggerClick delivers callbacks asynchronously.
+        // Verify the *delivered* state, not an event still waiting in the queue.
+        liveCheck(follow->getToggleState() && timeline->followsPlayhead() &&
+                  desktop.app.engine()->state().sample==sample &&
+                  desktop.liveDocument->signature()==unchanged &&
+                  desktop.liveUndo.canUndo()==history,
+                  "#309 enabling Follow changes only viewport policy, never Core, show or Undo");
+        follow->triggerClick();
+        livePump();
+        liveCheck(!follow->getToggleState() && !timeline->followsPlayhead() &&
+                  desktop.app.engine()->state().sample==sample,
+                  "#309 disabling Follow restores original transport-independent view");
+    }
+    // #309 common improvement 3: icon-only Mixer/Fit, semantic toolbar
+    // groups and non-interactive separators. Keep the old command IDs and
+    // tooltips: this change is visual only, not a new edit or transport mode.
+    {
+        auto* mixerToolbar=dynamic_cast<juce::TextButton*>(
+            liveComponent(desktop,"live-mixer-toggle"));
+        auto* fitToolbar=dynamic_cast<juce::TextButton*>(
+            liveComponent(desktop,"live-zoom-fit"));
+        auto* filesToolbar=liveComponent(desktop,"live-toolbar-files");
+        auto* optionsToolbar=liveComponent(desktop,"live-toolbar-options");
+        auto* pointerToolbar=liveComponent(desktop,"live-pointer-tool");
+        auto* scissorsToolbar=liveComponent(desktop,"live-scissors-tool");
+        auto* undoToolbar=liveComponent(desktop,"live-toolbar-undo");
+        auto* redoToolbar=liveComponent(desktop,"live-toolbar-redo");
+        auto* filesDivider=liveComponent(desktop,"live-toolbar-separator-files");
+        auto* windowsDivider=liveComponent(desktop,"live-toolbar-separator-windows");
+        auto* historyDivider=liveComponent(desktop,"live-toolbar-separator-history");
+        liveCheck(mixerToolbar && fitToolbar && filesToolbar && optionsToolbar &&
+                  pointerToolbar && scissorsToolbar && undoToolbar && redoToolbar &&
+                  filesDivider && windowsDivider && historyDivider &&
+                  mixerToolbar->getButtonText().isEmpty() &&
+                  fitToolbar->getButtonText().isEmpty() &&
+                  fitToolbar->getProperties()["mrHostIcon"].toString()=="action_fit" &&
+                  mixerToolbar->getTooltip().isNotEmpty() && fitToolbar->getTooltip().isNotEmpty(),
+                  "#309 Mixer and Fit use compact icons with accessible tooltips");
+        const auto toolbarX=[native](juce::Component* component) {
+            return native->getLocalPoint(component,juce::Point<int>{}).getX();
+        };
+        liveCheck(toolbarX(filesToolbar)<toolbarX(optionsToolbar) &&
+                  toolbarX(optionsToolbar)<toolbarX(filesDivider) &&
+                  toolbarX(filesDivider)<toolbarX(panelToggle) &&
+                  toolbarX(panelToggle)<toolbarX(mixerToolbar) &&
+                  toolbarX(mixerToolbar)<toolbarX(windowsDivider) &&
+                  toolbarX(windowsDivider)<toolbarX(pointerToolbar) &&
+                  toolbarX(pointerToolbar)<toolbarX(scissorsToolbar) &&
+                  toolbarX(scissorsToolbar)<toolbarX(fitToolbar) &&
+                  toolbarX(fitToolbar)<toolbarX(historyDivider) &&
+                  toolbarX(historyDivider)<toolbarX(undoToolbar) &&
+                  toolbarX(undoToolbar)<toolbarX(redoToolbar) &&
+                  mixerToolbar->getWidth()==fitToolbar->getWidth(),
+                  "#309 toolbar groups windows, pointer/zoom and Undo/Redo with separators");
+        // The toolbar is just 380 design px at 1920 and scales down with
+        // the Setlist. Assert that all actions still fit in smaller real
+        // windows, rather than merely checking their relative X values.
+        const juce::Point<int> originalWorkspaceSize{desktop.getWidth(),desktop.getHeight()};
+        const std::array<juce::Component*,12> orderedControls{
+            filesToolbar,optionsToolbar,filesDivider,panelToggle,mixerToolbar,
+            windowsDivider,pointerToolbar,scissorsToolbar,fitToolbar,
+            historyDivider,undoToolbar,redoToolbar
+        };
+        for(const int windowWidth:{1200,1400,1920}) {
+            desktop.setSize(windowWidth,originalWorkspaceSize.y);
+            livePump();
+            const auto region=LiveLayout().bounds("control.toolbar",
+                native->getWidth(),native->getHeight());
+            auto previousRight=region.getX();
+            bool fits=region.getWidth()>0;
+            for(auto* control:orderedControls) {
+                const auto left=toolbarX(control);
+                const auto right=left+control->getWidth();
+                fits=fits && control->getWidth()>0 &&
+                    left>=previousRight && right<=region.getRight();
+                previousRight=right;
+            }
+            if(!fits)
+                throw std::runtime_error("#309 toolbar groups overflow at " +
+                    std::to_string(windowWidth)+"px");
+        }
+        desktop.setSize(originalWorkspaceSize.x,originalWorkspaceSize.y);
+        livePump();
+        const auto priorMixerState=mixerToolbar->getToggleState();
+        mixerToolbar->triggerClick();
+        livePump();
+        liveCheck(mixerToolbar->getToggleState()!=priorMixerState &&
+                      mixerToolbar->getTooltip().isNotEmpty(),
+                  "#309 icon Mixer still toggles its panel with a useful tooltip");
+        mixerToolbar->triggerClick();
+        livePump();
+        liveCheck(mixerToolbar->getToggleState()==priorMixerState &&
+                      static_cast<bool>(fitToolbar->onClick),
+                  "#309 icon Mixer closes again and Fit retains its existing command");
+    }
+    const int visibleBottom=panelSetlistSurface->getBottom();
+    const auto savedChannel=desktop.livePlaybackSelectedChannel;
+    const auto savedStem=desktop.livePlaybackStem;
+    const auto savedShow=live::canonical(desktop.liveDocument->interfaceState);
+    const auto savedRevision=desktop.app.services().projects->state().revision;
+    const auto savedUndo=desktop.liveUndo.canUndo();
+    panelToggle->triggerClick();
+    livePump();
+    liveCheck(!playbackSurface->isVisible() && !panelToggle->getToggleState() &&
+                  panelSetlistSurface->getBottom()>visibleBottom,
+              "#309 hiding Playback/Stems releases vertical space for the setlist");
+    panelToggle->triggerClick();
+    livePump();
+    liveCheck(playbackSurface->isVisible() && panelToggle->getToggleState() &&
+                  panelSetlistSurface->getBottom()==visibleBottom &&
+                  desktop.livePlaybackSelectedChannel==savedChannel &&
+                  desktop.livePlaybackStem==savedStem &&
+                  live::canonical(desktop.liveDocument->interfaceState)==savedShow &&
+                  desktop.app.services().projects->state().revision==savedRevision &&
+                  desktop.liveUndo.canUndo()==savedUndo,
+              "#309 reopening Playback/Stems preserves show, WAV/stems selection, Core and Undo");
     const auto browserClick = [&](juce::Component *origin) {
         const auto when = juce::Time::getCurrentTime();
         const juce::Point<float> where{4.f, 4.f};
@@ -2456,6 +2872,34 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   "Timeline playhead advances with rendered Core audio");
         liveCheck(fullLevel > .01f && playbackDesktop.app.engine()->state().sample > 0,
                   "Live transport produces actual PCM through shared AudioEngine");
+        // A human scroll during Play overrides Follow instead of being
+        // dragged back to the centre on the next 15 Hz refresh.
+        auto* followTransport=dynamic_cast<juce::TextButton*>(
+            liveComponent(playbackDesktop,"live-transport-follow-playhead"));
+        juce::Viewport* followViewport=nullptr;
+        for(auto* child:playbackTimeline->getChildren())
+            if(auto* candidate=dynamic_cast<juce::Viewport*>(child))followViewport=candidate;
+        liveCheck(followTransport && followViewport,"#309 Follow controls real native playback timeline");
+        const auto runningSample=playbackDesktop.app.engine()->state().sample;
+        followTransport->triggerClick();
+        livePump();
+        liveCheck(playbackTimeline->followsPlayhead() &&
+                  playbackDesktop.app.engine()->state().sample==runningSample,
+                  "#309 follow toggle while playing does not seek or restart audio");
+        const int beforeManual=followViewport->getViewPositionX();
+        followViewport->setViewPosition(beforeManual+90,followViewport->getViewPositionY());
+        liveCheck(followViewport->getViewPositionX()!=beforeManual &&
+                  playbackTimeline->followPausedByNavigation(),
+                  "#309 manual horizontal Timeline scroll suspends Follow during Play");
+        const int manuallyScrolled=followViewport->getViewPositionX();
+        playbackTimeline->refresh();
+        liveCheck(followViewport->getViewPositionX()==manuallyScrolled,
+                  "#309 Follow does not undo manual navigation");
+        followTransport->triggerClick();
+        livePump();
+        liveCheck(!playbackTimeline->followsPlayhead() &&
+                  playbackDesktop.app.engine()->state().sample==runningSample,
+                  "#309 switch Follow off without altering shared Core transport sample");
         playbackDesktop.setLivePlaybackMix(-6., false, true);
         render();
         liveCheck(std::abs(audio[200]) < fullLevel * .75f && playbackDesktop.project()->tracks.front().mix.solo,
