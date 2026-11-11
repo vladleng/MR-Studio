@@ -1,15 +1,13 @@
-# Moon River Studio — Live Mode UI / UX Concept
+# MR Live — performance UI / UX concept
 
-> **Единый визуальный стандарт (2026-10-15):** [MR Studio Unified Design System](MR_UNIFIED_DESIGN_SYSTEM.md). Live Mode сохраняет performance-first, крупную читаемую типографику, cue/ready/error семантику и moving Chord Track; общие иконки, палитра и контролы приходят из MR UI Kit. Палитра и линия — target для последующей миграции, не заявление о готовой реализации.
+> **Единый визуальный стандарт (2026-10-15):** [MR Studio Unified Design System](MR_UNIFIED_DESIGN_SYSTEM.md). MR Live сохраняет performance-first, крупную читаемую типографику, cue/ready/error семантику и moving Chord Track; общие иконки, палитра и контролы приходят из MR UI Kit. Палитра и линия — target для последующей миграции, не заявление о готовой реализации.
 
 
-Stage 5 / #25: [STAGE_5_PLAN.md](STAGE_5_PLAN.md) задаёт production musical editors
-и shared current/next. Этот документ описывает целевой Live UI; весь show workspace
-не входит в Stage 5. Общие lanes/context используют те же IDs и timeline.
+Этот документ фиксирует **визуальную концепцию** (moving chord strip, readability, cues), а не реализованный экран или актуальную roadmap. Live workflow/этапы и приёмка — в [#14](https://github.com/vladleng/MR-Studio/issues/14) и [MR_LIVE_NATIVE_INTEGRATION.md](MR_LIVE_NATIVE_INTEGRATION.md). Исторические ссылки на Stage 5 не определяют текущую архитектуру.
 
 ## 1. Назначение
 
-Live Mode — встроенный performance/show workspace Moon River Studio.
+MR Live — самостоятельное performance/show приложение на общем Core с MR Studio и собственным `.mrlive` show.
 
 Он должен быстро считываться на ноутбуке, держать ключевую musical/performance information на виду и не ощущаться как перегруженная production DAW.
 
@@ -55,7 +53,7 @@ Chord Track не должен состоять из больших статич�
 - bar/beat/time находятся рядом;
 - движение должно быть плавным, но не влиять на realtime audio.
 
-Источник chord data — SHARED Project Model, позиция — SHARED Transport.
+Chord data поступают из текущего show/item и совместимых общих musical services; позиция — из общего Transport API. Прямое открытие Studio `.mrsproject` в Live item не подразумевается.
 
 ## 4. Основной Performance layout
 
@@ -178,9 +176,9 @@ Right Rail вторичен по отношению к chord/section context.
 - internal IDs/schema/source information;
 - detailed device/plugin metadata.
 
-## 11. Live Mode states
+## 11. MR Live states
 
-Live Mode может иметь несколько states без превращения их в отдельные приложения.
+Внутри отдельного приложения MR Live могут существовать разные состояния performance UI без запуска дополнительных audio backends.
 
 ### Performance
 
@@ -270,7 +268,7 @@ Primary target:
 - 14" FHD;
 - 15–16" FHD/2K;
 - 100/125/150% scale;
-- fullscreen Live Mode;
+- fullscreen MR Live;
 - viewing distance greater than normal DAW editing.
 
 Everything critical must be readable without leaning toward the display.
@@ -306,7 +304,7 @@ Shared MRS design system should provide reusable:
 - meters/sliders;
 - warning/danger states.
 
-Live Mode should reuse the same design language as the rest of MRS, but with larger spacing/type and lower information density.
+MR Live should reuse the same design language as the rest of MRS, but with larger spacing/type and lower information density.
 
 ## 18. Implementation isolation
 
@@ -328,7 +326,7 @@ Current Issues:
 - #29 — LIVE Stage 1: real Project/Transport integration;
 - #30+ — show workflow and advanced Live capabilities.
 
-Live Mode has no separate product version; UI readiness is part of MRS builds.
+MR Live has its **own** product version and acceptance line, independent from MR Studio; check the current Issues and AGENTS.md.
 
 ## 20. Branding
 

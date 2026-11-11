@@ -110,7 +110,7 @@ Six desktop suites join all 41 previous contracts on Windows/Linux Debug/Release
 and Windows ASIO Debug/Release. Offline Windows builds also run a GUI smoke test
 that opens all workspaces/settings, renames a track and exercises 150% layout.
 ASIO builds do not open a driver in CI. Hardware playback and visual DPI acceptance
-are manual checks from MRS_STAGE_0_CHECKLIST.md. Existing Stage 1 performance gate
+were manual checks from the historical [Stage 0 checklist](https://github.com/vladleng/MR-Studio/blob/2c5a3448ac3738dacbd9976965cf293c67a85968/docs/MRS_STAGE_0_CHECKLIST.md). Existing Stage 1 performance gate
 remains pending/nonblocking by the user's decision.
 
 Build:

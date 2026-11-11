@@ -47,4 +47,4 @@ stereo separation, bypass, low-rate/extreme settings, queue saturation and zero
 host realtime allocations. Desktop tests cover live preview/commit/Undo/Redo with
 unchanged device opens and advancing transport. GUI exercises actual point drag,
 Q wheel, cancellation, handle-only faders/pan and existing flicker/DPI regressions.
-Physical/user acceptance: MRS_STAGE_3B_CHECKLIST.md. #16 remains deferred.
+Historical hardware/user acceptance steps: [Stage 3b checklist](https://github.com/vladleng/MR-Studio/blob/2c5a3448ac3738dacbd9976965cf293c67a85968/docs/MRS_STAGE_3B_CHECKLIST.md). Current hardware validation status must be read from the affected Issue, not from the original 0.1l milestone.

@@ -1,4 +1,7 @@
-# MR Live — передача принятого интерфейса в MR Studio
+# MR Live — самостоятельное приложение: нативный контракт и исторические этапы
+
+
+**Действующая граница:** MR Live — standalone приложение с собственным `.mrlive` show и общим Core с MR Studio. Это не встроенный Live Mode и не прямой просмотр `.mrsproject`; экспорт Studio → Live Playback — отдельная будущая задача. В разделах ниже сохранена история по Issues; старые «будет/планируется» и номера сборок не заменяют актуальные задачи/приёмку. См. [AGENTS.md](../AGENTS.md) и [#14](https://github.com/vladleng/MR-Studio/issues/14).
 
 ## Show-owned channel bindings (#302 A2)
 

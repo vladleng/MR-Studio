@@ -1,4 +1,6 @@
-# MR Separation Engine — контракт этапа #333
+# MR Separation Engine — контракты модели, jobs и хранения
+
+> Структура этого документа накопила этапы #333 и следующие updates. Технические ограничения worker, PCM/stem, ресурсных lease, файлов и recovery сохраняются; **версии, текущие задачи и статусы приёмки — только в [#74](https://github.com/vladleng/MR-Studio/issues/74), конкретной Sub-issue и коде**. Старые milestone-версии ниже не должны переопределять последующие решения.
 
 Родитель: [#74](https://github.com/vladleng/MR-Studio/issues/74).
 Этап: [#333](https://github.com/vladleng/MR-Studio/issues/333), плановая версия

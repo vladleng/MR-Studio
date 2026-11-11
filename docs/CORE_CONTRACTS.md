@@ -1,9 +1,8 @@
-# SHARED Stage 0 — Core contracts
+# Shared Core — Stage 0 baseline and enduring contracts
 
-Stage 2 update: the current project schema is 2, with v1 read migration.
-ITransport now exposes control-thread rebind_timeline; MusicalTimeline coordinates
-shared context and musical edits. See [MUSICAL_TIMELINE.md](MUSICAL_TIMELINE.md).
-The text below records the original Stage 0 contract and scope.
+**Historical baseline:** this document records the initial Stage 0 design. Its original schema-2 and setlist/Live assumptions are **not current**. The actual wire format is defined by the implementation and [PERSISTENCE.md](PERSISTENCE.md), and the current boundary is **two standalone apps** (MR Studio `.mrsproject`, MR Live `.mrlive`) using Shared Core APIs. See [ARCHITECTURE.md](ARCHITECTURE.md) and [MR_LIVE_NATIVE_INTEGRATION.md](MR_LIVE_NATIVE_INTEGRATION.md). Remaining sections describe the original API invariants unless superseded by current code.
+
+The original Stage 2 update added control-thread `ITransport::rebind_timeline`; MusicalTimeline owns the shared musical mapping contract. See [MUSICAL_TIMELINE.md](MUSICAL_TIMELINE.md).
 
 Issue: #15. Implementation: C++20, standard library only, CMake 3.20+.
 Public API: `core/include/mrs/core.hpp`.
@@ -14,15 +13,12 @@ to their own stages. No audio is rendered in Stage 0.
 
 ## Ownership and boundaries
 
-Every workspace receives a copy of the same `mrs::Services` handles:
+Within the original Studio Stage 0 fixture, each workspace receives a copy of the same `mrs::Services` handles:
 - `IProjectStore` owns the project and command history;
 - `ITransport` owns playback state;
 - immutable project snapshots can be held safely without changing under a reader.
 
-There is no workspace-specific backend. `demo_services()` creates the services
-once. Calling that factory separately per workspace would be incorrect.
-`tools/core_check.cpp` demonstrates Arrange/Live with identical handles.
-The integration suite also checks Edit and Mix.
+No workspace-specific **audio/backend implementation** is introduced. The Stage 0 `demo_services()` fixture created a single application instance and shared handles between its simulated workspaces; this is **not** a requirement to share a `ProjectStore` or runtime instance between the separately running MR Studio and MR Live applications.
 
 All Stage 0 services and subscriptions execute on one application/control
 thread. They are neither thread-safe nor realtime-safe. No allocation, locking,
@@ -43,8 +39,7 @@ Generated IDs have an off-thread random prefix and counter; they are not UUIDs.
 Importer IDs and fixture IDs are accepted. Serialization and Undo/Redo preserve
 every ID. Readers must not derive identity from track names or array indices.
 New entity IDs should be generated before command execution, so redo reuses them.
-One Project ID will serve as a stable setlist reference. No separate Song copy
-or Live project format is introduced.
+The original plan to use Studio Project IDs directly as Live setlist song references was superseded. MR Live now has an independent `.mrlive` show document and item storage; the `Project` entity here is part of the Studio/Core domain.
 
 Validation rejects unsupported schemas, duplicate IDs, broken references,
 hierarchy cycles, invalid enum values, invalid tempo/meter and negative or
