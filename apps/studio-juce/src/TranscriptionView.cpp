@@ -267,7 +267,7 @@ private:std::unique_ptr<juce::DocumentWindow>& slot_;
 }
 void showTranscription(Desktop& owner,std::optional<mrs::Id> source,mrs::TranscriptionPlacement placement){
     if(owner.standaloneLive)return;
-    if(owner.transcriptionWindow){owner.transcriptionWindow->toFront(true);return;}
+    if(owner.transcriptionWindow){const auto state=owner.app.transcription_status().state;if(busy(state)||preview(state)){owner.transcriptionWindow->toFront(true);return;}owner.transcriptionWindow.reset();}
     if(!source)for(const auto& c:owner.project()->clips)if(!c.midi&&owner.selectedClips.contains(c.id.value)){source=c.id;break;}
     if(!owner.transcriptionSetup)owner.transcriptionSetup=setup();
     owner.transcriptionWindow=std::make_unique<TranscriptionWindow>(owner,new TranscriptionPanel(owner,std::move(source),placement),"Audio-to-MIDI",owner.transcriptionWindow,placement.target_track.has_value());
