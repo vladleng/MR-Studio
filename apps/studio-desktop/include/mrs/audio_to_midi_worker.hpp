@@ -9,6 +9,27 @@
 namespace mrs::transcription {
 inline constexpr std::string_view python_source_commit="8a1ef88672cc23c26619adaff37ec48d82c0b906";
 enum class Backend { native_experimental, python_medium };
+// NON-RT job phases; no project persistence or audio callback state.
+enum class Phase { checking_files, checking_runtime, preparing_audio, starting_worker,
+                   importing_runtime, loading_model, reading_audio, recognizing,
+                   processing_midi, exporting_midi, validating_result, complete };
+inline constexpr std::string_view phase_label(Phase phase){
+    switch(phase){
+    case Phase::checking_files:return "Verifying model and input files...";
+    case Phase::checking_runtime:return "Verifying Python runtime...";
+    case Phase::preparing_audio:return "Preparing selected audio range...";
+    case Phase::starting_worker:return "Starting recognition worker...";
+    case Phase::importing_runtime:return "Loading Python libraries...";
+    case Phase::loading_model:return "Loading MuScriptor Medium model...";
+    case Phase::reading_audio:return "Inspecting input WAV...";
+    case Phase::recognizing:return "Recognizing audio...";
+    case Phase::processing_midi:return "Processing MIDI and musical timing...";
+    case Phase::exporting_midi:return "Exporting MIDI result...";
+    case Phase::validating_result:return "Validating MIDI result...";
+    case Phase::complete:return "Recognition complete.";
+    }
+    return "Preparing transcription...";
+}
 struct MusicalOptions {
     bool import_tempo{};
     bool detect_tempo{}, quantize{}, tempo_map{true}, trim_leading_bars{};
@@ -55,6 +76,7 @@ struct Result {
     std::vector<TranscribedNote> original_notes; // immutable unquantized reference
     State state{State::failed};
     std::string error, diagnostics;
+    Phase phase{Phase::checking_files};
     Id project_id, clip_id;
     std::uint64_t project_revision{};
     // source_sha256: full WAV for legacy whole-source requests, selected PCM for range requests.
@@ -72,5 +94,6 @@ struct Result {
 // callback runs on that thread, never the UI/audio thread. No Model mutation.
 // Every exit destroys the process tree before deleting the private job folder.
 Result run(const Request&, std::stop_token = {},
-           const std::function<void(int completed,int total)>& progress = {});
+           const std::function<void(int completed,int total)>& progress = {},
+           const std::function<void(Phase)>& phase_changed = {});
 }

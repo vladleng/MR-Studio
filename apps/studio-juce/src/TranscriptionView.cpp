@@ -214,7 +214,7 @@ private:
         if(signature!=signature_){signature_=signature;roles_.clear();counts_.clear();if(result)for(const auto& role:mrs::ace_midi_instruments()){const auto count=static_cast<std::size_t>(std::count_if((original_.getToggleState()?result->original_notes:result->notes).begin(),(original_.getToggleState()?result->original_notes:result->notes).end(),[&](const auto& n){return n.instrument==role.role;}));if(count){roles_.push_back(std::string(role.role));counts_.push_back(count);}}parts_.updateContent();parts_.deselectAllRows();if(!roles_.empty())parts_.selectRangeOfRows(0,getNumRows()-1);}
         juce::String status;
         switch(job.state){
-        case JobState::running:status=job.total&&job.completed==job.total?"Finalizing MIDI and musical timing...":job.total?"Recognizing chunk "+juce::String(job.completed)+" / "+juce::String(job.total):"Preparing source and verifying files...";break;
+        case JobState::running:status=text(std::string(phase_label(job.phase)));if(job.total&&job.phase==Phase::recognizing)status+=" Chunk "+juce::String(job.completed)+" / "+juce::String(job.total);break;
         case JobState::cancelling:status="Stopping conversion...";break;
         case JobState::ready:status="Recognition ready. Select parts to place on new MIDI tracks.";break;
         case JobState::empty:status="No notes found inside this clip range.";break;

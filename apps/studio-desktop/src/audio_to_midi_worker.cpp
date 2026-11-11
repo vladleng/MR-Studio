@@ -242,7 +242,7 @@ void verify_midi(const std::vector<MidiPart>& parts,const std::vector<Transcribe
 }
 }
 
-Result run(const Request& r,std::stop_token external,const std::function<void(int,int)>& progress){
+Result run(const Request& r,std::stop_token external,const std::function<void(int,int)>& progress,const std::function<void(Phase)>& phase_changed){
     Result result;result.backend=r.backend;result.musical=r.musical;result.project_id=r.project_id;result.clip_id=r.clip_id;result.project_revision=r.project_revision;
     std::stop_source stop;std::stop_callback forward(external,[&]{stop.request_stop();});
     const auto budget=r.timeout>std::chrono::milliseconds(0)&&r.timeout<=std::chrono::hours(4)?r.timeout:std::chrono::milliseconds(std::chrono::hours(4));
@@ -250,15 +250,19 @@ Result run(const Request& r,std::stop_token external,const std::function<void(in
     std::jthread timer([&](std::stop_token shutdown){std::mutex mutex;std::condition_variable_any cv;std::unique_lock lock(mutex);cv.wait_until(lock,shutdown,deadline,[]{return false;});if(!shutdown.stop_requested())stop.request_stop();});
     const auto token=stop.get_token();
     const auto began=std::chrono::steady_clock::now();
+    const auto report_phase=[&](Phase phase){result.phase=phase;if(phase_changed)phase_changed(phase);};
     bool cleanup_failed{};
     try{
         need(r.timeout>std::chrono::milliseconds(0)&&r.timeout<=std::chrono::hours(4)&&r.cpu_threads<=32&&r.memory_bytes>=256ULL*1024*1024&&r.memory_bytes<=16ULL*1024*1024*1024,"invalid_request");
         need(!r.model_id.empty()&&r.model_id.size()<=128&&!r.model_revision.empty()&&r.model_revision.size()<=128&&!r.model_license.empty()&&r.model_license.size()<=256,"invalid_request");
+        report_phase(Phase::checking_files);
         stopped(token);plain(r.temporary_root,true);plain(r.model_directory,true);plain(r.source);
         need(r.stem_instrument.empty()||std::any_of(ace_midi_instruments().begin(),ace_midi_instruments().end(),[&](const auto& i){return i.role==r.stem_instrument;}),"invalid_instrument");
         need(r.backend==Backend::native_experimental||r.backend==Backend::python_medium,"invalid_backend");
         if(r.backend==Backend::python_medium){
+            report_phase(Phase::checking_runtime);
             if(r.verify_runtime)try{r.verify_runtime(token);}catch(const std::exception& e){result.diagnostics=std::string("Python runtime verification: ")+std::string(e.what()).substr(0,256);throw Failure{"runtime_verification_failed"};}
+            report_phase(Phase::checking_files);
             verify_hash(r.worker_script,r.worker_sha256,token);need(r.instruments.size()<=35,"invalid_instrument");
             auto instruments=r.instruments;std::sort(instruments.begin(),instruments.end());need(std::adjacent_find(instruments.begin(),instruments.end())==instruments.end(),"invalid_instrument");
             for(const auto& instrument:instruments)need(std::any_of(ace_midi_instruments().begin(),ace_midi_instruments().end(),[&](const auto& i){return i.role==instrument;}),"invalid_instrument");
@@ -269,6 +273,7 @@ Result run(const Request& r,std::stop_token external,const std::function<void(in
         verify_hash(r.executable,r.executable_sha256,token);
         verify_hash(r.model_directory/"config.json",r.config_sha256,token);
         verify_hash(r.model_directory/"model.safetensors",r.weights_sha256,token);
+        report_phase(Phase::preparing_audio);
         Work work;work.cleanup_failed=&cleanup_failed;const auto candidate=r.temporary_root/("mrs-midi-"+new_id().value);
         need(fs::create_directory(candidate),"io_error");work.path=candidate;
         fs::permissions(work.path,fs::perms::owner_all,fs::perm_options::replace);
@@ -298,18 +303,38 @@ Result run(const Request& r,std::stop_token external,const std::function<void(in
         need(frames_16k>0,"invalid_audio");
         AceMidiProtocol protocol(static_cast<double>(wav.frame_count)/wav.sample_rate,frames_16k,r.backend==Backend::python_medium);
         {
+            report_phase(Phase::starting_worker);
             Child child;child.launch(resolved,work.path);int completed=-1;std::size_t error_bytes{};
+            std::string phase_buffer;
+            const auto read_phase=[&](const std::string& error){
+                phase_buffer+=error;
+                for(auto end=phase_buffer.find('\n');end!=std::string::npos;end=phase_buffer.find('\n')){
+                    auto line=phase_buffer.substr(0,end);phase_buffer.erase(0,end+1);
+                    if(!line.empty()&&line.back()=='\r')line.pop_back();
+                    for(const auto& [name,phase]:std::initializer_list<std::pair<std::string_view,Phase>>{
+                        {"importing_runtime",Phase::importing_runtime},{"loading_model",Phase::loading_model},
+                        {"reading_audio",Phase::reading_audio},{"recognizing",Phase::recognizing},
+                        {"processing_midi",Phase::processing_midi},{"exporting_midi",Phase::exporting_midi},
+                        {"complete",Phase::validating_result}}){
+                        if(line==std::string("MR_STAGE=")+std::string(name)){report_phase(phase);break;}
+                    }
+                }
+                if(phase_buffer.size()>1024)phase_buffer.clear();
+            };
             for(;;){
                 stopped(token);auto out=child.read(false);auto error=child.read(true);
                 need(error.size()<=4*1024*1024-error_bytes,"diagnostic_limit");error_bytes+=error.size();result.diagnostics+=error;
                 if(result.diagnostics.size()>65536)result.diagnostics.erase(0,result.diagnostics.size()-65536);
+                if(r.backend==Backend::python_medium&&!error.empty())read_phase(error);
                 if(!out.empty())protocol.feed(out);
+                if(r.backend==Backend::native_experimental&&protocol.total()>0&&result.phase!=Phase::recognizing)report_phase(Phase::recognizing);
                 if(protocol.completed()!=completed){completed=protocol.completed();if(progress)progress(completed,protocol.total());}
                 const auto exit=child.exit_code();
                 if(exit!=-1&&out.empty()&&error.empty()){result.peak_memory_bytes=child.memory();need(exit==0,"process_exit");break;}
                 if(out.empty()&&error.empty())std::this_thread::sleep_for(std::chrono::milliseconds(5));
             }
         } // child tree is terminated/reaped before touching/deleting outputs
+        report_phase(Phase::validating_result);
         protocol.finish();stopped(token);
         const auto midi=work.path/"output.mid";plain(midi);need(fs::file_size(midi)==protocol.midi_bytes(),"invalid_midi");
         std::vector<std::byte> bytes(protocol.midi_bytes());std::ifstream in(midi,std::ios::binary);in.read(reinterpret_cast<char*>(bytes.data()),static_cast<std::streamsize>(bytes.size()));need(in.good(),"io_error");
@@ -345,7 +370,7 @@ Result run(const Request& r,std::stop_token external,const std::function<void(in
         result.raw_notes=protocol.raw_count();result.midi_sha256=sha256_file(midi,token);
         result.source_sha256=source_hash;result.executable_sha256=r.executable_sha256;result.worker_sha256=r.worker_sha256;result.weights_sha256=r.weights_sha256;result.config_sha256=r.config_sha256;
         result.model_id=r.model_id;result.model_revision=r.model_revision;result.model_license=r.model_license;
-        stopped(token);result.state=result.notes.empty()?State::empty:State::ready;
+        stopped(token);result.state=result.notes.empty()?State::empty:State::ready;report_phase(Phase::complete);
     }catch(const Failure& e){result.error=e.code;}
      catch(const std::invalid_argument&){result.error="invalid_output";}
      catch(...){result.error="io_or_backend_failure";}

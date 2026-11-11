@@ -32,6 +32,7 @@ TimeMap imported_map(const Project& project,const Clip& clip,const Result& resul
 struct Controller::Job {
     std::stop_source stop;
     std::atomic<std::uint64_t> progress{};
+    std::atomic<Phase> phase{Phase::checking_files};
     std::future<Result> result;
     bool obsolete{};
     std::chrono::steady_clock::time_point began{std::chrono::steady_clock::now()};
@@ -56,14 +57,14 @@ void Controller::start(const std::shared_ptr<IProjectStore>& store,std::filesyst
     const auto source_stamp=stamp(source);request.range=SourceRange{at->source_offset,at->length,capture.project->sample_rate};request.source=source;request.project_id=capture.project->id;request.clip_id=clip;request.project_revision=capture.revision;
     auto job=std::make_unique<Job>();job->cpu_threads=choose_cpu_threads(request.cpu_threads);request.cpu_threads=job->cpu_threads;
     job->result=std::async(std::launch::async,[models=std::move(models),request=std::move(request),media=std::move(media),
-        stop=job->stop.get_token(),progress=&job->progress]()mutable{
+        stop=job->stop.get_token(),progress=&job->progress,phase=&job->phase]()mutable{
         (void)media; // lifetime held through native process termination/cleanup
         try{
             if(stop.stop_requested()){Result r;r.state=State::cancelled;return r;}
             const auto lease=models.acquire();lease.configure(request);
             return run(request,stop,[progress](int completed,int total){
                 progress->store((static_cast<std::uint64_t>(total)<<32)|static_cast<std::uint32_t>(completed),std::memory_order_relaxed);
-            });
+            },[phase](Phase value){phase->store(value,std::memory_order_relaxed);});
         }catch(const std::exception& e){Result r;r.state=stop.stop_requested()?State::cancelled:State::failed;r.error=e.what();return r;}
     });
     owner_=store;captured_=std::move(capture);project_path_=std::move(path);clip_=std::move(clip);source_=std::move(source);stamp_=source_stamp;
@@ -80,7 +81,7 @@ void Controller::poll(const std::shared_ptr<IProjectStore>& store,const std::fil
     if(job->obsolete){status_={JobState::stale,0,0,"Project/source changed; run transcription again"};return;}
     if(job->stop.stop_requested()||result.state==State::cancelled){status_={JobState::cancelled,0,0,{}};return;}
     if(!current(store,path)){status_={JobState::stale,0,0,"Project/source changed; run transcription again"};return;}
-    status_.diagnostics=result.diagnostics;
+    status_.diagnostics=result.diagnostics;status_.phase=result.phase;
     if(result.state==State::ready||result.state==State::empty){
         need(result.project_id==captured_.project->id&&result.clip_id==clip_&&result.project_revision==captured_.revision,"Worker identity mismatch");
         const auto& clips=captured_.project->clips;const auto at=std::find_if(clips.begin(),clips.end(),[&](const auto& c){return c.id==clip_;});
@@ -100,7 +101,7 @@ void Controller::shutdown(){
     if(job_){job_->stop.request_stop();if(job_->result.valid())job_->result.wait();job_.reset();}result_.reset();status_={JobState::cancelled,0,0,{}};
 }
 JobStatus Controller::status()const{
-    auto value=status_;if(job_){value.elapsed_seconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-job_->began).count();value.cpu_threads=job_->cpu_threads;const auto n=job_->progress.load(std::memory_order_relaxed);value.completed=static_cast<int>(n&0xffffffffU);value.total=static_cast<int>(n>>32);}return value;
+    auto value=status_;if(job_){value.elapsed_seconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-job_->began).count();value.cpu_threads=job_->cpu_threads;value.phase=job_->phase.load(std::memory_order_relaxed);const auto n=job_->progress.load(std::memory_order_relaxed);value.completed=static_cast<int>(n&0xffffffffU);value.total=static_cast<int>(n>>32);}return value;
 }
 const Result* Controller::preview()const{return result_?&*result_:nullptr;}
 PlaceTranscription Controller::prepare(const std::shared_ptr<IProjectStore>& store,const std::filesystem::path& path,

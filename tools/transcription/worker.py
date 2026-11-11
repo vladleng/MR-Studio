@@ -8,6 +8,8 @@ import contextlib
 import io
 import json
 import os
+import re
+import traceback
 from pathlib import Path
 import sys
 import time
@@ -20,6 +22,64 @@ PROGRAMS = dict(zip(
 
 def emit(**message):
     print(json.dumps(message, separators=(",", ":"), allow_nan=False), flush=True)
+
+
+_PHASES = {"preflight", "importing_runtime", "loading_model", "reading_audio",
+           "recognizing", "processing_midi", "exporting_midi", "complete"}
+_phase = "preflight"
+
+
+def stage(name):
+    global _phase
+    if name not in _PHASES:
+        raise ValueError("unknown worker stage")
+    _phase = name
+    print("MR_STAGE=" + name, file=sys.stderr, flush=True)
+
+
+def safe_reason(error):
+    """Keep useful library errors, never raw URLs, credentials or file paths."""
+    message = str(error)
+    # Redact before bounding so truncation cannot expose half a secret/path.
+    for key, value in os.environ.items():
+        if len(value) >= 4 and any(part in key.upper() for part in ("TOKEN", "PASSWORD", "SECRET", "API_KEY")):
+            message = message.replace(value, "[redacted]")
+    for value in sys.argv[1:]:
+        if len(value) > 1 and ("/" in value or "\\" in value):
+            message = re.sub(re.escape(value), "[path]", message, flags=re.IGNORECASE)
+    message = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", message)
+    message = re.sub(r"(?i)(?:https?|file)://[^\s<>]+", "[url]", message)
+    message = re.sub(r"(?i)\bBearer\s+[^\s,;]+", "Bearer [redacted]", message)
+    message = re.sub(r'''(?i)\b(?:token|password|secret|api_key|authorization)[\"\']?\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]+)''', "credential=[redacted]", message)
+    message = re.sub(r"\bhf_[A-Za-z0-9_]+", "[redacted]", message)
+    message = re.sub(r"\"(?:[A-Za-z]:[\\/]|/|\\\\)[^\"\r\n]*\"|'(?:[A-Za-z]:[\\/]|/|\\\\)[^'\r\n]*'", "[path]", message)
+    message = re.sub(r"[A-Za-z]:[\\/][^\r\n;\"<>|]*", "[path]", message)
+    message = re.sub(r"\\\\[^\s;\"<>]+", "[path]", message)
+    message = re.sub(r"(?<![A-Za-z0-9])/(?:[^\s;,:\"<>]+)", "[path]", message)
+    return " ".join("".join(c if c.isprintable() else " " for c in message).split())[:1024]
+
+
+def run_main():
+    global _phase
+    _phase = "preflight"
+    try:
+        main()
+        return 0
+    except Exception as error:
+        reason = "missing_EOS_within_2000_tokens" if "did not emit EOS" in str(error) else type(error).__name__
+        print(f"MuScriptor failed: {reason}; stage={_phase}; incomplete result discarded", file=sys.stderr, flush=True)
+        # No traceback source lines, locals, absolute paths or arbitrary reprs.
+        seen = set()
+        for _ in range(3):
+            if error is None or id(error) in seen:
+                break
+            seen.add(id(error))
+            print(f"{type(error).__name__}: {safe_reason(error)}", file=sys.stderr, flush=True)
+            for frame in traceback.extract_tb(error.__traceback__)[-6:]:
+                filename = frame.filename.replace("\\", "/").rsplit("/", 1)[-1]
+                print(f"  at {filename}:{frame.lineno} in {frame.name}", file=sys.stderr, flush=True)
+            error = error.__cause__ or (None if error.__suppress_context__ else error.__context__)
+        return 1
 
 
 def canonical_midi(notes):
@@ -127,6 +187,7 @@ def write_notes(path, notes, total):
 
 
 def main():
+    stage("preflight")
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=Path, required=True)
     parser.add_argument("--transcribe", type=Path, required=True)
@@ -147,6 +208,7 @@ def main():
         raise RuntimeError("network disabled during inference; install required files first")
     socket.socket.connect = offline
     socket.create_connection = offline
+    stage("importing_runtime")
     with contextlib.redirect_stdout(sys.stderr):
         import torch
         torch.set_num_threads(args.threads)
@@ -159,13 +221,18 @@ def main():
         config = json.loads((args.model / "config.json").read_text())
         if (config.get("dim"), config.get("num_heads"), config.get("num_layers")) != (1024, 16, 24):
             raise ValueError("only official Medium is supported")
+        stage("loading_model")
         began = time.monotonic()
         model = TranscriptionModel.load_model(args.model / "model.safetensors", device="cpu", dtype="float32")
         loaded = time.monotonic() - began
     capability = torch.backends.cpu.get_cpu_capability().replace(" ", "_")
     print(f"Python MuScriptor {PIN}; torch={torch.__version__}; CPU={capability}; threads={torch.get_num_threads()}; model_load={loaded:.3f}s; strict_eos=True; prelude_forcing=True", file=sys.stderr, flush=True)
+    stage("reading_audio")
+    import soundfile
+    duration = soundfile.info(str(args.transcribe)).duration
     events, notes, open_notes = [], [], {}
     began = time.monotonic()
+    stage("recognizing")
     with torch.inference_mode():
         iterator = model.transcribe(args.transcribe, instruments=args.instruments or None,
                                    batch_size=1, prelude_forcing=True, no_eos_is_ok=False)
@@ -193,6 +260,7 @@ def main():
         inference = time.monotonic() - began
         if open_notes:
             raise ValueError("unpaired notes")
+        stage("processing_midi")
         raw = canonical_midi(notes)
         args.out.write_bytes(raw)
         with contextlib.redirect_stdout(sys.stderr):
@@ -205,9 +273,8 @@ def main():
             # Raw timing must remain exact when no musical processing is requested.
             changed = export.quantize or export.fill_gaps > 0 or export.trim_leading_bars
             output_notes = processed_notes(model.events_to_midi_bytes(iter(events), beat_grid=grid, export=export)) if changed else notes
-        import soundfile
-        duration = soundfile.info(str(args.transcribe)).duration
         output_notes = [(pitch,start,min(end,duration),role) for pitch,start,end,role in output_notes if min(end,duration)>start]
+        stage("exporting_midi")
         write_notes(args.out.parent / "processed.jsonl", output_notes, total)
         grid = resolve_grid(grid, export, [e.start_time for e in events if isinstance(e, NoteStartEvent)]) if grid is not None or export.bpm is not None else None
         # Numeric, bounded, locale-independent metadata. No local paths/tokens.
@@ -216,14 +283,9 @@ def main():
             meta.write(f"MR-MUSCRIPTOR-2 {capability} {args.threads} {loaded:.9f} {inference:.9f} {grid.bpm if grid else 0:.9f} {grid.beats_per_bar or 0 if grid else 0} {grid.first_downbeat if grid else 0:.9f} {len(beats)}\n")
             for beat in beats:
                 meta.write(f"{beat:.9f}\n")
+    stage("complete")
     emit(type="done", notes=len(notes), midi_bytes=len(raw))
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as error:
-        # Avoid library exception strings containing URLs or credentials.
-        reason = "missing_EOS_within_2000_tokens" if "did not emit EOS" in str(error) else type(error).__name__
-        print(f"MuScriptor failed: {reason}; incomplete result discarded", file=sys.stderr, flush=True)
-        sys.exit(1)
+    sys.exit(run_main())

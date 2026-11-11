@@ -3,6 +3,7 @@
 #include <mrs/transcription_controller.hpp>
 #include <mrs/persistence.hpp>
 #include <fstream>
+#include <algorithm>
 #include <iostream>
 #include <thread>
 using namespace mrs;
@@ -16,7 +17,10 @@ int main(int argc,char** argv){try{
     struct Cleanup{fs::path p;~Cleanup(){std::error_code ec;fs::remove_all(p,ec);}} cleanup{root};
     Request r;r.backend=Backend::python_medium;r.executable=fs::absolute(argv[1]);r.executable_sha256=sha256_file(r.executable);r.worker_script=fs::absolute(argv[2]);r.worker_sha256=sha256_file(r.worker_script);r.model_directory=root/"model";fs::create_directory(r.model_directory);r.temporary_root=root/"jobs";fs::create_directory(r.temporary_root);r.source=root/"source.wav";
     text(r.model_directory/"config.json","{}");text(r.model_directory/"model.safetensors","fixture");r.config_sha256=sha256_file(r.model_directory/"config.json");r.weights_sha256=sha256_file(r.model_directory/"model.safetensors");r.model_id="fixture";r.model_revision="self-generated";r.model_license="self-generated";r.cpu_threads=1;r.timeout=std::chrono::seconds(5);
-    wav(r.source,0);auto result=run(r);if(result.state!=State::ready)throw std::runtime_error(result.error+": "+result.diagnostics);check(result.notes.size()==1&&result.original_notes.size()==1&&result.notes[0].start==.3&&result.original_notes[0].start==.25&&result.cpu_threads==1&&result.cpu_capability=="DEFAULT"&&result.beats.size()==2&&fs::is_empty(r.temporary_root));
+    wav(r.source,0);std::vector<Phase> phases;auto result=run(r,{}, {},[&](Phase phase){phases.push_back(phase);});if(result.state!=State::ready)throw std::runtime_error(result.error+": "+result.diagnostics);check(result.notes.size()==1&&result.original_notes.size()==1&&result.notes[0].start==.3&&result.original_notes[0].start==.25&&result.cpu_threads==1&&result.cpu_capability=="DEFAULT"&&result.beats.size()==2&&fs::is_empty(r.temporary_root));
+    check(std::find(phases.begin(),phases.end(),Phase::loading_model)!=phases.end());
+    check(std::find(phases.begin(),phases.end(),Phase::recognizing)!=phases.end());
+    check(result.phase==Phase::complete&&phases.back()==Phase::complete);
     r.instruments={"electric_bass","acoustic_bass"};result=run(r);check(result.state==State::ready&&result.notes[0].instrument=="electric_bass");
     wav(r.source,5);result=run(r);check(result.state==State::ready&&result.raw_notes==2&&result.original_notes.size()==1);wav(r.source,0);
     r.compatibility_cpu=true;check(run(r).state==State::ready);

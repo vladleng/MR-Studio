@@ -14,6 +14,10 @@ assert 'HF_TOKEN' not in os.environ
 assert os.environ['HF_HUB_OFFLINE']=='1'
 assert os.environ['OMP_NUM_THREADS']==str(a.threads)
 assert os.environ['ATEN_CPU_CAPABILITY'] in ('default','avx2')
+# Exercise stderr stage framing across separate pipe writes.
+sys.stderr.write('MR_STAGE=load');sys.stderr.flush();time.sleep(.01)
+print('ing_model',file=sys.stderr,flush=True)
+print('MR_STAGE=recognizing',file=sys.stderr,flush=True)
 mode=Path(a.transcribe).read_bytes()[44]
 if mode==1: time.sleep(20)
 if mode==2: raise SystemExit(1)
