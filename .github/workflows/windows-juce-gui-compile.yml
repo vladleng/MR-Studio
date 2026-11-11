@@ -2,9 +2,20 @@ name: Windows JUCE GUI compile
 # Compile JUCE GUI translation units with the real MSVC project flags before
 # the heavyweight, manually dispatched Windows Release. No app link or package.
 on:
+  workflow_call:
+    inputs:
+      live:
+        type: boolean
+        default: false
   pull_request:
     paths:
-      - 'apps/studio-juce/src/**'
+      - 'apps/studio-juce/**'
+      - 'core/**'
+      - 'third_party/**'
+      - 'sdk/**'
+      - 'assets/ui/**'
+      - 'tools/transcription/**'
+      - 'tools/separation/**'
       - 'apps/studio-desktop/include/**'
       - 'cmake/**'
       - 'CMakeLists.txt'
@@ -14,7 +25,13 @@ on:
   push:
     branches: [main]
     paths:
-      - 'apps/studio-juce/src/**'
+      - 'apps/studio-juce/**'
+      - 'core/**'
+      - 'third_party/**'
+      - 'sdk/**'
+      - 'assets/ui/**'
+      - 'tools/transcription/**'
+      - 'tools/separation/**'
       - 'apps/studio-desktop/include/**'
       - 'cmake/**'
       - 'CMakeLists.txt'
@@ -25,7 +42,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: windows-juce-gui-compile-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-windows-juce-gui-compile-${{ github.event.pull_request.number || github.ref }}-${{ github.workflow == 'Windows Studio Release' && github.run_id || '' }}
   cancel-in-progress: true
 jobs:
   compile:
@@ -36,13 +53,14 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Verify pinned public JUCE/VST3 SDKs (no ASIO)
         shell: pwsh
         run: ./tools/ci/Prepare-Sdks.ps1 -Root build/sdk -PublicGuiOnly
       - name: Configure JUCE GUI without ASIO, ARA, Live or tests
         shell: pwsh
         run: |
-          cmake -S . -B build/gui-compile -G 'Visual Studio 17 2022' -A x64 -DBUILD_TESTING=OFF -DMRS_BUILD_DESKTOP=OFF -DMRS_BUILD_LIVE=OFF -DMRS_BUILD_ASIO=OFF -DMRS_BUILD_ARA=OFF -DMRS_BUILD_JUCE_UI=ON -DMRS_BUILD_VST3=ON "-DMRS_JUCE_SDK_ROOT=$pwd/build/sdk/juce" "-DMRS_VST3_SDK_ROOT=$pwd/build/sdk/vst3"
+          cmake -S . -B build/gui-compile -G 'Visual Studio 17 2022' -A x64 -DBUILD_TESTING=OFF -DMRS_BUILD_DESKTOP=OFF -DMRS_BUILD_LIVE=${{ inputs.live && 'ON' || 'OFF' }} -DMRS_BUILD_ASIO=OFF -DMRS_BUILD_ARA=OFF -DMRS_BUILD_JUCE_UI=ON -DMRS_BUILD_VST3=ON "-DMRS_JUCE_SDK_ROOT=$pwd/build/sdk/juce" "-DMRS_VST3_SDK_ROOT=$pwd/build/sdk/vst3"
           if($LASTEXITCODE){throw 'GUI compile configure failed'}
       - name: Generate and compile binary-data headers
         shell: pwsh
@@ -57,3 +75,7 @@ jobs:
           if(-not $msbuild){throw 'MSBuild.exe not found in installed Visual Studio'}
           & $msbuild build/gui-compile/MoonRiverStudioJuce.vcxproj /t:ClCompile /p:Configuration=Release /p:Platform=x64 /p:BuildProjectReferences=false /m:2 /verbosity:minimal
           if($LASTEXITCODE){throw 'JUCE GUI MSVC compilation failed'}
+          if('${{ inputs.live }}' -eq 'true'){
+            & $msbuild build/gui-compile/MRLiveJuce.vcxproj /t:ClCompile /p:Configuration=Release /p:Platform=x64 /p:BuildProjectReferences=false /m:2 /verbosity:minimal
+            if($LASTEXITCODE){throw 'Live GUI MSVC compilation failed'}
+          }
