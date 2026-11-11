@@ -44,7 +44,7 @@ def latest_runs_by_workflow(runs, sha):
 
 def gui_affecting_path(path):
     """Keep this path contract aligned with windows-juce-gui-compile.yml."""
-    return path.startswith(("apps/studio-juce/", "apps/studio-desktop/include/", "assets/ui/", "cmake/")) or path in {
+    return path.startswith(("apps/studio-juce/src/", "apps/studio-desktop/include/", "cmake/")) or path in {
         "CMakeLists.txt", "tools/ci/Prepare-Sdks.ps1", "tools/ci/sdk-lock.json",
         ".github/workflows/windows-juce-gui-compile.yml",
     }
