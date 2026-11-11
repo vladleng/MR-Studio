@@ -22,7 +22,7 @@ permissions:
 # Cancel obsolete runs of this workflow on the same PR or branch.
 # Keep manual checks with distinct selections independent.
 concurrency:
-  group: ${{ github.workflow }}-fast-core-${{ github.event.pull_request.number || github.ref }}-${{ inputs.checks || 'profile' }}
+  group: ${{ github.workflow }}-fast-core-${{ github.event.pull_request.number || github.ref }}-${{ inputs.checks || 'profile' }}-${{ github.workflow == 'Windows Studio Release' && github.run_id || '' }}
   cancel-in-progress: true
 jobs:
   contracts:

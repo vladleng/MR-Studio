@@ -10,7 +10,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ${{ github.workflow }}-transcription-runtime-${{ github.ref }}
+  group: ${{ github.workflow }}-transcription-runtime-${{ github.ref }}-${{ github.workflow == 'Windows Studio Release' && github.run_id || '' }}
   cancel-in-progress: true
 jobs:
   runtime:

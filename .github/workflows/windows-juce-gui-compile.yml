@@ -42,7 +42,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ${{ github.workflow }}-windows-juce-gui-compile-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-windows-juce-gui-compile-${{ github.event.pull_request.number || github.ref }}-${{ github.workflow == 'Windows Studio Release' && github.run_id || '' }}
   cancel-in-progress: true
 jobs:
   compile:
