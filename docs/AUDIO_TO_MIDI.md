@@ -71,6 +71,16 @@ No technical markers are inserted into the musical timeline. Undo/Redo and Save/
 #368 acceptance covered MR Studio 0.10.2-fix5 and its recorded CI/Windows user validation (see [#368](https://github.com/vladleng/MR-Studio/issues/368) and [PR #382](https://github.com/vladleng/MR-Studio/pull/382)). No new physical ASIO/DPI measurements or universal model-quality guarantee are claimed by this document. Any additional models, velocity estimation or revised import UI require separate verification.
 
 
+## Общие границы конвертации и размещения
+
+- Audio-to-MIDI — **внешняя фонова́я операция**, не часть ASIO/ARA/JUCE audio callback. Контроллер отделяет живой ProjectStore/GUI/AudioEngine от worker; cancellation/timeout/crash не создают частично размещённого MIDI.
+- Для выбранного **обрезанного аудиоклипа или готового stem** берётся фактически слышимый диапазон PCM, а не скрытый полный исходный WAV. Оригинал не изменяется. Source offset, clip/sample rate и позиция на таймлайне должны оставаться согласованными после resampling/чанков.
+- Проект, клип, revision, источник и выбранный PCM проверяются до публикации результата и ещё раз перед размещением; устаревшие результаты отклоняются. Повторная конвертация не стирает ранее размещённые партии.
+- Распознанные партии становятся **обычными MIDI tracks/clips** с устойчивыми ID. Размещение через один undoable Command; Save/Open/Undo/Redo сохраняют обычные гарантийные механизмы проекта. Не привязывать автоматически VSTi/внешний MIDI-порт при отсутствии явного запроса.
+- Исходный MIDI timing сохраняется без скрытого квантайза. Модель не распознаёт выразительную velocity: используется default 100. Пустой результат валиден как отсутствие нот, а не как повод создать пустой клип.
+- Установку, права на веса, verify/remove, сохранность модельных файлов и приоритет фоновой задачи обеспечивают отдельные model/worker компоненты. Не копировать закрытые веса, секреты или пользовательские WAV в артефакты.
+- Реальный доступный набор UI действий и режимы выбора партий сверять с актуальным кодом и [#342](https://github.com/vladleng/MR-Studio/issues/342). Новый drag & drop workflow и другие модели **не объявляются реализованными** этой спецификацией.
+
 ## Исторический C++ HOT-Step
 
 Удалённый native backend и результаты прежних A/B сравнений документированы в [Issue #346](https://github.com/vladleng/MR-Studio/issues/346), [Issue #368](https://github.com/vladleng/MR-Studio/issues/368) и истории Git этого файла. **Не возвращать HOT-Step в продукт по этой справке.**
