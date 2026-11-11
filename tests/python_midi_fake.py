@@ -10,6 +10,10 @@ import time
 p=argparse.ArgumentParser()
 p.add_argument('--model');p.add_argument('--transcribe');p.add_argument('--out');p.add_argument('--threads',type=int);p.add_argument('--options');p.add_argument('--instruments',nargs='*',default=[])
 a=p.parse_args()
+# Real MuScriptor imports pathlib.Path.home() before loading the model. The
+# isolated child must have a valid private home even without parent profile vars.
+assert Path.home().is_dir()
+assert Path.home().resolve()==Path(a.out).parent.resolve(), 'worker home is missing or inherited'
 assert 'HF_TOKEN' not in os.environ
 assert os.environ['HF_HUB_OFFLINE']=='1'
 assert os.environ['OMP_NUM_THREADS']==str(a.threads)

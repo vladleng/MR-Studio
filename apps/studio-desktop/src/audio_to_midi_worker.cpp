@@ -154,6 +154,9 @@ struct Child {
         // Explicit allowlist: no inherited HF_TOKEN, proxy credentials, probe
         // variables, GPU overrides or Python paths reach the native child.
         std::vector<std::wstring> vars{L"GGML_BACKEND=CPU",L"GGML_N_THREADS="+std::to_wstring(r.cpu_threads),L"OMP_NUM_THREADS="+std::to_wstring(r.cpu_threads),L"PATH="+root+L"\\System32",L"SystemRoot="+root,L"TEMP="+work.wstring(),L"TMP="+work.wstring(),L"WINDIR="+root,L"ATEN_CPU_CAPABILITY="+std::wstring(r.compatibility_cpu||!optimized_cpu_available()?L"default":L"avx2"),L"ONEDNN_MAX_CPU_ISA="+std::wstring(r.compatibility_cpu||!optimized_cpu_available()?L"SSE41":L"AVX2"),L"MKL_ENABLE_INSTRUCTIONS="+std::wstring(r.compatibility_cpu||!optimized_cpu_available()?L"SSE4_2":L"AVX2"),L"HF_HUB_OFFLINE=1",L"HF_HUB_DISABLE_TELEMETRY=1",L"TORCH_HOME="+(r.executable.parent_path()/"torch-cache").wstring(),L"MKL_NUM_THREADS="+std::to_wstring(r.cpu_threads),L"OPENBLAS_NUM_THREADS="+std::to_wstring(r.cpu_threads)};
+        // MuScriptor/Hugging Face resolve Path.home() during import. Use the
+        // private job folder, never inherit the user's profile or credentials.
+        if(r.backend==Backend::python_medium){vars.push_back(L"USERPROFILE="+work.wstring());vars.push_back(L"HOME="+work.wstring());}
         std::vector<wchar_t> env;for(const auto& v:vars){env.insert(env.end(),v.begin(),v.end());env.push_back(0);}env.push_back(0);
         PROCESS_INFORMATION info{};
         need(CreateProcessW(r.executable.c_str(),command.data(),nullptr,nullptr,TRUE,CREATE_NO_WINDOW|BELOW_NORMAL_PRIORITY_CLASS|CREATE_SUSPENDED|CREATE_UNICODE_ENVIRONMENT|EXTENDED_STARTUPINFO_PRESENT,env.data(),work.c_str(),&start.StartupInfo,&info)!=FALSE,"process_start");
@@ -187,6 +190,7 @@ struct Child {
         auto args=arguments(r,work);args.insert(args.begin(),r.executable.string());
         std::vector<char*> argv;for(auto& arg:args)argv.push_back(arg.data());argv.push_back(nullptr);
         std::vector<std::string> vars{"GGML_BACKEND=CPU","GGML_N_THREADS="+std::to_string(r.cpu_threads),"OMP_NUM_THREADS="+std::to_string(r.cpu_threads),"PATH=/usr/bin:/bin","TMPDIR="+work.string(),std::string("ATEN_CPU_CAPABILITY=")+(r.compatibility_cpu||!optimized_cpu_available()?"default":"avx2"),std::string("ONEDNN_MAX_CPU_ISA=")+(r.compatibility_cpu||!optimized_cpu_available()?"SSE41":"AVX2"),std::string("MKL_ENABLE_INSTRUCTIONS=")+(r.compatibility_cpu||!optimized_cpu_available()?"SSE4_2":"AVX2"),"HF_HUB_OFFLINE=1","TORCH_HOME="+(r.executable.parent_path()/"torch-cache").string(),"MKL_NUM_THREADS="+std::to_string(r.cpu_threads),"OPENBLAS_NUM_THREADS="+std::to_string(r.cpu_threads)};
+        if(r.backend==Backend::python_medium)vars.push_back("HOME="+work.string());
         std::vector<char*> env;for(auto& v:vars)env.push_back(v.data());env.push_back(nullptr);
         const auto exe=r.executable.string(),cwd=work.string();const rlimit limit{static_cast<rlim_t>(r.memory_bytes),static_cast<rlim_t>(r.memory_bytes)};
         pid=fork();need(pid>=0,"process_start");
