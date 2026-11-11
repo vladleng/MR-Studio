@@ -28,7 +28,21 @@ juce::String sha(const juce::File& file) {
     return juce::SHA256(*input).toHexString();
 }
 juce::String textHash(const juce::String& text) { const auto bytes = text.toUTF8(); return juce::SHA256(bytes.getAddress(), text.getNumBytesAsUTF8()).toHexString(); }
-bool plain(const juce::File& f) { const auto a=GetFileAttributesW(f.getFullPathName().toWideCharPointer()); return a!=INVALID_FILE_ATTRIBUTES && !(a&FILE_ATTRIBUTE_REPARSE_POINT); }
+juce::File extendedFile(const juce::File& f) {
+    // Python wheels contain headers/test data beyond MAX_PATH, particularly
+    // under a private installation stage. Keep the reparse-point guard while
+    // using the extended Win32 spelling supported by JUCE's own file I/O.
+    std::wstring native(f.getFullPathName().toWideCharPointer());
+    if(!native.starts_with(L"\\\\?\\")){
+        if(native.starts_with(L"\\\\"))native=L"\\\\?\\UNC\\"+native.substr(2);
+        else native=L"\\\\?\\"+native;
+    }
+    return juce::File(juce::String(native.c_str()));
+}
+bool plain(const juce::File& f) {
+    const auto a=GetFileAttributesW(extendedFile(f).getFullPathName().toWideCharPointer());
+    return a!=INVALID_FILE_ATTRIBUTES && !(a&FILE_ATTRIBUTE_REPARSE_POINT);
+}
 bool relativeName(const juce::String& name) {
     if(name.isEmpty() || name.containsChar(':') || name.startsWithChar('/') || name.startsWithChar('\\'))return false;
     const auto parts=juce::StringArray::fromTokens(name.replaceCharacter('\\','/'),"/","");
@@ -36,11 +50,13 @@ bool relativeName(const juce::String& name) {
     return true;
 }
 bool leaf(const juce::String& name) { return relativeName(name) && !name.containsAnyOf("/\\") && name.length()<=128; }
-void walk(const juce::File& root, const juce::File& dir, std::vector<juce::File>& files, int depth=0) {
+void walk(const juce::File& root, const juce::File& dir, std::vector<juce::File>& files, int depth=0,bool diagnostics=false) {
+    if(diagnostics&&!(depth<40&&plain(dir)))std::fprintf(stderr,"Runtime inventory directory rejected: %s depth=%d attrs=%lu\n",dir.getFullPathName().toRawUTF8(),depth,static_cast<unsigned long>(GetFileAttributesW(dir.getFullPathName().toWideCharPointer())));
     need(depth<40 && plain(dir),"unsafe_path");
     for(const auto& child:dir.findChildFiles(juce::File::findFilesAndDirectories,false)) {
+        if(diagnostics&&!(plain(child)&&child.isAChildOf(root)))std::fprintf(stderr,"Runtime inventory child rejected: %s child=%d attrs=%lu\n",child.getFullPathName().toRawUTF8(),child.isAChildOf(root)?1:0,static_cast<unsigned long>(GetFileAttributesW(child.getFullPathName().toWideCharPointer())));
         need(plain(child) && child.isAChildOf(root),"unsafe_path");
-        if(child.isDirectory())walk(root,child,files,depth+1);else files.push_back(child);
+        if(child.isDirectory())walk(root,child,files,depth+1,diagnostics);else files.push_back(child);
         need(files.size()<=100000,"resource_limit");
     }
 }
@@ -52,8 +68,8 @@ juce::var manifest(const juce::File& dir,const juce::String& identity) {
     need(value.isObject() && static_cast<int>(value["schema"])==1 && value["identity"].toString()==identity && value["files"].isArray(),"unmanaged_installation");
     return value;
 }
-void inventory(const juce::File& dir,const juce::String& identity,const juce::var& provenance,const std::atomic<bool>& stop) {
-    std::vector<juce::File> files; walk(dir,dir,files);
+void inventory(const juce::File& dir,const juce::String& identity,const juce::var& provenance,const std::atomic<bool>& stop,bool diagnostics=false) {
+    std::vector<juce::File> files; walk(dir,dir,files,0,diagnostics);
     juce::Array<juce::var> entries;
     for(const auto& f:files) {
         check(stop); need(f.getFileName()!="managed.json","invalid_inventory");
@@ -62,15 +78,15 @@ void inventory(const juce::File& dir,const juce::String& identity,const juce::va
     auto value=object();put(value,"schema",1);put(value,"identity",identity);put(value,"provenance",provenance);put(value,"files",juce::var(entries));
     need(dir.getChildFile("managed.json").replaceWithText(juce::JSON::toString(value,true)),"io_error");
 }
-void verifyInventory(const juce::File& dir,const juce::String& id,const std::atomic<bool>& stop,bool hashes) {
+void verifyInventory(const juce::File& dir,const juce::String& id,const std::atomic<bool>& stop,bool hashes,bool diagnostics=false) {
     const auto value=manifest(dir,id); std::set<juce::String> expected{"managed.json"};
     for(const auto& entry:*value["files"].getArray()) {
-        check(stop);const auto path=entry["path"].toString();need(relativeName(path)&&expected.insert(path).second,"unsafe_path");
+        check(stop);const auto path=entry["path"].toString();const bool safe=relativeName(path)&&expected.insert(path).second;if(diagnostics&&!safe)std::fprintf(stderr,"Runtime inventory invalid/duplicate relative entry: %s\n",path.toRawUTF8());need(safe,"unsafe_path");
         const auto f=dir.getChildFile(path);
         if(f.exists()){need(f.existsAsFile()&&plain(f),"integrity_failure");if(hashes)need(sha(f)==entry["sha256"].toString(),"integrity_failure");}
         else need(!hashes,"integrity_failure");
     }
-    std::vector<juce::File> files;walk(dir,dir,files);
+    std::vector<juce::File> files;walk(dir,dir,files,0,diagnostics);
     for(const auto& f:files)need(expected.count(f.getRelativePathFrom(dir).replaceCharacter('\\','/'))!=0,"unmanaged_files");
 }
 struct Internet { HINTERNET h{}; ~Internet(){if(h)WinHttpCloseHandle(h);} };
@@ -84,7 +100,7 @@ void fetchHttps(const DownloadArtifact& artifact,const juce::File& target,const 
         if(juce::SystemStats::getEnvironmentVariable("MR_SEPARATION_DIAGNOSTICS",{})=="1")
             std::fprintf(stderr,"model download host: %s (redirect %d)\n",host.toRawUTF8(),redirects);
         need(parts.nScheme==INTERNET_SCHEME_HTTPS && parts.nPort==443 && parts.dwUserNameLength==0 && parts.dwPasswordLength==0 &&
-             (host=="www.python.org"||host=="raw.githubusercontent.com"||host=="github.com"||host=="release-assets.githubusercontent.com"||host=="objects.githubusercontent.com"||host=="dl.fbaipublicfiles.com"||host=="huggingface.co"||host=="cdn-lfs.huggingface.co"||host=="cdn-lfs-us-1.hf.co"||host=="cas-bridge.xethub.hf.co"||host=="us.aws.cdn.hf.co"),"download_url");
+             (host=="codeload.github.com"||host=="cloud.cp.jku.at"||host=="www.python.org"||host=="raw.githubusercontent.com"||host=="github.com"||host=="release-assets.githubusercontent.com"||host=="objects.githubusercontent.com"||host=="dl.fbaipublicfiles.com"||host=="huggingface.co"||host=="cdn-lfs.huggingface.co"||host=="cdn-lfs-us-1.hf.co"||host=="cas-bridge.xethub.hf.co"||host=="us.aws.cdn.hf.co"),"download_url");
         const auto path=juce::String(parts.lpszUrlPath,static_cast<int>(parts.dwUrlPathLength))+juce::String(parts.lpszExtraInfo,static_cast<int>(parts.dwExtraInfoLength));
         Internet session{WinHttpOpen(L"MR-Studio-Separation/0.9.3",WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0)};
         need(session.h!=nullptr,"network_error");WinHttpSetTimeouts(session.h,10000,10000,10000,10000);
@@ -122,6 +138,11 @@ constexpr auto requirementsHash="0184624b3268c94f6e98fa0ccefa3fcdef614a719911f72
 struct UseLease { HANDLE handle{INVALID_HANDLE_VALUE}; ~UseLease(){if(handle!=INVALID_HANDLE_VALUE)CloseHandle(handle);} };
 struct Staging { juce::File dir; bool owned{}; ~Staging(){if(owned&&dir!=juce::File())dir.deleteRecursively();} };
 }
+
+void fetchRuntimeArtifact(const DownloadArtifact& artifact,const juce::File& target,const std::atomic<bool>& stop){fetchHttps(artifact,target,stop,[](auto,auto){});need(sha(target)==artifact.sha256,"integrity_failure");}
+juce::File nativeRuntimeFile(const juce::File& file){return extendedFile(file);}
+void publishRuntimeInventory(const juce::File& dir,const juce::String& identity,const juce::var& provenance,const std::atomic<bool>& stop){inventory(extendedFile(dir),identity,provenance,stop,true);}
+void verifyRuntimeInventory(const juce::File& dir,const juce::String& identity,const std::atomic<bool>& stop,bool hashes){verifyInventory(extendedFile(dir),identity,stop,hashes,true);}
 
 const std::vector<ModelRecord>& modelCatalogue() {
     static const auto records=[]{
@@ -190,14 +211,16 @@ std::shared_ptr<void> ModelManager::lease(const juce::String& id,bool exclusive)
     result->handle=CreateFileW(file.getFullPathName().toWideCharPointer(),exclusive?GENERIC_READ|GENERIC_WRITE:GENERIC_READ,exclusive?0:FILE_SHARE_READ,nullptr,OPEN_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
     need(result->handle!=INVALID_HANDLE_VALUE,"in_use");return result;
 }
-void ModelManager::scan() {
-    phase("Checking local files");std::vector<ModelState> models;
+void ModelManager::scan(bool fullHashes,juce::String verifiedModel) {
+    const auto previous=status();
+    phase(fullHashes||verifiedModel.isNotEmpty()?"Verifying model files":"Checking installed models");std::vector<ModelState> models;
     for(const auto& r:catalogue_) {
         ModelState item{r,InstallationState::downloadable,{}};
         if(r.unsupportedReason.isNotEmpty()){item.state=InstallationState::unsupported;item.reason=r.unsupportedReason;}
         else {const auto dir=modelsPath().getChildFile(r.id);if(dir.exists()){
             item.state=InstallationState::installed;
-            try{manifest(dir,r.id);for(const auto& f:r.files){check(cancelled_);const auto path=dir.getChildFile(f.name);need(path.existsAsFile()&&plain(path)&&path.getSize()==f.bytes&&sha(path)==f.sha256,"integrity_failure");}}
+            try{manifest(dir,r.id);for(const auto& f:r.files){check(cancelled_);const auto path=dir.getChildFile(f.name);need(path.existsAsFile()&&plain(path)&&path.getSize()==f.bytes,"integrity_failure");if(fullHashes||verifiedModel==r.id)need(sha(path)==f.sha256,"integrity_failure");}
+                if(!fullHashes&&verifiedModel!=r.id)for(const auto& old:previous.models)if(old.record.id==r.id&&old.state==InstallationState::corrupt){item.state=old.state;item.reason=old.reason;break;}}
             catch(const Error& e){if(e.code=="cancelled")throw;item.state=InstallationState::corrupt;item.reason=e.code;}
         }}models.push_back(std::move(item));
     }
@@ -211,7 +234,8 @@ void ModelManager::scan() {
     }
     std::lock_guard lock(mutex_);status_.models=std::move(models);status_.runtime=runtime;scanned_=true;
 }
-bool ModelManager::refresh(){return start("refresh",[this]{scan();});}
+bool ModelManager::refresh(){return start("refresh",[this]{scan(true);});}
+bool ModelManager::verifyModel(const juce::String& id){return start("verify_model",[this,id]{(void)record(id);scan(false,id);});}
 bool ModelManager::refreshIfNeeded(){return start("refresh",[this]{scan();},true);}
 void ModelManager::install(const ModelRecord& r) {
     need(r.unsupportedReason.isEmpty()&&!r.files.empty(),"unsupported_model");ensureRoot();auto use=lease(r.id,true);

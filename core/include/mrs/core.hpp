@@ -22,7 +22,7 @@ inline constexpr Tick ppq = 960;
 inline constexpr std::size_t max_project_midi_notes = 32768;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 34;
+inline constexpr std::uint32_t schema_version = 35;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -301,6 +301,14 @@ struct SeparationResult {
     bool operator==(const SeparationResult&) const = default;
 };
 bool legacy_separation(const SeparationResult&);
+// Hidden transcription audit; ordinary MIDI clips own all playable note data.
+// References survive editing/deleting clips, like separation source provenance.
+struct TranscriptionRecord {
+    Id id, source_clip;
+    std::vector<Id> midi_clips;
+    std::string provenance;
+    bool operator==(const TranscriptionRecord&) const = default;
+};
 struct Project {
     static constexpr float minimum_master_gain=0,maximum_master_gain=16,initial_master_gain=1;
     std::uint32_t version{schema_version};
@@ -320,6 +328,7 @@ struct Project {
     std::vector<NativeInsert> master_inserts{};
     std::vector<AraBinding> ara_bindings;
     std::vector<SeparationResult> separation_results;
+    std::vector<TranscriptionRecord> transcription_results;
     void validate() const;
     bool operator==(const Project&) const = default;
 };

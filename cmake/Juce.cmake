@@ -32,6 +32,19 @@ list(APPEND concept_controls "${PROJECT_SOURCE_DIR}/assets/ui/icons/transport/me
 juce_add_binary_data(mrs_concept_assets NAMESPACE MRConceptAssets HEADER_NAME MRConceptAssets.h SOURCES ${concept_icons} ${concept_controls})
 target_link_libraries(mrs_juce_assets PUBLIC mrs_concept_assets)
 juce_add_gui_app(MoonRiverStudioJuce VERSION ${PROJECT_VERSION} PRODUCT_NAME "Moon River Studio JUCE")
+target_link_libraries(MoonRiverStudioJuce PRIVATE mrs_transcription_worker)
+target_include_directories(MoonRiverStudioJuce PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+target_sources(MoonRiverStudioJuce PRIVATE apps/studio-juce/src/TranscriptionView.cpp)
+target_compile_definitions(MoonRiverStudioJuce PRIVATE MRS_TRANSCRIPTION_UI=1)
+add_custom_command(TARGET MoonRiverStudioJuce POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PROJECT_SOURCE_DIR}/tools/transcription/worker.py" "$<TARGET_FILE_DIR:MoonRiverStudioJuce>/mr_transcription_worker.py"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PROJECT_SOURCE_DIR}/tools/transcription/requirements-cpu.txt" "$<TARGET_FILE_DIR:MoonRiverStudioJuce>/mr_transcription_requirements.txt")
+
+if(BUILD_TESTING)
+  add_dependencies(MoonRiverStudioJuce mrs_ace_midi_fake)
+  add_test(NAME juce_transcription COMMAND MoonRiverStudioJuce --transcription-smoke $<TARGET_FILE:mrs_ace_midi_fake>)
+  set_tests_properties(juce_transcription PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+endif()
 # Accepted Track Header layout is shipped as a self-contained, immutable GUI resource.
 # No external JSON is required for normal Release startup; developer overrides remain opt-in.
 juce_add_binary_data(mrs_track_header_layout
@@ -307,6 +320,7 @@ if(MRS_BUILD_LIVE)
 get_target_property(mrs_live_host_sources MoonRiverStudioJuce SOURCES)
 list(FILTER mrs_live_host_sources EXCLUDE REGEX "(^|/)Main\\.cpp$")
 list(FILTER mrs_live_host_sources EXCLUDE REGEX "JuceLibraryCode/")
+list(FILTER mrs_live_host_sources EXCLUDE REGEX "(^|/)TranscriptionView\\.cpp$")
 get_target_property(mrs_live_host_links MoonRiverStudioJuce LINK_LIBRARIES)
 # ARA is an opt-in Studio editing feature, not a dependency of the Live executable.
 # The Studio desktop library has ARA through a PUBLIC link when enabled, so merely
@@ -331,6 +345,7 @@ endif()
 # Each executable owns its VERSION/identity resource; never link Studio's RC into Live.
 list(REMOVE_ITEM mrs_live_host_links MoonRiverStudioJuce_rc_lib)
 get_target_property(mrs_live_host_definitions MoonRiverStudioJuce COMPILE_DEFINITIONS)
+list(FILTER mrs_live_host_definitions EXCLUDE REGEX "^MRS_TRANSCRIPTION_UI=")
 get_target_property(mrs_live_host_options MoonRiverStudioJuce COMPILE_OPTIONS)
 juce_add_gui_app(MRLiveJuce VERSION 0.9.2 PRODUCT_NAME "MR Live")
 target_sources(MRLiveJuce PRIVATE ${mrs_live_host_sources} apps/studio-juce/src/LiveMain.cpp)

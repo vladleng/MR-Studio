@@ -86,20 +86,25 @@ std::shared_ptr<ProjectResult> deliver(const ProjectInput& input,Result raw,std:
 ProjectMedia::~ProjectMedia(){if(directory!=juce::File()&&(!persistent||!accepted.load()))try{retire(directory);}catch(...){} }
 ProjectJob::ProjectJob(std::shared_ptr<ModelManager> manager,Processor processor):manager_(std::move(manager)),processor_(std::move(processor)){}
 ProjectJob::~ProjectJob(){cancel();if(thread_.joinable())thread_.join();}
-Status ProjectJob::status() const{std::lock_guard lock(mutex_);return status_;}
+Status ProjectJob::status() const{
+    std::lock_guard lock(mutex_);auto copy=status_;
+    if(copy.state==State::running)copy.elapsedSeconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-began_).count();
+    return copy;
+}
 void ProjectJob::phase(juce::String value){std::lock_guard lock(mutex_);status_.phase=std::move(value);}
 void ProjectJob::cancel(){stop_.request_stop();std::lock_guard lock(mutex_);if(status_.state==State::ready){outcome_.reset();status_.state=State::cancelled;status_.phase="Cancelled";}}
 std::optional<ProjectOutcome> ProjectJob::take(){std::lock_guard lock(mutex_);if(status_.state!=State::ready)return {};auto out=std::move(outcome_);outcome_.reset();status_.state=State::idle;return out;}
-bool ProjectJob::begin(std::function<ProjectOutcome(std::stop_token)> action){
+bool ProjectJob::begin(std::function<ProjectOutcome(std::stop_token)> action,unsigned cpuThreads){
     {std::lock_guard lock(mutex_);if(status_.state==State::running)return false;}
     if(thread_.joinable())thread_.join();stop_=std::stop_source{};
-    {std::lock_guard lock(mutex_);outcome_.reset();status_={State::running,{},"Starting",{},"cpu"};}
+    {std::lock_guard lock(mutex_);outcome_.reset();began_=std::chrono::steady_clock::now();status_={State::running,{},"Starting",{},"cpu"};status_.cpuThreads=cpuThreads;}
     try{thread_=std::thread([this,action=std::move(action),stop=stop_.get_token()]{
-        try{auto out=action(stop);std::lock_guard lock(mutex_);check(stop);outcome_=std::move(out);status_.state=State::ready;status_.phase="Ready";}
-        catch(const std::exception& e){std::lock_guard lock(mutex_);status_.state=stop.stop_requested()?State::cancelled:State::failed;status_.phase=stop.stop_requested()?"Cancelled":"Failed";status_.error=juce::String::fromUTF8(e.what());}
+        try{auto out=action(stop);std::lock_guard lock(mutex_);check(stop);outcome_=std::move(out);status_.elapsedSeconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-began_).count();status_.state=State::ready;status_.phase="Ready";}
+        catch(const std::exception& e){std::lock_guard lock(mutex_);status_.elapsedSeconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-began_).count();status_.state=stop.stop_requested()?State::cancelled:State::failed;status_.phase=stop.stop_requested()?"Cancelled":"Failed";status_.error=juce::String::fromUTF8(e.what());}
     });}catch(...){std::lock_guard lock(mutex_);status_.state=State::failed;status_.error="Cannot start separation service";return false;}return true;
 }
 Result ProjectJob::process(const ProjectInput& input,std::stop_token stop){
+    need(input.cpuThreads>=1&&input.cpuThreads<=32,"Invalid CPU thread selection");
     if(processor_)return processor_(input,stop);
     need(manager_!=nullptr,"Open Model Manager and install the CPU runtime and HTDemucs");
     phase("Checking source and installed model");check(stop);need(!input.clip.midi&&!input.clip.stretch,"Reset Time / Pitch before separating");plainChain(file(input.source));
@@ -111,12 +116,12 @@ Result ProjectJob::process(const ProjectInput& input,std::stop_token stop){
     auto installation=manager_->acquire(input.model,Device::cpu);
     Runner runner(installation.runner);Request request;request.source=file(input.source);request.modelDirectory=installation.modelDirectory;
     request.timeout=std::chrono::seconds(std::clamp<mrs::Sample>(input.clip.length/input.rate*30+600,1800,21600));
-    request.selectedStems=input.selectedStems;request.modelId=input.model;request.chunk=input.chunk;request.sessionId=input.session;request.sourceRevision=input.revision;request.sourceStart=input.clip.source_offset;request.sourceFrames=input.clip.length;request.timelineStart=input.clip.start;request.projectRate=static_cast<int>(input.rate);
+    request.cpuThreads=input.cpuThreads;request.selectedStems=input.selectedStems;request.modelId=input.model;request.chunk=input.chunk;request.sessionId=input.session;request.sourceRevision=input.revision;request.sourceStart=input.clip.source_offset;request.sourceFrames=input.clip.length;request.timelineStart=input.clip.start;request.projectRate=static_cast<int>(input.rate);
     need(runner.start(std::move(request)),"Separation service is busy");
-    for(;;){const auto s=runner.status();{std::lock_guard lock(mutex_);status_.phase=s.phase;status_.completed=s.completed;status_.total=s.total;status_.currentPass=s.currentPass;status_.passes=s.passes;}if(s.state!=State::running){if(s.state==State::ready){auto result=runner.take();need(result.has_value(),"Missing separation result");return std::move(*result);}throw std::runtime_error(s.error.toStdString());}
+    for(;;){const auto s=runner.status();{std::lock_guard lock(mutex_);status_.cpuThreads=s.cpuThreads;status_.cpuCapability=s.cpuCapability;status_.phase=s.phase;status_.completed=s.completed;status_.total=s.total;status_.currentPass=s.currentPass;status_.passes=s.passes;}if(s.state!=State::running){if(s.state==State::ready){auto result=runner.take();need(result.has_value(),"Missing separation result");return std::move(*result);}throw std::runtime_error(s.error.toStdString());}
         if(stop.stop_requested())runner.cancel();std::this_thread::sleep_for(std::chrono::milliseconds(20));}
 }
-bool ProjectJob::separate(ProjectInput input){return begin([this,input=std::move(input)](std::stop_token stop){auto raw=process(input,stop);phase("Verifying and keeping project assets");return ProjectOutcome{deliver(input,std::move(raw),stop),{}};});}
+bool ProjectJob::separate(ProjectInput input){if(input.cpuThreads<=32)input.cpuThreads=chooseCpuThreads(input.cpuThreads);const auto threads=input.cpuThreads;return begin([this,input=std::move(input)](std::stop_token stop){auto raw=process(input,stop);phase("Verifying and keeping project assets");return ProjectOutcome{deliver(input,std::move(raw),stop),{}};},threads);}
 bool ProjectJob::preparePlacement(mrs::SeparationResult expected,std::vector<fs::path> paths,std::shared_ptr<void> guard){
     return begin([this,expected=std::move(expected),paths=std::move(paths),guard=std::move(guard)](std::stop_token stop){
         phase("Checking result files");need(paths.size()==expected.stems.size()+1,"Missing separation file references");ProjectPlacement prepared;prepared.expected=expected;

@@ -36,7 +36,7 @@ if mode == "missing_model":
     sys.exit(0)
 
 if mode in ("progress", "bad_progress"):
-    send("progress", 2, job_id=req["job_id"], phase="inference", completed="1" if mode == "progress" else "3", total="2", current_pass="1", passes="1")
+    send("progress", 2, job_id=req["job_id"], phase="inference", torch_cpu_capability="AVX2 (fixture)", torch_intraop_threads=int(req["threads"]), completed="1" if mode == "progress" else "3", total="2", current_pass="1", passes="1")
     time.sleep(0.1)
 
 result = Path.cwd() / "result"
@@ -47,7 +47,7 @@ manifest = {"version": 1, "job_id": req["job_id"], "session_id": req["session_id
             "source_revision": mode, "source_sha256": req["source_sha256"], "source_rate": str(rate),
             "source_frames": str(frames), "source_start": req["source_start"],
             "timeline_start": req["timeline_start"], "project_rate": str(rate),
-            "backend_version": "0.48.0", "model": "official-htdemucs-derived-2-v1",
+            "configured_threads": int(req["threads"]), "backend_version": "0.48.0", "model": "official-htdemucs-derived-2-v1",
             "effective_device": "cpu", "outputs": []}
 for stem in ("vocals", "instrumental"):
     path = result / (stem + ".wav")

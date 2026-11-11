@@ -2,6 +2,7 @@
 #include "SeparationModels.h"
 #include <juce_cryptography/juce_cryptography.h>
 #include <mrs/audio.hpp>
+#include <mrs/audio_to_midi_worker.hpp>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -229,6 +230,10 @@ ProcessResult runLocalProcess(const juce::File& executable, const juce::StringAr
     return result;
 }
 
+unsigned chooseCpuThreads(unsigned requested) {
+    if (requested) return mrs::transcription::choose_cpu_threads(requested);
+    return static_cast<unsigned>(std::max(1, std::min(4, static_cast<int>(mrs::transcription::available_cpu_threads()) - 2)));
+}
 Runner::Runner(Configuration config) : config_(std::move(config)) {}
 Runner::~Runner() { cancel(); if (thread_.joinable()) thread_.join(); }
 bool Runner::start(Request request) {
@@ -236,7 +241,8 @@ bool Runner::start(Request request) {
     if (thread_.joinable()) thread_.join();
     cancelled_.store(false);
     const auto id = juce::Uuid().toString();
-    { std::lock_guard lock(mutex_); status_ = {State::running, id, "queued", {}, {}}; diagnostics_.clear(); }
+    if (request.cpuThreads <= 32) request.cpuThreads = chooseCpuThreads(request.cpuThreads);
+    { std::lock_guard lock(mutex_); began_ = Clock::now(); status_ = {State::running, id, "queued", {}, {}}; status_.cpuThreads = request.cpuThreads; diagnostics_.clear(); }
     try {
         thread_ = std::thread([this, request = std::move(request), id]() mutable { run(std::move(request), id); });
     } catch (...) {
@@ -246,7 +252,11 @@ bool Runner::start(Request request) {
     return true;
 }
 void Runner::cancel() noexcept { cancelled_.store(true); }
-Status Runner::status() const { std::lock_guard lock(mutex_); return status_; }
+Status Runner::status() const {
+    std::lock_guard lock(mutex_); auto copy = status_;
+    if (copy.state == State::running) copy.elapsedSeconds = std::chrono::duration<double>(Clock::now() - began_).count();
+    return copy;
+}
 juce::String Runner::diagnostics() const { std::lock_guard lock(mutex_); return diagnostics_; }
 std::optional<Result> Runner::take() { std::lock_guard lock(mutex_); auto result = std::move(result_); result_.reset(); return result; }
 void Runner::run(Request request, juce::String jobId) noexcept {
@@ -258,6 +268,7 @@ void Runner::run(Request request, juce::String jobId) noexcept {
     try {
         require(config_.python.existsAsFile(), "python_missing");
         require(config_.workerScript.existsAsFile(), "worker_missing");
+        require(request.cpuThreads >= 1 && request.cpuThreads <= 32, "invalid_input");
         require(request.source.existsAsFile() && request.source.getSize() <= 512LL * 1024 * 1024 &&
                 request.sourceFrames > 0 && request.sourceFrames <= 96000LL * 600 && request.sourceStart >= 0 &&
                 request.timelineStart >= 0 && request.projectRate >= 8000 && request.projectRate <= 96000 &&
@@ -289,7 +300,7 @@ void Runner::run(Request request, juce::String jobId) noexcept {
         put(message,"model",request.modelId);put(message,"chunk",request.chunk);
         put(message, "device", request.device == Device::cpu ? "cpu" : request.device == Device::cuda ? "cuda" : "auto");
         put(message, "memory_bytes", juce::String(request.memoryBytes)); put(message, "timeout_ms", juce::String(request.timeout.count()));
-        put(message, "threads", juce::String(std::max(1, std::min(4, static_cast<int>(std::thread::hardware_concurrency()) - 2))));
+        put(message, "threads", juce::String(request.cpuThreads));
         child.send(message);
         std::vector<unsigned char> bytes;
         bool hello{}, cancelSent{};
@@ -336,6 +347,10 @@ void Runner::run(Request request, juce::String jobId) noexcept {
                     const auto manifestFile = resultDirectory.getChildFile("manifest.json");
                     require(manifestFile.existsAsFile() && manifestFile.getSize() <= 49152 && plainFile(manifestFile) &&
                             juce::JSON::toString(juce::JSON::parse(manifestFile), true) == juce::JSON::toString(manifest, true), "invalid_output");
+                    require(!manifest.hasProperty("configured_threads") || static_cast<unsigned>(static_cast<int>(manifest["configured_threads"])) == request.cpuThreads, "invalid_output");
+                    put(manifest, "configured_threads", static_cast<int>(request.cpuThreads));
+                    put(manifest, "host_wall_seconds", std::chrono::duration<double>(Clock::now() - began).count());
+                    require(manifestFile.replaceWithText(juce::JSON::toString(manifest, true)), "io_error");
                     // Only verified outputs survive. All transient input/native files are discarded.
                     work.getChildFile("snapshot.wav").deleteFile();
                     work.getChildFile("native").deleteRecursively();
@@ -358,6 +373,8 @@ void Runner::run(Request request, juce::String jobId) noexcept {
                     if(chunkTotal&&status_.total&&status_.currentPass==chunkPass)require(chunkTotal==status_.total&&chunkCompleted>=status_.completed,"protocol_error");
                     status_.completed=chunkCompleted;status_.total=chunkTotal;status_.currentPass=chunkPass;status_.passes=chunkPasses;status_.phase = phase;
                     if(event.hasProperty("device"))status_.effectiveDevice = event["device"].toString();
+                    if(event.hasProperty("torch_cpu_capability"))status_.cpuCapability = event["torch_cpu_capability"].toString().substring(0, 64);
+                    if(event.hasProperty("torch_intraop_threads"))require(static_cast<int>(event["torch_intraop_threads"]) == static_cast<int>(request.cpuThreads), "invalid_output");
                 }
             }
             if (preserve) break;
@@ -371,6 +388,7 @@ void Runner::run(Request request, juce::String jobId) noexcept {
     } catch (...) {
         std::lock_guard lock(mutex_); status_.error = "backend_failure"; status_.state = State::failed;
     }
+    { std::lock_guard lock(mutex_); status_.elapsedSeconds = std::chrono::duration<double>(Clock::now() - began_).count(); }
     // Child has exited and released its cwd/files before exposing cache ownership.
     if (preserve) {
         work.getChildFile("numba-cache").deleteRecursively();

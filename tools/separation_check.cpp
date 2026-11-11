@@ -8,6 +8,10 @@
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 
 namespace {
 using namespace mr::separation;
@@ -88,6 +92,17 @@ void selfTest(const juce::File& python, const juce::File& worker) {
     Request req;
     req.source = source; req.modelDirectory = root; req.sourceFrames = 150;
     req.sourceStart = 25; req.timelineStart = 12345; req.sessionId = "session";
+    check(chooseCpuThreads()>=1&&chooseCpuThreads()<=4,"Auto preserves the accepted four-thread maximum");
+    for(const auto choice:{1U,8U,16U,32U}){
+        Runner selected({python,worker,root});req.sourceRevision="ok";req.cpuThreads=choice;
+        check(selected.start(req),"CPU selection submit");const auto configured=wait(selected);auto result=selected.take();
+        check(configured.state==State::ready&&result&&configured.cpuThreads==chooseCpuThreads(choice),"Manual threads capped to affinity");
+        check(static_cast<int>(result->manifest["configured_threads"])==static_cast<int>(configured.cpuThreads),"Worker received the selected CPU count");
+        check(configured.elapsedSeconds>0&&static_cast<double>(result->manifest["host_wall_seconds"])>0,"Completed processing times");
+        result->directory.getParentDirectory().deleteRecursively();
+    }
+    {Runner invalid({python,worker,root});req.cpuThreads=33;check(invalid.start(req),"Invalid thread fixture submit");const auto state=wait(invalid);check(state.state==State::failed&&state.error=="invalid_input","Unbounded CPU selection rejected");}
+    req.cpuThreads=1;
     for (const auto* mode : {"ok", "progress", "bad_progress", "stderr_flood", "crash", "flood", "wrong_job", "missing_model", "bad_hash", "nan", "traversal", "duplicate", "stale", "hang", "cancel"}) {
         {
             Runner runner({python, worker, root});
@@ -102,7 +117,7 @@ void selfTest(const juce::File& python, const juce::File& worker) {
             auto result = runner.take();
             if (std::string(mode) == "ok" || std::string(mode) == "progress" || std::string(mode) == "stderr_flood") {
                 check(status.state == State::ready && result.has_value(), "valid IPC/geometry/float result");
-                if(std::string(mode)=="progress")check(status.completed==1&&status.total==2&&status.currentPass==1&&status.passes==1,"structured chunk progress survives IPC");
+                if(std::string(mode)=="progress")check(status.cpuCapability=="AVX2 (fixture)"&&status.completed==1&&status.total==2&&status.currentPass==1&&status.passes==1,"structured chunk progress survives IPC");
                 check(result->manifest["timeline_start"].toString() == "12345", "original placement");
                 if (std::string(mode) == "stderr_flood")
                     check(runner.diagnostics().getNumBytesAsUTF8() <= 256 * 1024 && runner.diagnostics().isNotEmpty(), "bounded stderr tail");
@@ -175,6 +190,34 @@ void managerTests(const juce::File& requirements) {
     corrupt=false;cancel=true;check(manager.installModel(record.id),"cancel install");check(waitManager(manager).error=="cancelled","cancel state");
     check(root.getChildFile("models").findChildFiles(juce::File::findDirectories,false,".part-*").isEmpty(),"cancel staging cleanup");
     cancel=false;check(manager.installModel(record.id),"retry install");check(waitManager(manager).models.front().state==InstallationState::installed,"installed state");
+    {
+        auto other=record;other.id="fixture-other";
+        ModelManager quick(root,{},requirements,fetch,{record,other});
+        check(quick.installModel(other.id),"install second inventory fixture");check(waitManager(quick).error.isEmpty(),"second model installation");
+        struct FixtureReadLock {HANDLE handle{INVALID_HANDLE_VALUE};~FixtureReadLock(){if(handle!=INVALID_HANDLE_VALUE)CloseHandle(handle);}};
+        {
+            const auto weights=root.getChildFile("models/fixture-model/weights.bin");
+            FixtureReadLock lock{CreateFileW(weights.getFullPathName().toWideCharPointer(),GENERIC_READ,0,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr)};
+            check(lock.handle!=INVALID_HANDLE_VALUE,"hold weight file against content reads");
+            ModelManager opened(root,{},requirements,fetch,{record,other});
+            check(opened.refreshIfNeeded(),"quick panel inventory");const auto snapshot=waitManager(opened);
+            check(snapshot.models[0].state==InstallationState::installed&&snapshot.models[1].state==InstallationState::installed,"Listing must not read model contents");
+            check(!opened.refreshIfNeeded(),"Reuse quick inventory on panel reopen");
+        }
+        {
+            const auto weights=root.getChildFile("models/fixture-other/weights.bin");
+            FixtureReadLock lock{CreateFileW(weights.getFullPathName().toWideCharPointer(),GENERIC_READ,0,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr)};
+            check(lock.handle!=INVALID_HANDLE_VALUE,"hold unrelated weights against reads");
+            check(quick.verifyModel(record.id),"explicit selected model verification");const auto snapshot=waitManager(quick);
+            check(snapshot.models[0].state==InstallationState::installed&&snapshot.models[1].state==InstallationState::installed,"Verify must not hash unrelated weights");
+        }
+        const auto weights=root.getChildFile("models/fixture-model/weights.bin");
+        auto changed=content;changed=changed.replaceSection(0,1,"X");check(weights.replaceWithText(changed),"same-size corruption fixture");
+        check(quick.verifyModel(record.id),"verify same-size corruption");check(waitManager(quick).models[0].state==InstallationState::corrupt,"Full Verify must still detect modified bytes");
+        check(quick.installModel("missing-profile"),"failed operation invalidation fixture");check(waitManager(quick).error.isNotEmpty(),"fixture unsupported profile");
+        check(quick.refreshIfNeeded(),"quick refresh after failed operation");check(waitManager(quick).models[0].state==InstallationState::corrupt,"Metadata refresh must retain known corruption");
+        check(weights.replaceWithText(content),"restore synthetic model");check(quick.verifyModel(record.id),"verify restored model");check(waitManager(quick).models[0].state==InstallationState::installed,"Explicit Verify clears repaired state");
+    }
     const auto directory=root.getChildFile("models/fixture-model");const auto foreign=directory.getChildFile("user-file.txt");check(foreign.replaceWithText("do not delete"),"foreign fixture");
     check(manager.removeModel(record.id),"remove guarded cache");check(waitManager(manager).error=="unmanaged_files"&&foreign.existsAsFile(),"unmanaged files preserved");check(foreign.deleteFile(),"fixture remove own file");
     check(directory.getChildFile("weights.bin").replaceWithText("broken"),"corrupt local cache");

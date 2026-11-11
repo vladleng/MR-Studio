@@ -22,6 +22,11 @@
 namespace mrs::desktop {
 namespace {
 void require(bool ok, const char* message) { if (!ok) throw std::invalid_argument(message); }
+struct PruneMissingSeparation final:ICommand {
+    std::vector<Id> ids;
+    std::string_view name()const override{return "Remove missing separation results";}
+    void apply(Project& project)const override{for(const auto& id:ids)RemoveSeparation{id}.apply(project);}
+};
 bool same_except_clips(const Project& a,const Project& b){
     const auto fields=[](const Project& p){return std::tie(p.version,p.id,p.title,p.artist,p.sample_rate,p.time,p.folders,p.tracks,p.markers,p.chords,p.sections,p.master_gain,p.master_outputs,p.master_inserts,p.ara_bindings,p.separation_results);};
     return fields(a)==fields(b);
@@ -225,6 +230,7 @@ persistence::ProjectDocument foundation_demo() {
 }
 Application::Application(std::unique_ptr<IMidiOutputBackend> backend) : engine_(std::make_shared<audio::AudioEngine>()),external_midi_(std::make_shared<audio::ExternalMidiQueue>()) {if(backend)midi_outputs_=std::make_unique<MidiOutputs>(external_midi_,std::move(backend));demo();}
 Application::~Application() {
+    if(transcription_)transcription_->shutdown();
     midi_inputs_.reset(); // joins bridge/closes driver callbacks before engine/device retirement
     if (device_) device_->close();
     stop_wav_imports();
@@ -241,6 +247,7 @@ Application::~Application() {
 void Application::workspace(Workspace w) { (void)workspace_name(w); workspace_ = w; }
 void Application::replace(persistence::ProjectDocument next) {
     cancel_wav_import();
+    cancel_transcription();
     require_ai_owner();
     require_not_recording(); next.validate(); armed_.reset(); armed_tracks_.clear();
     // Existing MIXR channels hydrate the shared command model, including legacy archives.
@@ -548,21 +555,42 @@ void Application::save_project(const std::filesystem::path& requested) {
     }
     const auto root = path.parent_path();
     const bool relocating = !asset_root_.empty() && root != asset_root_;
-    std::set<std::string> keys, current;
-    for (const auto& clip : services_.projects->state().project->clips) if (!clip.midi && clip.source != "mrs:demo-tone") { keys.insert(clip.source); current.insert(clip.source); }
-    for(const auto& b:services_.projects->state().project->ara_bindings)if(b.source!="mrs:demo-tone")keys.insert(b.source);
-    for (const auto& [key,value] : assets_) { (void)value; if (key != "mrs:demo-tone") keys.insert(key); }
-    for(const auto& result:services_.projects->state().project->separation_results){
-        keys.insert(result.source);keys.insert(result.manifest.source);current.insert(result.manifest.source);
-        for(const auto& file:result.stems){keys.insert(file.source);current.insert(file.source);}
-    }
-    for(const auto& [key,value]:separation_files_){(void)value;keys.insert(key);}
-
     const auto resolve = [&](const std::string& key) {
         if (const auto found = owned_media_.find(key); found != owned_media_.end()) return found->second;
         auto source = std::filesystem::path(std::u8string(key.begin(),key.end()));
         return source.is_absolute() ? source : asset_root_/source;
     };
+    auto source_project=services_.projects->state().project;
+    PruneMissingSeparation cleanup;
+    const auto absent=[&](const SeparationFile& file){
+        const auto source=resolve(file.source);std::error_code error;
+        const bool exists=std::filesystem::exists(source,error);
+        if(error)throw std::filesystem::filesystem_error("Cannot inspect separation asset",source,error);
+        return !exists;
+    };
+    for(const auto& result:source_project->separation_results)
+        if(absent(result.manifest)||std::any_of(result.stems.begin(),result.stems.end(),absent))cleanup.ids.push_back(result.id);
+    std::unique_ptr<IProjectTransaction> cleanup_transaction;
+    if(!cleanup.ids.empty()){
+        auto candidate=*source_project;cleanup.apply(candidate);candidate.validate();
+        source_project=std::make_shared<const Project>(std::move(candidate));
+        cleanup.apply(document.project);
+        require(document.generation<std::numeric_limits<std::uint64_t>::max(),"generation overflow");++document.generation;
+        // Allocate the complete Undo transaction now; publish only after the
+        // archive has been saved successfully. Failure leaves the menu intact.
+        cleanup_transaction=services_.projects->prepare_transaction(&cleanup);
+        require(cleanup_transaction!=nullptr,"Project store cannot stage missing-result cleanup");
+    }
+    std::set<std::string> keys, current;
+    for (const auto& clip : source_project->clips) if (!clip.midi && clip.source != "mrs:demo-tone") { keys.insert(clip.source); current.insert(clip.source); }
+    for(const auto& b:source_project->ara_bindings)if(b.source!="mrs:demo-tone")keys.insert(b.source);
+    for (const auto& [key,value] : assets_) { (void)value; if (key != "mrs:demo-tone") keys.insert(key); }
+    for(const auto& result:source_project->separation_results){
+        keys.insert(result.source);keys.insert(result.manifest.source);current.insert(result.manifest.source);
+        for(const auto& file:result.stems){keys.insert(file.source);current.insert(file.source);}
+    }
+    for(const auto& [key,value]:separation_files_){(void)value;keys.insert(key);}
+
     bool needs_copy = relocating;
     for (const auto& key : keys) {
         const auto relative = resolve(key).lexically_normal().lexically_relative(root/"Media");
@@ -574,7 +602,7 @@ void Application::save_project(const std::filesystem::path& requested) {
     std::map<std::string,std::filesystem::path> owned;
     for (const auto& key : keys) {
         const auto source = resolve(key);
-        const bool ara_source=std::any_of(services_.projects->state().project->ara_bindings.begin(),services_.projects->state().project->ara_bindings.end(),[&](const auto& b){return b.source==key;});
+        const bool ara_source=std::any_of(source_project->ara_bindings.begin(),source_project->ara_bindings.end(),[&](const auto& b){return b.source==key;});
         if (!std::filesystem::exists(source)&&(!current.contains(key)||ara_source)) continue; // preserve missing ARA/Undo references
         if(const auto retained=separation_files_.find(key);retained!=separation_files_.end()){
             const auto& item=retained->second;
@@ -584,18 +612,18 @@ void Application::save_project(const std::filesystem::path& requested) {
         }else owned[key] = copies.media(source);
     }
     for (std::size_t i=0; i<document.project.clips.size(); ++i) {
-        const auto& original = services_.projects->state().project->clips[i].source;
+        const auto& original = source_project->clips[i].source;
         if (!document.project.clips[i].midi && original != "mrs:demo-tone") {
             const auto at=owned.find(original);document.project.clips[i].source=at!=owned.end()?media_ref(at->second.lexically_relative(root)):utf8(resolve(original));
         }
     }
     for(std::size_t i=0;i<document.project.separation_results.size();++i){
-        auto& saved=document.project.separation_results[i];const auto& live=services_.projects->state().project->separation_results[i];
+        auto& saved=document.project.separation_results[i];const auto& live=source_project->separation_results[i];
         const auto reference=[&](std::string& target,const std::string& key){const auto at=owned.find(key);target=at==owned.end()?utf8(resolve(key)):media_ref(at->second.lexically_relative(root));};
         reference(saved.source,live.source);reference(saved.manifest.source,live.manifest.source);
         for(std::size_t j=0;j<saved.stems.size();++j)reference(saved.stems[j].source,live.stems[j].source);
     }
-    for(auto& b:document.project.ara_bindings){const auto& bindings=services_.projects->state().project->ara_bindings;const auto original=std::find_if(bindings.begin(),bindings.end(),[&](const auto& item){return item.persistent_id==b.persistent_id;});
+    for(auto& b:document.project.ara_bindings){const auto& bindings=source_project->ara_bindings;const auto original=std::find_if(bindings.begin(),bindings.end(),[&](const auto& item){return item.persistent_id==b.persistent_id;});
         if(original!=bindings.end()){if(original->source=="mrs:demo-tone"){b.source=original->source;continue;}const auto at=owned.find(original->source);b.source=at!=owned.end()?media_ref(at->second.lexically_relative(root)):utf8(resolve(original->source));}}
     document.validate();
     if (copies.copied()) require_not_playing();
@@ -617,6 +645,7 @@ void Application::save_project(const std::filesystem::path& requested) {
         const bool retain=insert_runtime_.contains(std::string{})&&std::all_of(document.project.tracks.begin(),document.project.tracks.end(),[&](const auto& t){return t.kind==TrackKind::midi||insert_runtime_.contains(t.id.value);});
         rebuild_audio(retain); // retain prepared processors; bootstrap an empty offline graph if needed
     }
+    if(cleanup_transaction){cleanup_transaction->commit();cleanup_transaction->finish();}
     saved_project_revision_ = services_.projects->state().revision;
     saved_graph_revision_ = graphs_->state().revision; unsaved_ = false;
 }
@@ -2151,8 +2180,12 @@ std::vector<Id> Application::import_midi(const std::vector<std::filesystem::path
         require(part.midi.length<=max_tick-start,"MIDI drop exceeds timeline range");part.midi.start=start;
         Clip c;c.id=new_id();c.track=id;c.name=utf8(file.stem())+" — "+part.name;c.midi=std::move(part.midi);clips.push_back(c.id);candidate.clips.push_back(std::move(c));
     }}
-    candidate.validate();
-    class Import final:public ICommand {Project p_;public:explicit Import(Project p):p_(std::move(p)){}std::string_view name()const override{return "Import MIDI";}void apply(Project& p)const override{p=p_;}};
+    commit_midi_project(std::move(candidate),"Import MIDI");return clips;
+}
+void Application::commit_midi_project(Project candidate,std::string operation){
+    require_not_playing();require_not_recording();candidate.validate();
+    const auto current=services_.projects->state().project;
+    class Import final:public ICommand {Project p_;std::string operation_;public:Import(Project p,std::string name):p_(std::move(p)),operation_(std::move(name)){}std::string_view name()const override{return operation_;}void apply(Project& p)const override{p=p_;}};
     require(candidate.clips.size()<=audio::max_voices,"Too many playback clips");
     std::vector<Id> tracks;for(const auto& t:candidate.tracks)if(t.kind!=TrackKind::midi)tracks.push_back(t.id);
     require(tracks.size()<=audio::max_mixer_tracks,"Too many mixer tracks");(void)audio::compile_midi_clips(candidate,tracks);(void)audio::compile_midi_events(candidate,tracks);
@@ -2170,7 +2203,7 @@ std::vector<Id> Application::import_midi(const std::vector<std::filesystem::path
             device_->start();
         }catch(...){const auto error=std::current_exception();preparing_project_=nullptr;device_->stop();for(const auto& key:added)insert_runtime_.erase(key);try{rebuild_audio(true);}catch(...){disconnect();}std::rethrow_exception(error);}
     }
-    services_.projects->execute(Import{std::move(candidate)});unsaved_=true;sync_arm();publish_midi_routes();return clips;
+    services_.projects->execute(Import{std::move(candidate),std::move(operation)});unsaved_=true;sync_arm();publish_midi_routes();
 }
 void Application::prepare_mixer(audio::RenderGraph& result) {
     const auto project = preparing_project_?preparing_project_:services_.projects->state().project.get();
@@ -2425,6 +2458,7 @@ void Application::poll() {
             try { value.peaks = value.pending.get(); } catch (const std::exception& e) { waveform_error_ = e.what(); }
     }
     poll_wav_import();
+    poll_transcription();
     poll_stretch();
 }
 audio::DeviceStatus Application::device_status() { return device_ ? device_->status() : audio::DeviceStatus{}; }

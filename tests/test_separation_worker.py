@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import Mock
 
 import numpy as np
 import soundfile as sf
@@ -50,9 +51,44 @@ class WorkerTests(unittest.TestCase):
         work.mkdir()
         return worker.execute(self.req, work, lambda *_args, **_kw: None, lambda: None, engine or self.fake)
 
+    def test_onnx_pool_limit_restores_factory_after_success_and_error(self):
+        ort = Mock()
+        original = ort.SessionOptions
+        for threads in (1, 8, 16, 32):
+            with worker.onnx_thread_limit(ort, threads):
+                options = ort.SessionOptions()
+                self.assertEqual(options.intra_op_num_threads, threads)
+                self.assertEqual(options.inter_op_num_threads, 1)
+            self.assertIs(ort.SessionOptions, original)
+        with self.assertRaises(RuntimeError):
+            with worker.onnx_thread_limit(ort, 8):
+                raise RuntimeError("fixture model load failure")
+        self.assertIs(ort.SessionOptions, original)
+
+    def test_runtime_isa_uses_actual_torch_report(self):
+        torch = Mock()
+        torch.__version__ = "2.8.0-test"
+        torch.backends.cpu.get_cpu_capability.return_value = "AVX2"
+        torch.get_num_threads.return_value = 8
+        torch.get_num_interop_threads.return_value = 1
+        info = worker.cpu_runtime_info(torch)
+        self.assertEqual(info, {"torch_cpu_capability": "AVX2", "torch_intraop_threads": 8,
+                                "torch_interop_threads": 1, "torch_version": "2.8.0-test"})
+        torch.backends.cpu.get_cpu_capability.return_value = "NO AVX"
+        self.assertEqual(worker.cpu_runtime_info(torch)["torch_cpu_capability"], "NO AVX")
+
+    def test_manual_cpu_threads_contract(self):
+        for threads in (1, 2, 4, 8, 16, 32):
+            with self.subTest(threads=threads):
+                self.assertEqual(worker.validate_request(dict(self.req, threads=str(threads)))[-1], threads)
+        for threads in (0, 33, 999, -1):
+            with self.subTest(reject=threads), self.assertRaises(worker.Failure):
+                worker.validate_request(dict(self.req, threads=str(threads)))
+
     def test_roundtrip_geometry_gain_manifest(self):
         source_hash = worker.digest(self.source)
         manifest = self.run_job()
+        self.assertEqual(manifest["configured_threads"], 1)
         self.assertEqual(manifest["timeline_start"], "98765")
         self.assertEqual(manifest["source_start"], "100")
         self.assertEqual(manifest["source_frames"], "4800")

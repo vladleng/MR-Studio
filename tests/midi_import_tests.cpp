@@ -22,10 +22,14 @@ struct Manual final:audio::IAudioDevice {
     audio::DevicePhase phase{audio::DevicePhase::closed};bool fail{};
     std::vector<audio::DeviceInfo> enumerate()override{return {{0,"MIDI import fixture",{}, {"L","R"},16,8192,128,1}};}
     void control_panel(int)override{}void open(const audio::DeviceConfig&,std::shared_ptr<audio::AudioEngine>)override{phase=audio::DevicePhase::open;}
-    void start()override{if(fail){fail=false;throw std::runtime_error("Start failure");}phase=audio::DevicePhase::running;}void stop()override{phase=audio::DevicePhase::stopped;}void close()noexcept override{phase=audio::DevicePhase::closed;}audio::DeviceStatus status()override{return {phase,48000};}
+    void start()override{if(fail){fail=false;throw std::runtime_error("Start failure");}phase=audio::DevicePhase::running;}void stop()override{phase=audio::DevicePhase::stopped;}void close()noexcept override{phase=audio::DevicePhase::closed;}audio::DeviceStatus status()override{return {phase,48000,0,0,0,{}};}
 };
 }
 int main(int argc,char** argv){try{
+    const unsigned char emptyRaw[]={'M','T','h','d',0,0,0,6,0,0,0,1,1,0xe0,'M','T','r','k',0,0,0,4,0,0xff,0x2f,0};
+    std::vector<std::byte> emptyMidi;for(const auto b:emptyRaw)emptyMidi.push_back(static_cast<std::byte>(b));
+    check(validate_transcription_midi(emptyMidi).empty());rejects([&]{parse_midi_file(emptyMidi);});
+    emptyMidi.pop_back();rejects([&]{validate_transcription_midi(emptyMidi);});
     auto bytes=smf();check(bytes.size()==55);auto parts=parse_midi_file(bytes);check(parts.size()==2&&parts[0].midi.notes[0].length==ppq&&parts[1].midi.notes[0].channel==1);check(parts[0].midi.events.size()==1&&parts[0].midi.events[0].data1==64&&parts[0].name=="Keys / Ch 1");
     auto bad=bytes;bad.pop_back();rejects([&]{parse_midi_file(bad);});bad=bytes;bad[12]=std::byte{0xe7};rejects([&]{parse_midi_file(bad);});bad=bytes;bad[9]=std::byte{2};rejects([&]{parse_midi_file(bad);});
     // Unterminated notes close at EOT; sub-tick notes remain at least one tick.

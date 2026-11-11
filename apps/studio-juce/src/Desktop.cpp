@@ -1,6 +1,9 @@
 #include "MusicalGrid.h"
 #include "MeterTrack.h"
 #include "Desktop.h"
+#if defined(MRS_TRANSCRIPTION_UI)
+#include "TranscriptionView.h"
+#endif
 #if defined(MRS_SEPARATION_UI)
 #include "SeparationModelsView.h"
 #include "SeparationView.h"
@@ -134,6 +137,9 @@ Desktop::Desktop(bool test,bool startAtHome,bool liveApplication):standaloneLive
     home=std::make_unique<ProjectHome>(*this);addChildComponent(*home);if(!standaloneLive&&(!testing||startAtHome)){showProjectHome(true);if(!testing)home->rescan();}if(standaloneLive){liveDocument.emplace();prepareLiveInterface(true);showProjectHome(false);liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};}startTimerHz(30);
 }
 Desktop::~Desktop(){
+#if defined(MRS_TRANSCRIPTION_UI)
+    closeTranscription(*this);
+#endif
     separationWindow.reset();separationJob.reset();
     separationModelsWindow.reset();
     araDockResizeFrame={};pendingAraDockHeight.reset();resizingAraDock=nullptr;
@@ -1514,6 +1520,9 @@ void Arrangement::clipMenu(mrs::Id id,juce::Point<int> point){
 #if defined(MRS_SEPARATION_UI)
     if(!c->midi&&!owner.standaloneLive){menu.addItem(21,"Separate into Stems...",enabled);menu.addItem(22,"Separation results...",enabled);}
 #endif
+#if defined(MRS_TRANSCRIPTION_UI)
+    if(!c->midi&&!owner.standaloneLive)menu.addItem(23,"Convert this clip to MIDI...",enabled);
+#endif
     menu.addItem(1,"Split selected clips (S)",enabled);menu.addItem(2,"Duplicate (D)",enabled);menu.addItem(3,"Merge MIDI clips (G)",enabled&&ids.size()>1);menu.addItem(4,"Delete selected clips",enabled);menu.addItem(5,"Default color",enabled);menu.addItem(6,"Rename selected clips...",enabled);menu.addSeparator();auto palette=std::make_unique<MenuColourPalette>(owner.theme,*color,color,true,owner.assetSkin()!=nullptr);palette->setEnabled(enabled);menu.addCustomItem(10,std::move(palette),nullptr,"Clip colors");
     const auto cut=sampleAt(static_cast<float>(getLocalPoint(nullptr,point).x));juce::Component::SafePointer<Arrangement> safe(this);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea({point.x,point.y,1,1}),[safe,store,ids,color,cut,id](int result){if(!safe||!result)return;safe->owner.run([&]{if(store!=safe->owner.app.services().projects)throw std::runtime_error("Project changed; reopen clip menu");
@@ -1523,6 +1532,9 @@ void Arrangement::clipMenu(mrs::Id id,juce::Point<int> point){
         if(result==20){safe->owner.editClipStretch(id);return;}
 #if defined(MRS_SEPARATION_UI)
         if(result==21||result==22){showSeparation(safe->owner,id);return;}
+#endif
+#if defined(MRS_TRANSCRIPTION_UI)
+        if(result==23){showTranscription(safe->owner,id);return;}
 #endif
         if(result==6){safe->owner.renameClips(ids);return;}if(result==10||result==5)safe->owner.app.set_clip_colors(ids,result==5?std::nullopt:std::optional<std::uint32_t>{*color});else if(result==1)safe->owner.app.split_clips(ids,cut);else if(result==2)safe->owner.app.duplicate_clip(ids.front());else if(result==3)safe->owner.activateClip(safe->owner.app.merge_midi_clips(ids));else if(result==4)safe->owner.app.remove_clips(ids);});});
 }
