@@ -102,6 +102,32 @@ void invalid(){
     rejects([&]{PlaceTranscription processed(std::make_shared<const Project>(changed),p.clips[0].id,std::span(&note,1));});
     check(*store.state().project==p);
 }
+void stem_placement(){
+    auto p=fixture();Track target;target.id=new_id();target.kind=TrackKind::instrument;target.name="Existing VSTi";p.tracks.push_back(target);p.validate();ProjectStore store(p);
+    TranscriptionPlacement placement;placement.target_track=target.id;placement.position=3*48000;placement.range_offset=24000;placement.range_length=48000;placement.velocity=81;
+    const std::vector<TranscribedNote> notes{{40,2.0,2.75,"electric_bass"},{43,3.0,4.0,"electric_bass"}};
+    store.execute(PlaceTranscription(store.state().project,p.clips[0].id,notes,{}, {},"stem fixture",placement));const auto result=*store.state().project;
+    check(result.tracks==p.tracks&&result.clips.size()==2&&result.clips[0]==p.clips[0]);
+    const auto& c=result.clips.back();const Timeline timeline(p.time,p.sample_rate);check(c.track==target.id&&c.midi->start==timeline.to_ticks(*placement.position));
+    check(c.midi->notes.size()==2&&c.midi->notes[0].start==0&&c.midi->notes[0].velocity==81);
+    check(c.midi->notes[1].start==timeline.to_ticks(3*48000+24000)-c.midi->start);
+    check(c.midi->notes[1].length==timeline.to_ticks(4*48000)-timeline.to_ticks(3*48000+24000));
+    check(deserialize(serialize(result))==result);check(store.undo()&&*store.state().project==p);check(store.redo()&&*store.state().project==result);check(store.undo());
+    const auto reject=[&](TranscriptionPlacement bad){rejects([&]{PlaceTranscription command(store.state().project,p.clips[0].id,notes,{}, {},{},bad);});};
+    auto bad=placement;bad.target_track=p.tracks[0].id;reject(bad);bad=placement;bad.target_track=Id{"deleted"};reject(bad);bad=placement;bad.range_offset=-1;reject(bad);bad=placement;bad.range_length=p.clips[0].length;reject(bad);bad=placement;bad.position=-1;reject(bad);bad=placement;bad.velocity=128;reject(bad);
+    auto mixed=notes;mixed.push_back({60,2.6,2.8,"acoustic_piano"});rejects([&]{PlaceTranscription c(store.state().project,p.clips[0].id,mixed,{}, {},{},placement);});
+    // Target/source/tempo changes cannot commit an old asynchronous result.
+    PlaceTranscription captured(store.state().project,p.clips[0].id,notes,{}, {},{},placement);auto stale=p;stale.tracks.pop_back();rejects([&]{captured.apply(stale);});check(stale.clips==p.clips);
+    // Full mix range begins at its selected timeline position; source trim is
+    // used solely to rebase note times, never to choose timeline placement.
+    placement.target_track.reset();placement.position.reset();store.execute(PlaceTranscription(store.state().project,p.clips[0].id,notes,{}, {},{},placement));check(store.state().project->clips.back().midi->start==timeline.to_ticks(p.clips[0].start+24000));
+}
+void placement_quantize(){
+    const auto p=fixture();ProjectStore store(p);TranscriptionPlacement options;options.quantize_grid=ppq/4;options.quantize_strength=.5;options.velocity=64;
+    const std::vector<TranscribedNote> notes{{40,2.137,2.463,"electric_bass"}};
+    PlaceTranscription raw(store.state().project,p.clips[0].id,notes);auto baseline=p;raw.apply(baseline);
+    store.execute(PlaceTranscription(store.state().project,p.clips[0].id,notes,{}, {},{},options));const auto& note=store.state().project->clips.back().midi->notes.front();const auto original=baseline.clips.back().midi->notes.front();check(note.start!=original.start&&note.length==original.length&&note.velocity==64&&store.state().project->time==p.time);
+}
 void arguments(){
     const auto args=ace_midi_arguments("C:/model dir","C:/source dir/a.wav","C:/output dir/a.mid");
     check(args==std::vector<std::string>{"--model","C:/model dir","--transcribe","C:/source dir/a.wav",
@@ -110,5 +136,5 @@ void arguments(){
     rejects([]{ace_midi_arguments("model",std::string("a\0b",3),"a.mid");});
 }
 }
-int main(){try{mapping();musical_reference();categories();invalid();arguments();std::cout<<"PASS audio-to-MIDI mapping\n";return 0;}
+int main(){try{mapping();musical_reference();categories();invalid();stem_placement();placement_quantize();arguments();std::cout<<"PASS audio-to-MIDI mapping\n";return 0;}
 catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

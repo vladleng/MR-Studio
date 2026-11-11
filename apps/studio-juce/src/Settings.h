@@ -33,7 +33,8 @@ struct ViewSettings {
     bool sidebar{true},snap{},controllersOpen{true},editorAttached{};
     int transcriptionCpuThreads{};
     int transcriptionBackend{1}; // Python only; legacy native selections migrate to 1
-    bool transcriptionCompatibility{};
+    bool transcriptionCompatibility{},transcriptionQuantize{};
+    int transcriptionGrid{3},transcriptionStrength{100},transcriptionVelocity{100};
     int separationCpuThreads{}; // 0 Auto; user intent, not an affinity-capped count
     juce::String separationModel; // Stable catalogue ID; app preference, never project state
     bool noteClipColors{}; // Piano roll view preference; no project mutation.
@@ -62,6 +63,7 @@ struct ViewSettings {
         object->setProperty("snap",snap);object->setProperty("browserWidth",browserWidth);
         object->setProperty("noteClipColors",noteClipColors);
         object->setProperty("transcriptionCpuThreads",transcriptionCpuThreads);object->setProperty("transcriptionBackend",1);object->setProperty("transcriptionCompatibility",transcriptionCompatibility);
+        object->setProperty("transcriptionQuantize",transcriptionQuantize);object->setProperty("transcriptionGrid",transcriptionGrid);object->setProperty("transcriptionStrength",transcriptionStrength);object->setProperty("transcriptionVelocity",transcriptionVelocity);
         object->setProperty("separationCpuThreads",separationCpuThreads);object->setProperty("separationModel",separationModel);
         object->setProperty("trackHeight",trackHeight);object->setProperty("pixelsPerSecond",pixelsPerSecond);
         object->setProperty("mixerHeight",mixerHeight);object->setProperty("editorHeight",editorHeight);object->setProperty("controllersOpen",controllersOpen);object->setProperty("editorAttached",editorAttached);
@@ -80,6 +82,8 @@ struct ViewSettings {
         if(value.hasProperty("liveRestoreLastShow")){if(!value["liveRestoreLastShow"].isBool())throw std::runtime_error("Invalid Live startup mode");result.liveRestoreLastShow=static_cast<bool>(value["liveRestoreLastShow"]);}
         if(value["transcriptionCpuThreads"].isInt()){const auto n=static_cast<int>(value["transcriptionCpuThreads"]);if(n>=0&&n<=32)result.transcriptionCpuThreads=n;}
         if(value["transcriptionCompatibility"].isBool())result.transcriptionCompatibility=static_cast<bool>(value["transcriptionCompatibility"]);
+        if(value["transcriptionQuantize"].isBool())result.transcriptionQuantize=static_cast<bool>(value["transcriptionQuantize"]);
+        for(const auto& key:{"transcriptionGrid","transcriptionStrength","transcriptionVelocity"})if(value[key].isInt()){const int n=static_cast<int>(value[key]);if(juce::String(key)=="transcriptionGrid"&&n>=1&&n<=6)result.transcriptionGrid=n;else if(juce::String(key)=="transcriptionStrength"&&n>=0&&n<=100)result.transcriptionStrength=n;else if(juce::String(key)=="transcriptionVelocity"&&n>=1&&n<=127)result.transcriptionVelocity=n;}
         if(value["separationCpuThreads"].isInt()){
             const auto n=static_cast<int>(value["separationCpuThreads"]);
             if(n==0||n==1||n==2||n==4||n==8||n==16||n==32)result.separationCpuThreads=n;

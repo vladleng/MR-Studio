@@ -45,6 +45,7 @@ bool avx2_usable(std::uint32_t leaf1_ecx,std::uint32_t leaf7_ebx,std::uint64_t x
 bool optimized_cpu_available();
 struct SourceRange {Sample offset{},frames{};std::uint32_t rate{};}; // project sample domain
 struct Request {
+    TranscriptionPlacement placement;
     Backend backend{Backend::python_medium};
     std::filesystem::path worker_script;
     std::string worker_sha256;

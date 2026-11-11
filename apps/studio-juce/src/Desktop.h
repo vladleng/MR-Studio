@@ -385,7 +385,7 @@ public:
     Theme theme;
     std::unique_ptr<juce::DocumentWindow> separationModelsWindow; // Studio-only utility, no project state
     std::unique_ptr<juce::DocumentWindow> separationWindow;
-    std::unique_ptr<juce::DocumentWindow> transcriptionWindow;
+    std::unique_ptr<juce::DocumentWindow> transcriptionWindow,transcriptionPreferencesWindow,transcriptionModelsWindow;
     std::shared_ptr<TranscriptionSetup> transcriptionSetup;
     std::shared_ptr<mr::separation::ProjectJob> separationJob;
     std::optional<TrackHeaderLayout> trackHeaderLayout; // UI-only, never project state.
@@ -592,6 +592,9 @@ public:
     int edgeAt(const mrs::Clip&,juce::Point<float>) const;
     std::optional<mrs::Id> clipAt(juce::Point<float>) const;
     void clipMenu(mrs::Id,juce::Point<int>);
+    mrs::TranscriptionPlacement transcriptionRange(mrs::Id) const;
+    struct AudioRange {mrs::Id clip; mrs::Sample offset{},length{};std::uint64_t revision{};};
+    std::optional<AudioRange> selectedAudioRange;
     int trackAt(float) const;
     int trackY(int) const;
     void rebuildFolderLayout();
@@ -652,7 +655,8 @@ private:
     std::vector<mrs::Clip> trimPreviews;
     std::map<std::string,mrs::Sample> trimFrames;
     bool copyDrag{},dragMoved{};
-    bool shiftRemove{};
+    bool shiftRemove{},selectingAudioRange{},transcriptionDrop{};
+    mrs::Sample audioRangeAnchor{};
     std::set<std::string> selectionBase;
     std::optional<mrs::Clip> fadeOriginal;
     std::shared_ptr<mrs::IProjectStore> fadeStore;

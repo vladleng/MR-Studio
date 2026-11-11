@@ -1,5 +1,34 @@
 # MR Audio-to-MIDI — Python Medium (#368 / 0.10.2)
 
+## Compact conversion UX (development)
+
+Audio-to-MIDI uses Python MuScriptor Medium. Drag one audio clip onto an existing
+Instrument Track to choose a model and exactly one instrument category; the
+category conditions decoding, never remaps another party. Successful stem jobs
+place one clip at the snapped drop position without a result picker. Audio clips
+remain unchanged. Ctrl-drag inside an audio clip selects a sample-bounded range
+without splitting; the range is used by the following drag or Convert to MIDI.
+Right-click → Convert to MIDI processes a full mix without an instrument constraint;
+only real returned groups appear as checkboxes. Select all/none and Create N tracks
+commit the chosen parts in one existing MIDI project transaction.
+
+Options → Preferences → Audio-to-MIDI owns bounded CPU threads, CPU device,
+compatibility dispatch, optional grid/strength and fallback velocity (1–127).
+Only CPU is offered by the installed CPU runtime. Quantization defaults Off and
+runs in the shared tempo-aware MIDI adapter, not the model. These options are
+captured when Start is pressed and cannot change a running job. Manage Models
+contains explicit install/local install/verify/remove and runtime management;
+there are no hidden downloads or alternative models/backends in conversion dialogs.
+
+Both workflows share worker phases, actual chunks and monotonic elapsed time.
+The progress bar remains indeterminate during work because chunk count alone is
+not an end-to-end percentage. Close and Cancel stop the task; no partial placement.
+Source/project revision and target identity are checked before commit. Existing
+Save/Open/Save As, Undo/Redo and provenance storage are reused without migration.
+This section describes the new development contract; older checkpoint descriptions
+below document historical behavior, not the current compact UX.
+
+
 **User decision 2026-11-11:** Python/PyTorch MuScriptor Medium is the only
 transcription backend in MR Studio. User A/B tests found Python more accurate;
 HOT-Step C++ is removed from the product, build and runtime artifacts. Old native

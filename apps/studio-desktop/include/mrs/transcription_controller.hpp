@@ -34,6 +34,8 @@ private:
     ProjectState captured_;
     std::filesystem::path project_path_,source_;
     Id clip_;
+    TranscriptionPlacement placement_;
+    std::vector<std::string> instruments_;
     Stamp stamp_;
     JobStatus status_;
     std::optional<Result> result_;
