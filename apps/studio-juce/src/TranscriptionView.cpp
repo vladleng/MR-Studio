@@ -152,7 +152,8 @@ public:
         runtime_install_.onClick=[this]{invoke([&]{setup_->runtimeOperation(0);});};runtime_verify_.onClick=[this]{invoke([&]{setup_->runtimeOperation(1);});};runtime_remove_.onClick=[this]{invoke([&]{setup_->runtimeOperation(2);});};
         addAndMakeVisible(bar_);setSize(640,420);startTimerHz(8);timerCallback();
     }
-    ~ModelManagerPanel()override{stopTimer();setup_->cancel();}
+    ~ModelManagerPanel()override{stopTimer();setup_->cancel();setLookAndFeel(nullptr);}
+    void paint(juce::Graphics& g)override{g.fillAll(owner_.theme.role(ColourRole::window,panel));}
     void resized()override{const int w=getWidth();title_.setBounds(24,16,w-48,32);info_.setBounds(24,60,w-48,52);terms_.setBounds(24,124,w-48,32);token_.setBounds(24,164,w-220,32);terms_link_.setBounds(w-184,164,160,32);download_.setBounds(24,208,176,32);local_.setBounds(208,208,112,32);verify_.setBounds(328,208,112,32);remove_.setBounds(448,208,w-472,32);runtime_install_.setBounds(24,256,224,32);runtime_verify_.setBounds(256,256,168,32);runtime_remove_.setBounds(432,256,w-456,32);bar_.setBounds(24,312,w-48,12);status_.setBounds(24,340,w-48,64);}
 private:
     friend void ::ui::transcriptionSmoke(const juce::File&);
@@ -298,7 +299,7 @@ void transcriptionSmoke(const juce::File& fake){
     Desktop owner(true);owner.view.transcriptionBackend=2;owner.app.new_project(16000);owner.app.import_wavs({path(source)});owner.refresh();
     const auto clip=owner.project()->clips.front().id;const auto before=*owner.project();
     owner.transcriptionSetup=std::make_shared<TranscriptionSetup>(ModelStore(path(root.getChildFile("models")),spec),engine,runtime);
-    ModelManagerPanel manager(owner);
+    ModelManagerPanel manager(owner);manager.setLookAndFeel(&owner.theme);
     const auto wait=[&](const std::function<bool()>& pending){const auto until=std::chrono::steady_clock::now()+std::chrono::seconds(10);while(pending()){need(std::chrono::steady_clock::now()<until,"Transcription GUI timeout");manager.timerCallback();owner.app.poll();juce::Thread::sleep(2);}};
     wait([&]{return owner.transcriptionSetup->status().busy;});manager.timerCallback();need(!manager.download_.isEnabled(),"Uninstalled/unchecked state");
     manager.fixture_fetch_=[authorized](const std::string& url,const fs::path& destination,std::uint64_t bytes,std::stop_token stop,const ModelDownloadProgress& progress){need(model_download_target(url).authorize,"Fixture official origin");need(!stop.stop_requested(),"Fixture download cancelled");fs::copy_file(path(authorized.getChildFile(text(destination.filename().string()))),destination);if(progress)progress(bytes,bytes);};
@@ -318,7 +319,7 @@ void transcriptionSmoke(const juce::File& fake){
     const auto targetY=static_cast<float>(arrangement.headerHeight()+arrangement.trackY(1)+arrangement.trackHeight/2);const juce::Point<float> dropPoint{arrangement.left+180.f,targetY};arrangement.mouseDown(mouse(begin,juce::ModifierKeys::leftButtonModifier));arrangement.mouseDrag(mouse(dropPoint,juce::ModifierKeys::leftButtonModifier));need(*owner.project()==gestureBefore&&!owner.transcriptionWindow,"MIDI drop preview mutated project");snapshot(arrangement,"timeline-drop");
     arrangement.mouseUp(mouse(dropPoint,0));need(owner.transcriptionWindow&&*owner.project()==gestureBefore,"Instrument drop should open converter without audio placement");owner.transcriptionWindow.reset();arrangement.selectedAudioRange.reset();need(owner.app.undo(),"Remove gesture fixture target");owner.refresh();need(*owner.project()==before,"Gesture fixture restores baseline");
     showTranscription(owner,clip);auto* view=dynamic_cast<TranscriptionPanel*>(owner.transcriptionWindow->getContentComponent());need(view&&view->model_.getNumItems()==1&&view->start_.isEnabled()&&!view->stem_.isVisible(),"Compact full-mix start");
-    snapshot(*view,"mix-start");TranscriptionPreferences prefs(owner);snapshot(prefs,"preferences");snapshot(manager,"models");
+    snapshot(*view,"mix-start");TranscriptionPreferences prefs(owner);prefs.setLookAndFeel(&owner.theme);snapshot(prefs,"preferences");prefs.setLookAndFeel(nullptr);snapshot(manager,"models");
     view->start_.onClick();owner.view.transcriptionVelocity=77;wait([&]{return busy(owner.app.transcription_status().state);});view->timerCallback();need(owner.app.transcription_status().state==JobState::ready&&view->roles_.size()==1&&view->place_.isEnabled(),"Real result list");view->none_.onClick();need(!view->place_.isEnabled(),"Zero selected disables create");view->all_.onClick();need(view->place_.isEnabled(),"Select all");snapshot(*view,"parts");
     view->place_.onClick();need(owner.app.transcription_status().state==JobState::placed&&owner.project()->clips.size()==before.clips.size()+1&&owner.project()->clips.back().midi->notes.front().velocity==100,"Atomic mix placement and captured Preferences");const auto after=*owner.project();need(owner.app.undo()&&*owner.project()==before&&owner.app.redo()&&*owner.project()==after,"Mix Undo/Redo");
     view->start_.onClick();wait([&]{return busy(owner.app.transcription_status().state);});owner.app.add_audio_track("Changed");view->timerCallback();need(owner.app.transcription_status().state==JobState::stale&&!view->place_.isEnabled(),"Stale result blocked");owner.transcriptionWindow.reset();

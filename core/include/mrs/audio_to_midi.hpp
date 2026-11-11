@@ -30,8 +30,8 @@ struct TranscriptionPlacement {
     Tick quantize_grid{}; // 0 preserves original timing
     double quantize_strength{1.};
 };
-// Non-RT preparation only. Creates independent instrument tracks and existing
-// MidiClips, with channel 1 per melodic track and channel 10 for drums. Tracks
+// Non-RT preparation only. Creates independent instrument tracks or places
+// exactly one group on the captured existing instrument track. Uses MidiClips, with channel 1 per melodic track and channel 10 for drums. Tracks
 // have no external port assigned, so 34 categories do not share a MIDI port.
 // Refuses a changed project after async inference; caller must prepare from the
 // captured source snapshot, rather than silently accepting a newer revision.
