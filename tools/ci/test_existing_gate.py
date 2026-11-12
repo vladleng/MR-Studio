@@ -35,6 +35,24 @@ class ExistingEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'live=true'):self.verify('live')
         self.data['gui']['checks'].append('gui-live')
         self.assertEqual(len(self.verify('live')),2)
+    def test_combined_profiles_require_extended_live_gui(self):
+        for scope in ('studio-live', 'profile'):
+            with self.subTest(scope=scope):
+                with self.assertRaisesRegex(ValueError, 'gui-live'):
+                    self.verify(scope)
+        self.data['gui']['checks'].append('gui-live')
+        for scope in ('studio-live', 'profile'):
+            with self.subTest(scope=scope):
+                self.assertEqual(len(self.verify(scope)), 4)
+
+    def test_automatic_gui_workflow_compiles_live_before_evidence(self):
+        workflow = Path('.github/workflows/windows-juce-gui-compile.yml').read_text()
+        self.assertIn("GITHUB_EVENT_NAME -ne 'workflow_dispatch'", workflow)
+        self.assertIn("REQUESTED_LIVE -eq 'true'", workflow)
+        self.assertIn("steps.coverage.outputs.live == 'true' && 'ON' || 'OFF'", workflow)
+        self.assertIn('MRLiveJuce.vcxproj', workflow)
+        self.assertIn("steps.coverage.outputs.live == 'true' && 'gui-live' || ''", workflow)
+
     def test_integration_overrides_live(self):
         self.data['gui']['checks'].append('gui-live')
         self.runs=[r for r in self.runs if 'runtime' not in r['path']]
