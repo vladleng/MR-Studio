@@ -1,11 +1,9 @@
 name: Windows Studio Release
 # Product versions are validated against the source header before building.
-run-name: ${{ (inputs.checks == 'studio' || github.head_ref == 'codex/342-native-audio-midi' || github.ref_name == 'codex/342-native-audio-midi' || github.head_ref == 'codex/74-separation-contract' || github.ref_name == 'codex/74-separation-contract') && inputs.checks != 'live' && !inputs.integration && 'MR Studio 0.10.1-Upd5 — Windows Release' || 'MR Studio 0.10.1-Upd5 / MR Live 0.9.3-Upd8 — Windows Release' }}
+run-name: ${{ inputs.checks == 'live' && !inputs.integration && 'MR Live 0.9.3-Upd8 — Windows Release' || ((inputs.checks == 'studio' || inputs.checks == 'separation' || inputs.checks == 'separation-ui') && !inputs.integration && 'MR Studio 0.10.1-Upd5 — Windows Release' || 'MR Studio 0.10.1-Upd5 / MR Live 0.9.3-Upd8 — Windows Release') }}
+# Heavy Windows acceptance packages are opt-in. Fast Core contracts and
+# component-specific CI continue running automatically on relevant changes.
 on:
-  push:
-    branches: [main, 'codex/cloud-cicd-migration']
-  pull_request:
-    paths: ['apps/**', 'core/**', 'assets/**', 'cmake/**', 'third_party/**', 'tests/**', 'tools/ci/**', 'CMakeLists.txt', '.github/workflows/**']
   workflow_dispatch:
     inputs:
       integration:
@@ -15,63 +13,72 @@ on:
       checks:
         description: Targeted Live/separation checks or normal profile
         type: choice
-        options: [profile, studio, studio-live, live, separation, separation-ui]
-        default: profile
+        options: [live]
+        default: live
       ara:
         description: Include ARA2 for Studio profile (Live-only always excludes ARA2)
         type: boolean
         default: true
 permissions:
   contents: read
+  actions: read
 env:
   RELEASE_BANNER: 'MR Studio 0.10.1-Upd5 / MR Live 0.9.3-Upd8 — Windows Release'
 concurrency:
-  group: windows-${{ github.ref }}
+  group: windows-${{ github.ref }}-${{ inputs.checks }}-${{ inputs.integration }}-${{ inputs.ara }}
   cancel-in-progress: true
 jobs:
+  preflight:
+    timeout-minutes: 5
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Require completed candidate checks
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_CHECKS: ${{ inputs.checks }}
+          INTEGRATION: ${{ inputs.integration }}
+        run: |
+          if [ "$RELEASE_CHECKS" != live ] || [ "$INTEGRATION" = true ]; then
+            echo 'This legacy Live branch supports Live-only acceptance. Studio/integration requires the current main product code.' >&2
+            exit 1
+          fi
+          python3 tools/ci/verify_ci_evidence.py
+
   studio:
-    # Migration branch with an open PR would otherwise launch two identical
-    # Windows builds on each ordinary commit. Live-only PR acceptance runs
-    # without ARA2; Studio profile and main releases retain ARA2 by default.
-    # Extra push runs are only for explicit full integration.
-    if: >-
-      ${{
-        github.event_name != 'push' ||
-        github.ref_name != 'codex/cloud-cicd-migration' ||
-        contains(github.event.head_commit.message, '[ci full]')
-      }}
+    needs: preflight
     runs-on: windows-2022
     timeout-minutes: 60
     env:
       # Studio PR/push profiles retain ARA2 ON by default. The targeted Live
       # scope forces ARA2 OFF before SDK acquisition, configure and packaging.
       # Manual Studio ARA-OFF builds remain diagnostic only.
-      ARA: ${{ github.event_name != 'workflow_dispatch' || inputs.ara }}
+      ARA: ${{ inputs.ara }}
       CHECK_SCOPE: ${{ inputs.checks || 'profile' }}
-      INTEGRATION: ${{ inputs.integration || contains(github.event.head_commit.message, '[ci full]') }}
+      INTEGRATION: ${{ inputs.integration }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+          ref: ${{ github.sha }}
           fetch-depth: 2
+      - name: Reject superseded candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $current=gh api "repos/$env:GITHUB_REPOSITORY/commits/$env:GITHUB_REF_NAME" --jq .sha
+          if($LASTEXITCODE -or $current -ne $env:GITHUB_SHA){throw 'Candidate ref advanced; select the current SHA'}
       - name: Select explicitly requested check scope
         id: live_scope
         shell: pwsh
         env:
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_HEAD_REF: ${{ github.head_ref }}
+          SOURCE_SHA: ${{ github.sha }}
         run: |
           $scope=$env:CHECK_SCOPE
-          if($env:GITHUB_EVENT_NAME -eq 'pull_request'){
-            $subject=& git log -1 --format=%s $env:PR_HEAD_SHA
-            if($LASTEXITCODE){throw 'Cannot read PR head check scope'}
-            if($subject -match '\[ci studio\]'){$scope='studio'}
-            if($subject -match '\[ci studio-live\]'){$scope='studio-live'}
-            if($subject -match '\[ci live\]'){$scope='live'}
-            if($subject -match '\[ci separation\]'){$scope='separation'}
-            if($subject -match '\[ci separation-(ui|progress)\]'){$scope='separation-ui'}
-          }
-          if($scope -eq 'profile' -and ($env:PR_HEAD_REF -eq 'codex/74-separation-contract' -or $env:GITHUB_REF_NAME -eq 'codex/74-separation-contract')){$scope='studio'}
           if($env:INTEGRATION -eq 'true'){$scope='integration'}
           # 0.8.10 acceptance: verify exact saved snapshots and Save/Undo state.
           # The Live-only executable is intentionally ARA-free. Keep ARA ON
@@ -130,12 +137,12 @@ jobs:
           if($LASTEXITCODE){throw 'Separation CPU contract failed'}
           python -m pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
           if($LASTEXITCODE){throw 'Official Torch CPU test runtime install failed'}
+          python -m pip install mido==1.3.3
+          if($LASTEXITCODE){throw 'MIDI interchange test dependency failed'}
+          python -m unittest discover -s tests -p test_transcription_worker.py -q
+          if($LASTEXITCODE){throw 'Python MIDI interchange tests failed'}
           python tools/separation/probe_cpu.py --output build/separation-cpu-runtime.json
           if($LASTEXITCODE){throw 'Torch CPU dispatch probe failed'}
-      - name: Build pinned native ace-midi CPU
-        if: env.CHECK_SCOPE != 'live'
-        shell: pwsh
-        run: ./tools/ci/Prepare-AceMidi.ps1
       - name: Configure JUCE VST3 ASIO
         shell: pwsh
         run: ./tools/ci/Configure-Windows.ps1 -Ara:($env:BUILD_ARA -eq 'true') -StudioOnly:($env:STUDIO_ONLY -eq 'true')
@@ -146,12 +153,15 @@ jobs:
           $args=@('--build','build/windows','--config','Release','--parallel','2')
           if($env:CHECK_SCOPE -eq 'separation'){$args+=@('--target','mrs_separation_check')}
           elseif($env:CHECK_SCOPE -eq 'separation-ui'){$args+=@('--target','MoonRiverStudioJuce')}
-          elseif($env:CHECK_SCOPE -eq 'studio'){$args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_transcription_controller_tests','mrs_transcription_controller_check','mrs_midi_import_tests','mrs_separation_assets_tests','mrs_persistence_tests','mrs_desktop_tests','mrs_wav_import_tests','mrs_separation_check')}
-          elseif($env:CHECK_SCOPE -eq 'studio-live'){$args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_transcription_controller_tests','mrs_transcription_controller_check','mrs_midi_import_tests','mrs_separation_assets_tests','mrs_persistence_tests','mrs_desktop_tests','mrs_wav_import_tests','mrs_separation_check')}
-          elseif($env:CHECK_SCOPE -eq 'live'){$args+=@('--target','MRLiveJuce','mrs_audio_tests','mrs_live_preload_tests','mrs_parallel_tests','mrs_vst3_tests','mrs_vst3_fixture','mrs_vst3_scan')}
+          elseif($env:CHECK_SCOPE -eq 'studio'){$args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_python_transcription_tests','mrs_transcription_controller_tests','mrs_midi_import_tests','mrs_separation_assets_tests','mrs_persistence_tests','mrs_desktop_tests','mrs_wav_import_tests','mrs_separation_check')}
+          elseif($env:CHECK_SCOPE -eq 'studio-live'){$args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_python_transcription_tests','mrs_transcription_controller_tests','mrs_midi_import_tests','mrs_separation_assets_tests','mrs_persistence_tests','mrs_desktop_tests','mrs_wav_import_tests','mrs_separation_check')}
+          elseif($env:CHECK_SCOPE -eq 'live'){$args+=@('--target','MRLiveJuce','mrs_audio_tests','mrs_live_preload_tests','mrs_parallel_tests')}
           elseif($env:INTEGRATION -ne 'true'){
-            $args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_transcription_controller_tests','mrs_transcription_controller_check','mrs_midi_import_tests','mrs_core_check','mrs_ai_tests','mrs_ai_query_tests','mrs_ai_tool_tests','mrs_audio_tests','mrs_ahead_tests','mrs_mixed_tests','mrs_desktop_tests','mrs_sample_library_tests','mrs_wav_import_tests','mrs_clip_stretch_tests','mrs_track_stretch_mode_tests','mrs_clip_response_tests','mr_timestretch_drums_tests','mr_timestretch_drums_example','mrs_stretch_contract_tests','mrs_stretch_tests','mrs_stretch_bench')
+            $args+=@('--target','MoonRiverStudioJuce','mrs_core_tests','mrs_audio_to_midi_tests','mrs_ace_midi_protocol_tests','mrs_audio_to_midi_worker_tests','mrs_python_transcription_tests','mrs_transcription_controller_tests','mrs_midi_import_tests','mrs_core_check','mrs_ai_tests','mrs_ai_query_tests','mrs_ai_tool_tests','mrs_audio_tests','mrs_ahead_tests','mrs_mixed_tests','mrs_desktop_tests','mrs_sample_library_tests','mrs_wav_import_tests','mrs_clip_stretch_tests','mrs_track_stretch_mode_tests','mrs_clip_response_tests','mr_timestretch_drums_tests','mr_timestretch_drums_example','mrs_stretch_contract_tests','mrs_stretch_tests','mrs_stretch_bench')
             $args+=@('mrs_separation_check','mrs_separation_assets_tests','mrs_persistence_tests')
+          }
+          if($env:CHECK_SCOPE -in @('studio','studio-live','profile')){
+            $args+=@('mrs_vst3_tests','mrs_midi_live_tests','mrs_midi_record_tests','mrs_midi_clip_tests')
             if($env:BUILD_ARA -eq 'true'){$args+=@('mrs_ara_tests','mrs_ara_clip_tests','mrs_ai_ara_tests')}
           }
           & cmake @args
@@ -163,10 +173,11 @@ jobs:
           $args=@('--test-dir','build/windows','-C','Release','--output-on-failure','--no-tests=error','--output-junit',(Join-Path (Get-Location) 'build/windows/tests.xml'))
           if($env:CHECK_SCOPE -eq 'separation'){$args+=@('-R','^separation_(host|models)$')}
           elseif($env:CHECK_SCOPE -eq 'separation-ui'){$args+=@('-R','^juce_separation_(models|project)$')}
-          elseif($env:CHECK_SCOPE -eq 'studio'){$args+=@('-R','^(separation_(host|models)|midi_import|juce_(transcription|separation_(models|project)|track_folders|wav_drop)|core_(ace_midi_protocol|audio_to_midi|model|commands|serialization|remove_tracks)|desktop_(transcription_controller|audio_to_midi_worker|separation_assets|remove_tracks|wav_import)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
-          elseif($env:CHECK_SCOPE -eq 'studio-live'){$args+=@('-R','^(midi_import|juce_(transcription|separation_(models|project)|track_folders|wav_drop|live_(entry_smoke|application))|core_(ace_midi_protocol|audio_to_midi|model|commands|serialization|remove_tracks)|desktop_(transcription_controller|audio_to_midi_worker|separation_assets|remove_tracks|wav_import)|separation_(host|models)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
-          elseif($env:CHECK_SCOPE -eq 'live'){$args+=@('-R','^(juce_live_(entry_smoke|application)|audio_(metronome|performance|parallel_(equivalence|ownership|profiling))|desktop_live_preload|vst3_editor)$')}
-          elseif($env:INTEGRATION -ne 'true'){$args+=@('-R','^(midi_import|core_(ace_midi_protocol|audio_to_midi|stretch_contract|model|transport|commands|serialization|track_folders|remove_tracks)|stretch_.*|clip_stretch_.*|track_stretch_mode|drums_sdk_.*|ai_.*|ara_.*|juce_(transcription|separation_(models|project)|live_application|live_entry_smoke|clip_stretch|library_browser|j1_smoke|track_header_layout|track_folders|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(transcription_controller|audio_to_midi_worker|separation_assets|wav_import|track_folders|remove_tracks|clip_response)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
+          elseif($env:CHECK_SCOPE -eq 'studio'){$args+=@('-R','^(separation_(host|models)|midi_import|juce_(transcription|separation_(models|project)|track_folders|wav_drop)|core_(ace_midi_protocol|audio_to_midi|model|commands|serialization|remove_tracks)|desktop_(python_transcription|transcription_controller|audio_to_midi_worker|separation_assets|remove_tracks|wav_import)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
+          elseif($env:CHECK_SCOPE -eq 'studio-live'){$args+=@('-R','^(midi_import|juce_(transcription|separation_(models|project)|track_folders|wav_drop|live_(entry_smoke|application))|core_(ace_midi_protocol|audio_to_midi|model|commands|serialization|remove_tracks)|desktop_(python_transcription|transcription_controller|audio_to_midi_worker|separation_assets|remove_tracks|wav_import)|separation_(host|models)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
+          elseif($env:CHECK_SCOPE -eq 'live'){$args+=@('-R','^(juce_live_(entry_smoke|application)|audio_(metronome|performance|parallel_(equivalence|ownership|profiling))|desktop_live_preload)$')}
+          elseif($env:INTEGRATION -ne 'true'){$args+=@('-R','^(midi_import|core_(ace_midi_protocol|audio_to_midi|stretch_contract|model|transport|commands|serialization|track_folders|remove_tracks)|stretch_.*|clip_stretch_.*|track_stretch_mode|drums_sdk_.*|ai_.*|ara_.*|juce_(transcription|separation_(models|project)|live_application|live_entry_smoke|clip_stretch|library_browser|j1_smoke|track_header_layout|track_folders|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(python_transcription|transcription_controller|audio_to_midi_worker|separation_assets|wav_import|track_folders|remove_tracks|clip_response)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
+          if($env:CHECK_SCOPE -eq 'profile'){$args+=@('-E','^(ara_.*|ai_ara|juce_ara_editor)$')}
           & ctest @args
           if($LASTEXITCODE){
             if(Test-Path 'build/windows/separation-project-failure.txt'){Get-Content 'build/windows/separation-project-failure.txt'}
@@ -182,6 +193,14 @@ jobs:
             & ctest --test-dir build/windows -C Release --output-on-failure --no-tests=error -R '^separation_(host|models)$'
             if($LASTEXITCODE){throw 'Separation host contract failed'}
           }
+      - name: VST3 and ARA host contracts
+        id: host
+        if: success() && (env.CHECK_SCOPE == 'studio' || env.CHECK_SCOPE == 'studio-live' || env.CHECK_SCOPE == 'profile')
+        shell: pwsh
+        run: |
+          $pattern=if($env:BUILD_ARA -eq 'true'){'^(vst3_.*|midi_(live|recording|clips)|ara_.*|ai_ara|juce_ara_editor)$'}else{'^(vst3_.*|midi_(live|recording|clips))$'}
+          ctest --test-dir build/windows -C Release --output-on-failure --no-tests=error -R $pattern
+          if($LASTEXITCODE){throw 'Host contracts failed'}
       - name: Stretch foundation evidence (synthetic, not ASIO)
         if: success() && env.CHECK_SCOPE != 'live' && env.CHECK_SCOPE != 'separation' && env.CHECK_SCOPE != 'separation-ui' && env.CHECK_SCOPE != 'studio' && env.CHECK_SCOPE != 'studio-live'
         shell: pwsh
@@ -208,12 +227,21 @@ jobs:
           path: build/stretch-evidence/
           if-no-files-found: error
           retention-days: 14
+      - name: Reject superseded package
+        id: current
+        if: always() && steps.build.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $current=gh api "repos/$env:GITHUB_REPOSITORY/commits/$env:GITHUB_REF_NAME" --jq .sha
+          if($LASTEXITCODE -or $current -ne $env:GITHUB_SHA){throw 'Candidate ref advanced; select the current SHA'}
       - name: Package development acceptance candidate
         id: package
-        if: always() && steps.build.outcome == 'success' && env.CHECK_SCOPE != 'separation'
+        if: always() && steps.build.outcome == 'success' && steps.current.outcome == 'success' && env.CHECK_SCOPE != 'separation'
         shell: pwsh
         env:
-          CI_TEST_RESULT: ${{ steps.test.outcome }}
+          CI_TEST_RESULT: ${{ steps.test.outcome == 'success' && (steps.host.outcome == 'success' || steps.host.outcome == 'skipped') && 'success' || 'failure' }}
           CI_CHECK_SCOPE: ${{ env.CHECK_SCOPE }}
         run: ./tools/ci/Package-Windows.ps1 -Ara:($env:BUILD_ARA -eq 'true') -StudioOnly:($env:STUDIO_ONLY -eq 'true') -LiveOnly:($env:CHECK_SCOPE -eq 'live')
       - name: Upload Windows runtime
@@ -225,7 +253,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Upload symbols
-        if: always() && steps.build.outcome == 'success' && env.CHECK_SCOPE != 'separation'
+        if: always() && steps.build.outcome == 'success' && steps.current.outcome == 'success' && env.CHECK_SCOPE != 'separation'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ env.RELEASE_ARTIFACT_VERSION }}-Windows-symbols-${{ github.sha }}-ara-${{ steps.live_scope.outputs.ara }}

@@ -8,20 +8,13 @@ if(Test-Path -LiteralPath $Output){throw 'Package output already exists; use a n
 New-Item -ItemType Directory -Path $Output | Out-Null
 $application=if($LiveOnly){'MR Live'}elseif($StudioOnly){'MR Studio'}else{'MR Studio + MR Live'}
 $gui=if($LiveOnly){Join-Path $Build 'MRLiveJuce_artefacts/Release/MR Live.exe'}else{Join-Path $Build 'MoonRiverStudioJuce_artefacts/Release/Moon River Studio JUCE.exe'}
-# Keep the Windows executable name stable for vendor VST3 host compatibility.
-# The release version belongs to the artifact and its extracted directory.
-$liveExeName='MR Live.exe'
 Copy-Item -LiteralPath $gui -Destination $Output
-if(!$LiveOnly){
- Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $gui) 'ace-midi.exe') -Destination $Output
- Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $gui) 'ace-midi-avx2.exe') -Destination $Output
- Copy-Item -LiteralPath 'build/native-ace/ace-midi-NOTICES.txt' -Destination $Output
-}
-if(!$LiveOnly -and !$StudioOnly){Copy-Item -LiteralPath (Join-Path $Build 'MRLiveJuce_artefacts/Release/MR Live.exe') -Destination (Join-Path $Output $liveExeName)}
+if(!$LiveOnly -and !$StudioOnly){Copy-Item -LiteralPath (Join-Path $Build 'MRLiveJuce_artefacts/Release/MR Live.exe') -Destination $Output}
 if(!$LiveOnly){Copy-Item -LiteralPath 'tools/separation/mr_separation_scnet.py' -Destination (Join-Path $Output 'mr_separation_scnet.py');Copy-Item -LiteralPath 'tools/separation/SCNet-MIT-LICENSE.txt' -Destination (Join-Path $Output 'SCNet-MIT-LICENSE.txt')}
 if(!$LiveOnly){Copy-Item -LiteralPath 'tools/separation/mr_separation_profiles.json' -Destination (Join-Path $Output 'mr_separation_profiles.json')}
 if(!$LiveOnly){Copy-Item -LiteralPath 'tools/separation/worker.py' -Destination (Join-Path $Output 'mr_separation_worker.py')}
 if(!$LiveOnly){Copy-Item -LiteralPath 'tools/separation/requirements-cpu.txt' -Destination (Join-Path $Output 'mr_separation_requirements.txt')}
+if(!$LiveOnly){Copy-Item -LiteralPath 'tools/transcription/worker.py' -Destination (Join-Path $Output 'mr_transcription_worker.py');Copy-Item -LiteralPath 'tools/transcription/requirements-cpu.txt' -Destination (Join-Path $Output 'mr_transcription_requirements.txt')}
 foreach($name in @('mrs_vst3_scan.exe','mrs_crash_reporter.exe')){Copy-Item -LiteralPath "$Build/Release/$name" -Destination $Output}
 if($packageAra){Copy-Item -LiteralPath "$Build/Release/mrs_ara_scan.exe" -Destination $Output}
 $licenses=@{'build/sdk/juce/LICENSE.md'='JUCE-LICENSE.md';'build/sdk/portaudio/LICENSE.txt'='PortAudio-LICENSE.txt';'build/sdk/vst3/LICENSE.txt'='VST3-LICENSE.txt';'build/sdk/vst3/base/LICENSE.txt'='VST3-base-LICENSE.txt';'build/sdk/vst3/pluginterfaces/LICENSE.txt'='VST3-pluginterfaces-LICENSE.txt';'build/sdk/vst3/public.sdk/LICENSE.txt'='VST3-public-sdk-LICENSE.txt';'apps/studio-juce/assets/OFL.txt'='OFL.txt';'third_party/signalsmith-stretch/LICENSE.txt'='Signalsmith-Stretch-LICENSE.txt';'third_party/signalsmith-linear/LICENSE.txt'='Signalsmith-Linear-LICENSE.txt'}
@@ -47,18 +40,10 @@ if(!$LiveOnly -and !$StudioOnly){
  }
 }
 $sha=& git rev-parse HEAD
-@("$application $releaseLabel; source $sha; Windows Release; ARA=$packageAra; MR Live ARA=OFF",$(if($StudioOnly){'Studio-only package. MR Live is a separate installation. Keep the runtime files together.'}else{"Launch $liveExeName directly to work in MR Live; MR Studio does not need to be opened first. MR Live restores its last saved show by default (Options: Open last show on startup); --empty-show starts a blank show. To open a show, pass its quoted .mrlive path to $liveExeName. Keep the runtime files together; SDKs and third-party plugins are not included."}),"Checks: $env:CI_CHECK_SCOPE",'Development acceptance artifact. See the included license notices; commercial distribution is not certified by CI.','CI results do not certify physical ASIO/MIDI/DPI performance. See run test logs for integration status.') | Set-Content -LiteralPath "$Output/README.txt" -Encoding UTF8
+@("$application $releaseLabel; source $sha; Windows Release; ARA=$packageAra; MR Live ARA=OFF",$(if($StudioOnly){'Studio-only package. MR Live is a separate installation. Keep the runtime files together.'}else{'Launch MR Live.exe directly to work in MR Live; MR Studio does not need to be opened first. MR Live restores its last saved show by default (Options: Open last show on startup); --empty-show starts a blank show. To open a show, pass its quoted .mrlive path to MR Live.exe. Keep the runtime files together; SDKs and third-party plugins are not included.'}),"Checks: $env:CI_CHECK_SCOPE",'Development acceptance artifact. See the included license notices; commercial distribution is not certified by CI.','CI results do not certify physical ASIO/MIDI/DPI performance. See run test logs for integration status.') | Set-Content -LiteralPath "$Output/README.txt" -Encoding UTF8
 $env:CI_TEST_RESULT | Set-Content -LiteralPath "$Output/CI-TEST-RESULT.txt" -Encoding UTF8
 $files=@(Get-ChildItem -LiteralPath $Output -File | Sort-Object Name | ForEach-Object {@{name=$_.Name;bytes=$_.Length;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash}})
 @{application=$application;source=$sha;version=$releaseLabel;binary_version=$version;release_label=$releaseLabel;versions=@{studio=$env:MR_STUDIO_VERSION;live=$env:MR_LIVE_VERSION};ara=$packageAra;run=$env:GITHUB_RUN_ID;tests=$env:CI_TEST_RESULT;checks=$env:CI_CHECK_SCOPE;runner_image=$env:ImageVersion;sdk_lock_sha256=(Get-FileHash -LiteralPath "$PSScriptRoot/sdk-lock.json").Hash;files=$files} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$Output/SHA256.json" -Encoding UTF8
 foreach($file in $files){if((Get-FileHash -LiteralPath (Join-Path $Output $file.name)).Hash -ne $file.sha256){throw 'Package integrity failure'}}
 
-# The GitHub artifact expands to one versioned directory. No executable
-# renaming: vendor VST3 GUI initialization may identify the host by EXE name.
-$packageRoot=$Output
-if($LiveOnly){
- $packageRoot=Join-Path $Output "$application $releaseLabel"
- New-Item -ItemType Directory -Path $packageRoot | Out-Null
- Get-ChildItem -LiteralPath $Output -File | Move-Item -Destination $packageRoot
-}
-& (Join-Path $PSScriptRoot 'Verify-Package.ps1') -Package $packageRoot -ExpectedSource $sha -ExpectedVersion $releaseLabel
+& (Join-Path $PSScriptRoot 'Verify-Package.ps1') -Package $Output -ExpectedSource $sha -ExpectedVersion $releaseLabel

@@ -1,10 +1,12 @@
-param([string]$Root='build/sdk', [switch]$Ara)
+param([string]$Root='build/sdk', [switch]$Ara, [switch]$PublicGuiOnly)
 $ErrorActionPreference='Stop'
 $lock=Get-Content -Raw -LiteralPath "$PSScriptRoot/sdk-lock.json" | ConvertFrom-Json
 New-Item -ItemType Directory -Path $Root -Force | Out-Null
 $Root=(Resolve-Path -LiteralPath $Root).Path
 function Git-Checked([string[]]$Arguments){ & git @Arguments; if($LASTEXITCODE){throw "Git SDK operation failed"} }
-$names=@('juce','vst3','portaudio');if($Ara){$names+='ara'}
+if($PublicGuiOnly -and $Ara){throw 'PublicGuiOnly does not support the ARA SDK'}
+$names=if($PublicGuiOnly){@('juce','vst3')}else{@('juce','vst3','portaudio')}
+if($Ara){$names+='ara'}
 foreach($name in $names){
  $sdk=$lock.$name;$path=Join-Path $Root $name
  if(!(Test-Path -LiteralPath "$path/.git")){Git-Checked @('clone','--no-checkout','--filter=blob:none',$sdk.url,$path)}
@@ -21,6 +23,10 @@ foreach($name in $names){
  $modules=& git -C $path submodule status --recursive
  if($LASTEXITCODE){throw "Cannot validate SDK submodules: $name"}
  if(@($modules | Where-Object {$_ -match '^[+U]'}).Count){throw "Modified SDK submodule: $name"}
+}
+if($PublicGuiOnly){
+  Write-Output 'Public GUI SDK pins verified: JUCE/VST3. No ASIO or PortAudio download.'
+  exit 0
 }
 # Licensed ASIO archive is deliberately outside the public-source cache root.
 $asio=Join-Path (Split-Path -Parent $Root) 'private-sdk/asio.zip'
