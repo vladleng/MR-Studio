@@ -47,7 +47,21 @@ def verify_existing(sha, scope, integration, runs, artifact_evidence, ref):
                       and r.get('path') == f'.github/workflows/{workflow}'
                       and r.get('event') in {'pull_request', 'push', 'workflow_dispatch'}]
         # A newer failure/pending run must not be hidden behind an older success.
-        run = max(candidates, key=lambda r: (r['id'], r.get('run_attempt', 1)), default=None)
+        run = None
+        for candidate in sorted(candidates, key=lambda r: (r['id'], r.get('run_attempt', 1)), reverse=True):
+            # Unknown/failed executions remain blockers; do not hide regressions.
+            if candidate.get('status') != 'completed' or candidate.get('conclusion') != 'success':
+                run = candidate
+                break
+            try:
+                data = artifact_evidence(candidate['id'], name)
+                if check not in data.get('checks', []):
+                    continue
+            except (ValueError, KeyError, OSError, zipfile.BadZipFile):
+                run = candidate
+                break
+            run = candidate
+            break
         try:
             if not run:
                 raise ValueError('missing check')
