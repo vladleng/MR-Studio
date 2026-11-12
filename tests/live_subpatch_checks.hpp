@@ -385,6 +385,24 @@ inline void subPatchChainVariants() {
         validate(edited);
         checkThrows([&]{replaceCapturedSubPatch(edited,channel,patchId,"sub-rhythm",changed);},
                     "Repeated unchanged Sub-patch Update is rejected");
+        {
+            auto other=changed;
+            other[0].parameters[0].value=.2f;
+            auto second=subPatchChain(edited,baseInserts,other);
+            auto first=object();put(first,"overrides",changedSub["overrides"].clone());
+            const auto before=canonical(edited["patchStates"]);
+            for(const auto& variant:std::vector<juce::var>{first,second,first}) {
+                const auto restored=patchInsertsWithSubPatch(edited,
+                    find(find(edited,"channels",channel),"patches",patchId),variant);
+                check(restored.size()==1 && !restored[0].parameters.empty(),
+                      "Parameter Sub-patch resolves explicit overrides for A/B/A");
+                const auto expected=static_cast<float>(static_cast<double>(variant["overrides"][0]["value"]));
+                check(std::abs(restored[0].parameters[0].value-expected)<1.e-6f,
+                      "A/B/A Sub-patch restoration returns the saved normalized value");
+            }
+            check(canonical(edited["patchStates"])==before,
+                  "Parameter Sub-patch resolution never rewrites opaque plugin blobs");
+        }
         auto invalid=baseInserts;
         invalid[0].id=mrs::Id{"changed-identity"};
         checkThrows([&]{replaceCapturedSubPatch(edited,channel,patchId,"sub-rhythm",invalid);},

@@ -2373,6 +2373,36 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   "Reconnecting the correct device auto-monitors two saved audio channels independently");
         // Legacy descriptors may omit optional outputNames. Undo must restore
         // that absence while still checking device identity and enabled ports.
+        {
+            const auto saved=inputPilot.liveDocument->interfaceState.clone();
+            const auto item=saved["currentItem"].toString();
+            inputPilot.editLiveInterface("Stopped seek sound fixture",[&](auto& state) {
+                auto& channel=live::require(state,"channels",showChannel);
+                mrs::NativeInsert gain;gain.id=mrs::Id{"seek-gain"};
+                gain.kind=mrs::InsertKind::gain;gain.gain=.25f;
+                const auto first=live::addChannelPatch(state,channel,{gain},"Seek A","blue");
+                gain.gain=.75f;
+                const auto second=live::addChannelPatch(state,channel,{gain},"Seek B","violet");
+                auto spans=live::object();
+                live::put(spans,juce::Identifier(first),live::blockSpan(0.,4.));
+                live::put(spans,juce::Identifier(second),live::blockSpan(4.,4.));
+                auto& target=live::require(state,"items",item);
+                live::put(target,"bars",juce::jmax(8.,static_cast<double>(target["bars"])));
+                for(auto& track:live::array(target,"tracks"))
+                    if(track["channelId"].toString()==showChannel) {
+                        live::put(track,"spans",spans);
+                        live::put(track,"patchOrder",juce::var(juce::Array<juce::var>{first,second}));
+                    }
+            });
+            for(const double bar:{1.,5.,1.}) {
+                inputPilot.loadStoppedLiveTimelinePatches(item,bar);
+                const auto chain=inputPilot.captureLiveChannelInserts(showChannel,false,true);
+                liveCheck(chain.size()==1 && std::abs(chain.front().gain-(bar<4.?.25f:.75f))<1.e-6f,
+                          "Stopped seek loads Timeline sound A, B, then A on active Core channel");
+            }
+            inputPilot.editLiveInterface("Restore stopped seek fixture",[&](auto& state){state=saved.clone();});
+            inputPilot.liveLoadedPatches.clear();
+        }
         inputPilot.editLiveInterface("Legacy output descriptor fixture",[&](auto& state){
             auto profile=live::find(state,"channels",showChannel)["liveInput"];
             profile.getDynamicObject()->removeProperty("outputNames");

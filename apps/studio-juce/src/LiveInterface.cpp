@@ -1654,6 +1654,21 @@ void Desktop::loadStoppedLiveTimelinePatch(const juce::String& channel,
     if(selected.patchId.isEmpty())return;
     loadLiveChannelPatch(channel,selected.patchId,selected.subPatchId);
 }
+void Desktop::loadStoppedLiveTimelinePatches(const juce::String& itemId,double atBar) {
+    if(!liveDocument || app.recording() ||
+       app.engine()->state().playback!=mrs::PlaybackState::stopped ||
+       liveDocument->interfaceState["currentItem"].toString()!=itemId)return;
+    if(livePreloadError.startsWith("Patch: "))livePreloadError.clear();
+    // UI/control thread only. Copy IDs because loading may reconcile runtime tracks.
+    std::vector<juce::String> channels;
+    for(const auto& entry:liveChannelTracks)channels.push_back(entry.first);
+    for(const auto& channel:channels) {
+        try { loadStoppedLiveTimelinePatch(channel,itemId,atBar); }
+        catch(const std::exception& error) {
+            livePreloadError="Patch: "+juce::String::fromUTF8(error.what());
+        }
+    }
+}
 bool Desktop::livePatchLoadedForEditing(const juce::String& channel,
                                         const juce::String& patchId,
                                         const juce::String& subPatchId) const {
@@ -1715,12 +1730,20 @@ bool Desktop::liveSubPatchParametersDirty(const juce::String& channel,
     return false;
 }
 std::vector<mrs::NativeInsert> Desktop::captureLiveChannelInserts(const juce::String& channel,
-                                                                   bool includeExposedParameters) {
-    auto draft=liveDocument->interfaceState.clone();captureLiveInputs(draft);
-    const auto row=live::find(draft,"channels",channel);
+                                                                   bool includeExposedParameters,
+                                                                   bool parametersOnly) {
+    const auto row=live::find(liveDocument->interfaceState,"channels",channel);
     if(!row["liveInput"].isObject())
         throw std::runtime_error("Configure the channel input first");
-    auto inserts=live::decodeLiveInputProfile(row["liveInput"]).inserts;
+    const auto trackId=liveInputTrack(channel);
+    if(!trackId)throw std::runtime_error("Activate the channel input before capturing its chain");
+    const auto snapshot=project();
+    const auto current=std::find_if(snapshot->tracks.begin(),snapshot->tracks.end(),
+        [&](const auto& track){return track.id==*trackId;});
+    if(current==snapshot->tracks.end())throw std::runtime_error("Live channel Core track is missing");
+    auto inserts=current->inserts;
+    if(!parametersOnly)
+        for(auto& fx:inserts)fx=app.capture_insert(*trackId,fx.id);
     if(includeExposedParameters) {
         const auto track=liveInputTrack(channel);
         if(!track)throw std::runtime_error("Activate the channel input before capturing VST3 parameters");
@@ -1863,7 +1886,42 @@ void Desktop::updateLiveChannelSubPatch(const juce::String& requested,const juce
     const auto sub=live::find(patch,"subPatches",subPatchId);
     if(!sub.isObject() || live::legacyPatch(patch))
         throw std::runtime_error("Sub-patch no longer exists");
-    const auto captured=captureLiveChannelInserts(channel,patch["parameterBaseline"].isArray());
+    const bool parametersOnly=sub["type"].toString()=="parameters" &&
+                              patch["parameterBaseline"].isArray();
+    auto captured=captureLiveChannelInserts(channel,patch["parameterBaseline"].isArray(),parametersOnly);
+    if(parametersOnly) {
+        // Do not serialize vendor state for a parameter-only edit. Preserve
+        // the Base bytes so Auto cannot mistake stale Core bytes for a preset change.
+        const auto base=live::decodeLivePatchInserts(state,patch);
+        if(!live::sameInsertStructure(base,captured))
+            throw std::runtime_error("Sub-patch cannot change the plugin chain; create a new Patch");
+        for(std::size_t i=0;i<captured.size();++i) {
+            captured[i].component_state=base[i].component_state;
+            captured[i].controller_state=base[i].controller_state;
+        }
+        auto reference=base;
+        live::applyLivePatchParameterBaseline(reference,patch["parameterBaseline"]);
+        juce::var fresh;
+        auto captureState=live::object();
+        try {
+            fresh=live::captureSubPatchVariant(captureState,reference,captured,
+                                               live::SubPatchCaptureMode::parameters);
+        } catch(const std::runtime_error& error) {
+            if(!juce::String::fromUTF8(error.what()).startsWith("No exposed VST3 parameter changes"))throw;
+            fresh=live::object();
+            live::put(fresh,"overrides",juce::var(juce::Array<juce::var>{}));
+        }
+        if(live::sameShowValue(sub["overrides"],fresh["overrides"]))
+            throw std::runtime_error("Sub-patch already contains these changes");
+        auto updated=sub.clone();
+        live::put(updated,"overrides",fresh["overrides"]);
+        live::put(updated,"parameterMonitor",live::encodeLivePatchParameterBaseline(captured));
+        performLiveValuePatch("Update sub-patch",
+            {"channels",live::EditStep::id(channel),"patches",live::EditStep::id(patchId),
+             "subPatches",live::EditStep::id(subPatchId)},updated,
+            live::EditImpact::timeline|live::EditImpact::cards);
+        return;
+    }
     editLiveInterface("Update sub-patch",[&](auto& model) {
         live::replaceCapturedSubPatch(model,channel,patchId,subPatchId,captured);
     });
