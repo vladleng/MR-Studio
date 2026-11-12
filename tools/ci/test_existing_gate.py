@@ -1,5 +1,6 @@
 """Gate evidence selection regressions; no network, dispatch or build."""
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from ci_evidence import definition_hash
 from verify_ci_evidence import verify_existing, WORKFLOWS
@@ -7,11 +8,16 @@ from verify_ci_evidence import verify_existing, WORKFLOWS
 SHA = 'a' * 40
 class ExistingEvidenceTests(unittest.TestCase):
     def setUp(self):
+        # Generic profile-selection tests use synthetic definitions. This legacy
+        # branch intentionally has no Studio Python runtime workflows.
+        definition = patch('verify_ci_evidence.definition_hash', return_value='fixture-definition')
+        definition.start()
+        self.addCleanup(definition.stop)
         self.runs = [dict(id=i, path='.github/workflows/'+WORKFLOWS[n], head_sha=SHA,
                           event='pull_request', status='completed', conclusion='success')
                      for i,n in enumerate(('core','gui','contracts','runtime'),1)]
         self.data = {n: dict(schema=1, sha=SHA, workflow=WORKFLOWS[n],
-                            definition=definition_hash(WORKFLOWS[n]), checks=[n])
+                            definition='fixture-definition', checks=[n])
                      for n in ('core','gui','contracts','runtime')}
     def verify(self,scope='studio',integration=False):
         return verify_existing(SHA,scope,integration,self.runs,lambda _,n:self.data[n],'feature')
