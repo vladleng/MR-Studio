@@ -1,7 +1,7 @@
 # CMake / build
 /build/
 .codex/*
-!.codex/skills/
+# Local compatibility junction; canonical skills are tracked under .agents/skills/.
 /cmake-build-*/
 CMakeFiles/
 CMakeCache.txt
