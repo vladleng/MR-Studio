@@ -1,4 +1,6 @@
-# Shared audio engine performance plan
+# Shared audio engine performance — техническая стратегия
+
+> Исторические записи 0.1r–0.1u ниже описывают конкретные этапы и тесты, а не текущее состояние Core. Актуальный runtime-контракт определяют код, [AUDIO_ENGINE.md](AUDIO_ENGINE.md), [PROCESSING_RELIABILITY.md](PROCESSING_RELIABILITY.md), текущие Issues и [AGENTS.md](../AGENTS.md). План не подтверждает результат нового оборудования/ASIO без тестов.
 
 Approved direction: 2026-10-05. Parent: [Stage 3 / #23](https://github.com/vladleng/MR-Studio/issues/23).
 Windows first. Develop a universal, efficient engine for Arrange/Mix and future

@@ -1,6 +1,6 @@
 # Moon River Studio — Time Stretch / Pitch Shift
 
-Status: **architecture and issue plan approved; implementation not started**.
+**Scope of this document:** original architecture and planned capabilities for #56/#57–#62. The earlier statement "implementation not started" is historical: [TIME_STRETCH_API.md](TIME_STRETCH_API.md) documents subsequent Core adapter, worker/cache and clip integration. Check actual code and Issues for current feature completeness; do not infer implementation of every capability described below.
 
 Tracking: #56, child issues #57–#62.
 

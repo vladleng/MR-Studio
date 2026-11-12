@@ -1,4 +1,6 @@
-# Stage 3e — Processing reliability
+# Shared processing reliability — ограничения и история этапов
+
+> Контракты realtime/Undo/graph ниже применяются в той мере, в какой они подтверждены актуальным кодом. Датированные Fix/Upd отчёты здесь — исторические свидетельства, не текущий статус или обязательный план. Область проверки определяют Issue, [AGENTS.md](../AGENTS.md) и [AUDIO_ENGINE.md](AUDIO_ENGINE.md).
 
 ## MIDI split/merge/duplicate — 0.3m upd1, 2026-10-14
 

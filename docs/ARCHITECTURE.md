@@ -1,33 +1,19 @@
 # Moon River Studio — Architecture
 
-## 1. Продуктовая граница
+## 1. Продуктовая граница (действующий контракт)
 
-**Moon River Studio** (`MRS`, рабочее имя `MR Studio`) — единственное desktop-приложение и единственная DAW проекта.
-
-Live Mode — встроенный Performance / Show режим этой же DAW.
+**MR Studio** (DAW) и **MR Live** (performance/show) — **два самостоятельных desktop-приложения** с независимыми линиями версий. Общий monorepo и Shared Core не означают единую программу, один файл проекта или Live workspace внутри Studio.
 
 ```text
-┌───────────────────────────────────────────────┐
-│              Moon River Studio               │
-│                                               │
-│   Arrange | Edit | Mix | Project | Live      │
-└───────────────────────┬───────────────────────┘
-                        │
-                        ▼
-┌───────────────────────────────────────────────┐
-│                  SHARED CORE                  │
-│                                               │
-│ Project Model / Commands / Transport          │
-│ Audio / MIDI / Plugins / Musical Timeline     │
-│ Persistence / State / Recovery                │
-└───────────────────────────────────────────────┘
+ MR Studio (.mrsproject)      MR Live (.mrlive show)
+ Arrange / Edit / Mix         Setlist / Item / Patch / Playback
+             \                 /
+              Shared Core / Services
+     Audio / MIDI / Transport / Plugin Host
+     Processing / Model APIs / Persistence
 ```
 
-Live Mode — встроенный режим той же DAW с общим realtime engine. Активная песня
-использует тот же .mrsproject/Project Model. Будущий .mrlive — show-документ
-со ссылками на проекты и параметрами выступления.
-Схема выше показывает продуктовые режимы, не текущие кнопки header. Вход в show
-планируется через Files; детали — [LIVE_WORKFLOW.md](LIVE_WORKFLOW.md).
+MR Live можно запустить с Home MR Studio, но оно функционирует независимо и хранит собственный show. Item **не открывает Studio project напрямую**; экспорт Studio → Live как Playback — отдельная будущая функция. MR Studio по умолчанию поддерживает ARA2; MR Live standalone не использует ARA2. Подробности — [MR Live native integration](MR_LIVE_NATIVE_INTEGRATION.md) и [AGENTS.md](../AGENTS.md).
 
 ## 2. Главная архитектурная граница
 
@@ -55,7 +41,7 @@ Arrange -> separate project state
 
 ## 3. Shared Project Model
 
-Единая versioned-модель проекта:
+Shared Core определяет общие сущности и интерфейсы; versioned DAW Project Model используется MR Studio. MR Live отдельно сохраняет show-level данные в `.mrlive`:
 
 ```text
 Project
@@ -74,9 +60,7 @@ Project
 └── live metadata
 ```
 
-Все режимы читают и изменяют одну модель через общие commands/services.
-
-Live Mode строит runtime performance-state из Project Model, но не создаёт копию музыкальной структуры.
+MR Studio использует проектные Commands/Undo и Persistence. MR Live использует совместимые общие сервисы, но владеет show/item state отдельно; идентичность DAW и show-документа не предполагается.
 
 ## 4. Command / Undo System
 
@@ -110,11 +94,7 @@ Command
 - tempo/meter sync;
 - section/marker navigation.
 
-Активация подготовленной песни в будущем Live/show workflow использует общий
-transport и project engine. Это архитектурное требование, а не утверждение о
-реализованном переключателе Arrange -> Live. Stage 5 предоставляет shared musical
-data/context; полный show UI реализуется в LIVE stages.
-Рабочие контракты редакторов — [STAGE_5_PLAN.md](STAGE_5_PLAN.md).
+В MR Studio и MR Live применяются общие транспортные контракты, но каждый запущенный документ владеет соответствующим state. Конкретный show/item workflow определяет [MR Live native integration](MR_LIVE_NATIVE_INTEGRATION.md), а текущая реализация проверяется по коду и Issues.
 
 ## 6. Audio Engine
 
@@ -140,7 +120,7 @@ Audio Engine включает:
 - preload/read-ahead;
 - xrun/dropout diagnostics.
 
-Arrange playback, Mix и Live Mode используют **один и тот же engine**.
+Studio и MR Live используют **общую реализацию Engine API/backend**; это не утверждение, что два запущенных процесса разделяют один runtime instance.
 
 Подробнее: `AUDIO_ENGINE.md`.
 
@@ -186,7 +166,7 @@ Realtime path подчиняется общим правилам Audio Engine: p
 
 Фактическая реализация определяется техническим spike и performance benchmark.
 
-Это свойство полезно и в production mode, и в Live Mode: большая сессия не должна автоматически разрушать низкую latency живого входа.
+Это свойство полезно и в production mode, и в MR Live: большая сессия не должна автоматически разрушать низкую latency живого входа.
 
 ## 8. MIDI Engine
 
@@ -202,7 +182,7 @@ Realtime path подчиняется общим правилам Audio Engine: p
 - Live timeline actions;
 - panic/all-notes-off.
 
-MIDI editor и Live automation работают с одной event/device model.
+Studio MIDI editor и MR Live automation используют общие контракты event/device model, сохраняя раздельное владение документами.
 
 ## 9. Plugin / Processor Graph
 
@@ -226,7 +206,7 @@ Native processors также подключаются к этому graph.
 - processor/preset state;
 - preload/warm state hooks.
 
-Live patch — это state/snapshot общего processor graph, а не отдельная plugin-chain система.
+MR Live patch хранит ссылку/снимок show-owned канала поверх общего processor graph; не создавать отдельный plugin-host/DSP backend.
 
 ## 10. Native DSP / modeling
 
@@ -241,44 +221,20 @@ MRS может включать:
 
 Подробнее: `DSP_MODELING.md`.
 
-## 11. Workspaces
+## 11. UI / document boundaries
 
-### Arrange
-
-Timeline-oriented production workspace.
-
-### Edit
-
-Detailed audio/MIDI/automation editing.
-
-### Mix
-
-Mixer/routing/plugin workspace.
-
-### Live Mode
-
-Performance-oriented представление того же проекта:
+MR Studio содержит **Arrange**, **Edit** и **Mix** для `.mrsproject`. MR Live имеет собственные **Setlist**, **Item**, **Playback**, **Patch/Sub-patch** и performance-представления для `.mrlive`. Они могут переиспользовать shared controls и компоненты данных, но не копируют один и тот же workspace/document state.
 
 ```text
-LiveState
-├── currentProject/song
-├── transportState
-├── currentPosition
-├── currentSection
-├── nextSection
-├── currentChord
-├── nextChord
-├── activePatch
-├── pendingCue
-├── setlistState
-└── connectedRemotes
+Studio UI -> Studio Application/Commands -> Shared Core
+Live UI   -> Live Application/Show Commands -> Shared Core
 ```
 
-LiveState — runtime projection. Project entities остаются общими.
+LiveState — runtime-проекция текущего show/item (transport, section/chord, selected patch, cue, setlist, connected remotes), а не открытый Studio project.
 
 ## 12. Moving Chord Track
 
-Live Mode использует горизонтальную движущуюся Chord Track strip:
+MR Live использует горизонтальную движущуюся Chord Track strip:
 
 ```text
 Dm7 | G7 | [ Gmaj7 ] | Em7 | Am7 | D7
@@ -291,18 +247,9 @@ Dm7 | G7 | [ Gmaj7 ] | Em7 | Am7 | D7
 
 ## 13. Setlist / Show State
 
-Setlist относится к Live Mode/application-level state и ссылается на MRS projects.
+Setlist и Item принадлежат **MR Live show-документу** `.mrlive`, а не единой DAW Project Model. Show-state включает порядок items, собственные Playback/stems, performance channels, patch/sub-patch, cues, preflight и recovery. Переиспользуются Core APIs/Graph/Transport, но нельзя создавать прямую ссылку на открытый `.mrsproject` как на Live item по старому сценарию.
 
-Он отвечает за:
-
-- порядок песен/projects;
-- preload следующего project state;
-- next/previous;
-- inter-song policy;
-- preflight;
-- recovery.
-
-Show state не должен копировать полный Project Model. Он хранит ссылки и show-specific параметры.
+При изменении show-state соблюдать стабильность IDs, Undo/Redo, Save/Reopen и realtime safety. Действующие детали: [MR_LIVE_NATIVE_INTEGRATION.md](MR_LIVE_NATIVE_INTEGRATION.md), [#289](https://github.com/vladleng/MR-Studio/issues/289).
 
 ## 14. AI Layer
 
@@ -327,7 +274,7 @@ AI может читать/анализировать проект и форми
 Remote/mobile получает подготовленный application/live state:
 
 ```text
-MRS Application Core
+Shared Application Services
       |
 local API / WebSocket
       |
@@ -347,7 +294,7 @@ Bridge / Import adapter
       v
 MRS Project Model
       |
-Arrange / Edit / Mix / Live
+Arrange / Edit / Mix
 ```
 
 Подробнее: `STUDIO_PRO_INTEGRATION.md`.
@@ -367,51 +314,28 @@ Arrange / Edit / Mix / Live
 
 Для realtime state используются подходящие bounded / lock-free / atomic механизмы там, где они действительно необходимы.
 
-## 18. Предлагаемая структура monorepo
+## 18. Репозиторий (логическая карта)
 
 ```text
-Moon-River-Studio/
-├── apps/
-│   └── studio-desktop/
-├── core/
-│   ├── audio/
-│   ├── midi/
-│   ├── plugins/
-│   ├── transport/
-│   ├── project-model/
-│   ├── commands/
-│   └── storage/
-├── workspaces/
-│   ├── arrange/
-│   ├── edit/
-│   ├── mix/
-│   └── live/
-├── native-dsp/
-├── ai/
-├── remote/
-├── ui/
-├── tests/
-├── tools/
-└── docs/
+apps/studio-desktop/   desktop application/services
+apps/studio-juce/      JUCE frontend / Studio and Live integration
+core/                 shared audio, processing, model APIs, persistence
+tests/                contract / feature regression checks
+assets/ui/mr-uds/     common SVG/GUI assets
+.agents/skills/       agent skills and workflow guidance
+tools/ci/             pinned SDK, package and validation scripts
+docs/                 lasting technical contracts only
 ```
+
+Структура не заменяет фактическое дерево Git. Изменения Shared Core требуют проверять влияние на **оба** приложения.
 
 ## 19. Development tracks
 
-В одном monorepo Issues разделяются для удобства параллельной работы:
-
-```text
-[MRS]    DAW features/workspaces
-[SHARED] common Core/Engine
-[LIVE]   embedded Live Mode
-```
-
-Это организационные tracks, а не разные приложения.
-
-Подробнее: `DEVELOPMENT_TRACKS.md`.
+`[MRS]` — Studio DAW, `[LIVE]` — отдельное MR Live, `[SHARED]` — общий Core. Это **разные приложения**, но один общий engine/backend. Этапы и приёмка отслеживаются в GitHub Issues, а не в Markdown-журнале. См. [DEVELOPMENT_TRACKS.md](DEVELOPMENT_TRACKS.md).
 
 ## 20. Fail-safe модель
 
-Особенно для Live Mode:
+Особенно для MR Live:
 
 - UI failure не останавливает звук;
 - AI/network failure не влияет на playback;

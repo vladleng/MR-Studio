@@ -29,7 +29,7 @@ Retained assets for Undo count against the cache cap until project replacement.
 Windows UI: New, Import WAVs, Add Track/Delete/Up/Down, Zoom +/- and Fit.
 Track list selection brings its row into view; wheel scrolls tracks and Shift+wheel
 scrolls time. Later substages add move/trim/split and recording/streaming.
-See MRS_STAGE_1A_CHECKLIST.md. Stage 1a accepted by user on 2026-10-03; PR #42 merged. #21 remains open.
+Historical acceptance: [MRS Stage 1a checklist](https://github.com/vladleng/MR-Studio/blob/2c5a3448ac3738dacbd9976965cf293c67a85968/docs/MRS_STAGE_1A_CHECKLIST.md). Stage 1a accepted by user on 2026-10-03; PR #42 merged. #21 remains open.
 Stage 1b clip selection, move/trim/split and shared Undo/Redo is accepted below.
 
 ## 0.1b fix1
@@ -52,7 +52,7 @@ positions the common transport for Split. S splits; Delete removes only the sele
 clip. Optional 1/16 tick-based snap follows tempo map; Shift bypasses it.
 Selection is available during playback; graph edits require Pause or Stop.
 No source file writes, alternate renderer or second undo stack.
-See MRS_STAGE_1B_CHECKLIST.md. All six CI jobs passed; user confirmed all functions
+Historical acceptance: [MRS Stage 1b checklist](https://github.com/vladleng/MR-Studio/blob/2c5a3448ac3738dacbd9976965cf293c67a85968/docs/MRS_STAGE_1B_CHECKLIST.md). All six CI jobs passed; user confirmed all functions
 working on 2026-10-03. Stage 1b / 0.1c accepted; PR #44 merged into main.
 Next: Stage 1c / 0.1d disk read-ahead and long-file playback; development not started.
 
@@ -83,7 +83,7 @@ Waveform workers scan bounded blocks, cap base peak entries at 65536 across chan
 Cancellation stops scans when replacing/exiting projects. Waveform failure appears
 in UI status and does not unwind the application pump or touch callback state.
 
-See MRS_STAGE_1C_CHECKLIST.md. All six automated CI jobs passed; Windows user acceptance passed on 2026-10-03.
+Historical acceptance: [MRS Stage 1c checklist](https://github.com/vladleng/MR-Studio/blob/2c5a3448ac3738dacbd9976965cf293c67a85968/docs/MRS_STAGE_1C_CHECKLIST.md). All six automated CI jobs passed; Windows user acceptance passed on 2026-10-03.
 Whole #21 remains open; Stage 1d recording follows.
 
 At most 128 retained source assets including Undo media; New/Open releases the cache.

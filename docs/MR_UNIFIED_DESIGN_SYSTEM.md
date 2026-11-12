@@ -1,6 +1,6 @@
 # MR Studio Unified Design System (MR UDS)
 
-**Approved visual direction: 2026-10-15. Implementation and GUI migration are NOT yet complete.** This standard applies to **the entire MR Studio desktop DAW, native plugins, app controls, browsers, inspectors, dialogs, and integrated Live Mode**. New icons, SVG illustrations and controls must extend it.
+**Approved visual direction: 2026-10-15.** This standard applies to **MR Studio, standalone MR Live and MR-owned native plugins**. Implementation status is tracked per Issue; this standard does not imply that every approved style change is already shipped. New icons, SVG illustrations and controls must extend it.
 
 ## 1. Authority and relationships
 
@@ -8,7 +8,7 @@
 - [MR UI Kit](MR_UI_KIT.md) / [#189](https://github.com/vladleng/MR-Studio/issues/189) (stages #190–#195) own reusable JUCE controls, theme integration, Gallery, parameter binding, automation and acceptance. **Do not create a parallel implementation/theme.**
 - [MR Rig GUI](MR_RIG_GUI.md), [MR Reverb](MR_REVERB.md), and each plugin spec own screen hierarchy and functional behavior. [Live UI](UI_UX_CONCEPT.md) owns live performance information hierarchy.
 - Local JUCE ui::Theme/Controls.h, [UI_REFERENCE_UPD9](UI_REFERENCE_UPD9.md), user-accepted issues #145/#146 are the **as-built baseline** until a scoped new implementation has been reviewed and accepted. Draft colors in this document MUST NOT silently repaint accepted screens.
-- [AGENTS.md](../AGENTS.md) and [mr-unified-gui skill](../.codex/skills/mr-unified-gui/SKILL.md) govern work; real local code may be ahead of GitHub docs.
+- [AGENTS.md](../AGENTS.md) and [mr-unified-gui skill](../.agents/skills/mr-unified-gui/SKILL.md) govern work; real local code may be ahead of GitHub docs.
 - Inspiration was a screenshot of Synth Anthology 4, **not a license to copy** another product's interface, logo or artwork. All new SVG elements must be original.
 
 **Conflicts:** current explicit user decision > accepted issue scope > this visual language for style > module specifications for behavior > legacy visual samples. Report conflicting design or existing accepted colors instead of guessing.
@@ -20,7 +20,7 @@
 3. **Compact modular UI**. Small rotary controls, thin faders, segmented tabs, readable values/units, simple power/bypass indicators; real interaction zones bigger than drawn control.
 4. Bright pale blue for selected/focus, green for ready/On, red for error/record, amber for warnings and Live cues; never use red or green purely decoratively. Non-color shape/label indicators always available.
 5. Restrained animations only for feedback; no bright neon glow, glass, 3D bevel, gratuitous gradients, heavy shadows, giant decorative waveform or unnecessary ornamental hardware panels.
-6. **Unified visual identity, differentiated workflow**: MR Rig, MR Reverb, MR Strip, Harma Waves, Arrange, Mixer, Browser and Live Mode share controls/tokens/icons but not an identical fixed layout.
+6. **Unified visual identity, differentiated workflow**: MR Rig, MR Reverb, MR Strip, Harma Waves, Arrange, Mixer, Browser and MR Live share controls/tokens/icons but not an identical fixed layout.
 7. Fonts: neutral installed/fallback sans-serif, readable values, stable digit alignment; respect existing accepted menu/mixer font exceptions until explicitly migrated.
 
 **Icon and button presentation (user decision, 2026-10-16):** Prefer icons without frames. Icon-only buttons have no visible button rectangle, border or plate; activation highlights the glyph itself with a restrained glow. Text-labelled buttons retain their frames. Preserve clear hover/pressed/disabled and keyboard-focus feedback, accessible names and real hit areas without restoring a persistent icon-button box. This applies to DAW and MR-owned plugin UI in the assigned migration slice, not an automatic global repaint.
@@ -57,7 +57,7 @@ Existing accepted colors such as #212830 (tree), #2D353E (card), #2F3841 (button
 - **MR Rig:** original outline combo amp, head, cabinets, tube, dynamic/ribbon mic, pedal families, rack. Large central visual is an *illustration*, not a copied commercial amplifier face. Preserve PRE FX → Rig Core → POST FX and only real implemented DSP controls. Static Full Combo WAV is not a dynamic amp.
 - **MR Reverb:** spring/plate/rack, room/chamber/hall/cathedral and reflection/IR illustration; distinguish diagram art from real measured IR data. Preserve accepted actual UI/parameters and DSP.
 - **Other native modules:** MR Strip, MR Spatial, MR Saturator, Harma Waves use the same design grammar with feature-specific diagrams.
-- **Live Mode:** same palette/icons but larger stage-distance readability, lower density, cue/ready/error priority; moving Chord Track and immediate transport remain primary.
+- **MR Live:** same palette/icons but larger stage-distance readability, lower density, cue/ready/error priority; moving Chord Track and immediate transport remain primary.
 - **Third-party VST3-owned GUIs are excluded**; only MR host chrome and our generic parameter editor may be restyled.
 
 **SVG rule:** Original vector paths, viewBox, transparent background, descriptive stable snake_case name, no scripts/foreignObject, external URLs, bitmap embeds, proprietary branding or redistributed fonts. Icons primarily 24×24 with compact 16/20 and 32 variants as needed; equipment illustrations 320×200, controls art examples 160×140. For very small sizes draw reduced-detail LOD; do not merely squash long fine-line drawings.

@@ -1,7 +1,7 @@
 """Unit tests for the release preflight gate (stdlib only, no network)."""
 
 import unittest
-from verify_release_gate import GateError, verify
+from verify_release_gate import GateError, verify, gui_affecting_path
 
 SHA = "a" * 40
 
@@ -19,7 +19,13 @@ def run(name, id=1, sha=SHA, status="completed", conclusion="success", version=1
 
 
 def core_jobs(ok=True):
-    return [{"steps": [{"name": "Core contract test suite", "conclusion": "success" if ok else "skipped"}]}]
+    return [{"conclusion": "success", "steps": [{"name": "Core contract test suite", "conclusion": "success" if ok else "skipped"}]}]
+
+
+def jobs_for_run(run_id):
+    if run_id == 2:
+        return [{"conclusion": "success", "steps": [{"name": "Compile JUCE GUI sources using actual MSVC /WX flags", "conclusion": "success"}]}]
+    return core_jobs()
 
 
 class VerifyReleaseGateTest(unittest.TestCase):
@@ -80,6 +86,45 @@ class VerifyReleaseGateTest(unittest.TestCase):
     def test_new_component_contract_pass_required(self):
         runs = [run("core-contracts.yml"), run("transcription-contracts.yml")]
         self.assertEqual(len(verify(SHA, "studio", runs, lambda _: core_jobs())), 2)
+
+    def test_gui_path_detection(self):
+        for path in (
+            "apps/studio-juce/src/TranscriptionView.cpp", "apps/studio-juce/src/Desktop.h",
+            "apps/studio-desktop/include/mrs/desktop.hpp",
+            "cmake/Juce.cmake", "CMakeLists.txt", "tools/ci/sdk-lock.json",
+            ".github/workflows/windows-juce-gui-compile.yml",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(gui_affecting_path(path))
+        for path in ("docs/README.md", "core/src/ai.cpp", "tools/transcription/worker.py", "assets/ui/mr-uds/icons/guitar.svg"):
+            with self.subTest(path=path):
+                self.assertFalse(gui_affecting_path(path))
+
+    def test_missing_gui_compile_blocks(self):
+        with self.assertRaisesRegex(GateError, "Missing windows-juce-gui-compile.yml"):
+            verify(SHA, "studio", [run("core-contracts.yml")], jobs_for_run, gui_required=True)
+
+    def test_gui_compile_success_allows_release(self):
+        runs = [run("core-contracts.yml"), run("windows-juce-gui-compile.yml", id=2)]
+        self.assertEqual(len(verify(SHA, "studio", runs, jobs_for_run, gui_required=True)), 2)
+
+    def test_gui_compile_failure_blocks(self):
+        runs = [run("core-contracts.yml"), run("windows-juce-gui-compile.yml", id=2, conclusion="failure")]
+        with self.assertRaisesRegex(GateError, "windows-juce-gui-compile.yml"):
+            verify(SHA, "studio", runs, jobs_for_run, gui_required=True)
+
+    def test_gui_compile_without_actual_compile_step_blocks(self):
+        runs = [run("core-contracts.yml"), run("windows-juce-gui-compile.yml", id=3)]
+        with self.assertRaisesRegex(GateError, "without executing"):
+            verify(SHA, "profile", runs, jobs_for_run, gui_required=True)
+
+    def test_gui_compile_wrong_sha_blocks(self):
+        runs = [run("core-contracts.yml"), run("windows-juce-gui-compile.yml", id=2, sha="b" * 40)]
+        with self.assertRaisesRegex(GateError, "Missing windows-juce-gui-compile.yml"):
+            verify(SHA, "studio", runs, jobs_for_run, gui_required=True)
+
+    def test_no_gui_changes_does_not_require_gui_workflow(self):
+        self.assertEqual(len(verify(SHA, "studio", [run("core-contracts.yml")], jobs_for_run, gui_required=False)), 1)
 
     def test_bad_sha_blocks(self):
         with self.assertRaisesRegex(GateError, "Invalid commit SHA"):

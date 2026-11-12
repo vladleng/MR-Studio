@@ -58,7 +58,7 @@ work. #22 remains open until its full scope is accepted.
 Mix overlays the arrangement, with vertical gain/master faders and stereo meters.
 Track mini panels expose horizontal gain/meters, a pan knob and a mono input menu.
 Sends/returns, pre/post levels, snapshot v5 and recent projects are implemented;
-see SENDS.md and MRS_STAGE_2C_CHECKLIST.md. User acceptance is pending.
+see [SENDS.md](SENDS.md) and the historical [Stage 2c acceptance checklist](https://github.com/vladleng/MR-Studio/blob/2c5a3448ac3738dacbd9976965cf293c67a85968/docs/MRS_STAGE_2C_CHECKLIST.md). This paragraph is a 2026-10-04 checkpoint, not the current feature/acceptance status.
 
 
 ## UI choice — 2026-10-04
