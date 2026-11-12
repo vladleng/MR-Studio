@@ -2324,8 +2324,10 @@ void Desktop::applyLiveItemDefaultPatches() {
         try {
             differs=live::decodeLiveInputProfile(row["liveInput"]).inserts!=
                     live::patchInsertsWithSubPatch(liveDocument->interfaceState,patch,subPatch);
-        } catch(const std::exception&) {
-            continue; // Missing opaque state: report only when applied manually.
+        } catch(const std::exception& error) {
+            if(livePreloadError.isEmpty())
+                livePreloadError="Patch: "+juce::String::fromUTF8(error.what());
+            continue;
         }
         if(!differs)
             continue;
@@ -2349,6 +2351,8 @@ void Desktop::assignLiveItemPatch(const juce::String& requested,const juce::Stri
         auto& item=live::require(state,"items",itemId);
         for(auto& track:live::array(item,"tracks"))
             if(track["channelId"].toString()==channel) {
+                if(patchId.isEmpty() || track["patchId"].toString()!=patchId)
+                    if(auto* object=track.getDynamicObject())object->removeProperty("subPatchId");
                 if(patchId.isEmpty()) {
                     if(auto* object=track.getDynamicObject())object->removeProperty("patchId");
                 } else live::put(track,"patchId",patchId);
