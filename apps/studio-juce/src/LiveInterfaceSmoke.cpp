@@ -1249,10 +1249,7 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
         live::insertEntry(state,inactive);
         auto& channel=live::require(state,"channels",patchChannel);
         patchId=live::addChannelPatch(state,channel,{},"Rhythm","blue");
-        legacySubPatch=live::createDefaultSubPatch(
-            live::require(channel,"patches",patchId),"blue");
         secondPatch=live::addChannelPatch(state,channel,{},"Solo","violet");
-        live::createDefaultSubPatch(live::require(channel,"patches",secondPatch),"violet");
     });
     const auto activeBeforePatch=editing.liveDocument->interfaceState["currentItem"].toString();
     {
@@ -1260,6 +1257,8 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
         // their Patch must never leave a Sub-patch reference owned by the old
         // Patch, or validation rejects the entire Undo transaction.
         editing.editLiveInterface("Legacy Item Patch assignment fixture",[&](auto& state) {
+            legacySubPatch=live::createDefaultSubPatch(
+                live::require(live::require(state,"channels",patchChannel),"patches",patchId),"blue");
             auto& item=live::require(state,"items",activeBeforePatch);
             for(auto& track:live::array(item,"tracks"))
                 if(track["channelId"].toString()==patchChannel) {
@@ -1282,6 +1281,13 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
                   restored["subPatchId"].toString()==legacySubPatch,
                   "One Undo restores the legacy Patch/Sub-patch assignment");
         editing.undoLiveInterface(true);
+        liveCheck(live::channelItemTrack(editing.liveDocument->interfaceState,
+                      activeBeforePatch,patchChannel)["subPatchId"].isVoid(),
+                  "Redo clears the dependent legacy Sub-patch again");
+        // Restore the original empty library fixture for the independent
+        // Timeline authoring scenarios below.
+        editing.undoLiveInterface();
+        editing.undoLiveInterface();
     }
     {
         // #374 G: Update needs the explicitly loaded sound, not the Patch
