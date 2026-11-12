@@ -71,3 +71,13 @@ class ExistingEvidenceTests(unittest.TestCase):
         self.assertNotIn('uses: ./.github/workflows/',release)
         self.assertIn('needs: preflight',release)
         self.assertIn('python3 tools/ci/verify_ci_evidence.py',release)
+
+    def test_newer_studio_gui_does_not_hide_live_evidence(self):
+        self.data['gui']['checks'].append('gui-live')
+        self.runs.append(dict(self.runs[1], id=100))
+        def artifact(run_id, name):
+            if run_id == 100:
+                return dict(self.data[name], checks=['gui'])
+            return self.data[name]
+        result = verify_existing(SHA, 'live', False, self.runs, artifact, 'feature')
+        self.assertTrue(any('run 2)' in line for line in result))
