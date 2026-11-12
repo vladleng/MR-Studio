@@ -169,6 +169,24 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
     }
     void refresh() {
         syncChannel();
+        // Parameter dirtiness is sampled on the JUCE control thread only,
+        // never in paint() or the audio callback. Repaint only on transitions.
+        const auto dirtyNow=juce::Time::getMillisecondCounter();
+        if(dirtyNow-dirtyCheckedAt>=550u) {
+            dirtyCheckedAt=dirtyNow;
+            std::map<juce::String,bool> next;
+            for(const auto& entry:owner.liveLoadedPatches) {
+                const auto& loaded=entry.second;
+                if(loaded.subPatchId.isEmpty())continue;
+                if(owner.liveSubPatchParametersDirty(entry.first,loaded.patchId,
+                                                     loaded.subPatchId))
+                    next[entry.first+"|"+loaded.patchId+"|"+loaded.subPatchId]=true;
+            }
+            if(next!=dirtySubPatches) {
+                dirtySubPatches=std::move(next);
+                body.repaint();
+            }
+        }
         std::vector<juce::String> visibleFiles;
         const auto visible = viewport.getViewArea();
         for (const auto &item : items)
@@ -452,38 +470,45 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     used=used || channel["playbackParent"].toString()==id;
             menu.addItem(11, "Remove empty channel", !used);
         }
+        const auto generation=owner.liveDocumentGeneration;
         juce::Component::SafePointer<Desktop> safe(&owner);
-        menu.showMenuAsync(liveMenuOptions(*this), [safe, id, types](int result) {
-            if (!safe || !result) return;
+        menu.showMenuAsync(liveMenuOptions(*this),[safe,id,types,generation](int result){
+            if(!safe || !result || !safe->liveDocument || safe->liveDocumentGeneration!=generation)return;
             if (result == 10) {
                 const auto channel = live::find(safe->liveDocument->interfaceState, "channels", id);
                 safe->textDialog("Channel name", channel["name"].toString(), [safe, id](auto name) {
                     if (safe && name.trim().isNotEmpty()) safe->run([&] { safe->renameLiveObject("channels",id,name); });
                 }); return;
             }
-            safe->run([&] { juce::String added;
-                safe->editLiveInterface(result == 11 ? "Remove channel" : "Add channel", [&](auto &state) {
-                if (result >= 1 && result <= types.size()) {
-                    added=live::addChannel(state,types[result-1],types[result-1]);
-                    if(types[result-1]=="Playback")
-                        { auto created=live::find(state,"channels",added);
-                          live::put(created,"playbackIndependent",true); }
-                    return;
+            safe->run([&] {
+                juce::String added;
+                safe->editLiveInterface(result == 11 ? "Remove channel" : "Add channel", [&](auto &model) {
+                    if (result >= 1 && result <= types.size()) {
+                        added=live::addChannel(model,types[result-1],types[result-1]);
+                        if(types[result-1]=="Playback") {
+                            auto created=live::find(model,"channels",added);
+                            live::put(created,"playbackIndependent",true);
+                        }
+                        return;
+                    }
+                    if (result != 11) return;
+                    auto *channels = live::property(model, "channels").getArray();
+                    for (int i = channels->size(); --i >= 0;)
+                        if ((*channels)[i]["id"].toString() == id) channels->remove(i);
+                    if(model["performance"]["primaryPlaybackChannel"].toString()==id)
+                        live::performance(model).getDynamicObject()->removeProperty("primaryPlaybackChannel");
+                    for (auto &item : *live::property(model, "items").getArray())
+                        if (auto *tracks = live::property(item, "tracks").getArray())
+                            for (int i = tracks->size(); --i >= 0;)
+                                if ((*tracks)[i]["channelId"].toString() == id) tracks->remove(i);
+                });
+                if(added.isNotEmpty()) {
+                    const auto created=live::find(safe->liveDocument->interfaceState,"channels",added);
+                    if(created["type"].toString()=="Playback") {
+                        safe->livePlaybackSelectedChannel=added;
+                        safe->livePlaybackStem.clear();
+                    }
                 }
-                if (result != 11) return;
-                auto *channels = live::property(state, "channels").getArray();
-                for (int i = channels->size(); --i >= 0;) if ((*channels)[i]["id"].toString() == id) channels->remove(i);
-                // An empty primary Playback may be deleted. Clear its pin so
-                // the next existing Playback becomes the legacy fallback.
-                if(state["performance"]["primaryPlaybackChannel"].toString()==id)
-                    live::performance(state).getDynamicObject()->removeProperty("primaryPlaybackChannel");
-                for (auto &item : *live::property(state, "items").getArray()) if (auto *tracks = live::property(item, "tracks").getArray())
-                    for (int i = tracks->size(); --i >= 0;) if ((*tracks)[i]["channelId"].toString() == id) tracks->remove(i);
-            });
-            if(added.isNotEmpty() && types[result-1]=="Playback") {
-                safe->livePlaybackSelectedChannel=added;
-                safe->livePlaybackStem.clear();
-            }
             });
         });
     }
@@ -637,35 +662,190 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
       public:
         explicit Body(LiveTimeline &host) : parent(host) { setComponentID("live-timeline-items"); setWantsKeyboardFocus(true); }
         struct PatchGesture {
-            enum class Mode { none, body, left, right, subBody, subLeft, subRight };
+            enum class Mode { none, body, left, right, joined, subBody, subLeft, subRight, subJoined, baseBody, baseCut };
             Mode mode{Mode::none};
-            juce::String itemId, channelId, patchId, subId;
+            // patchId / subId identify independent timeline block instances.
+            // Library IDs remain stable across Scissors and Update.
+            juce::String itemId, channelId, patchId, subId,libraryPatchId,librarySubId,joinedRightId;
             juce::var originSpans, previewSpans;
             int startX{}, rowTop{};
-            double originStart{}, originLength{};
+            double originStart{}, originLength{}, lastPreviewStart{}, lastPreviewLength{};
+            bool previewCalculated{};
         };
         PatchGesture patchGesture;
+        struct PatchSelection {
+            juce::String itemId,channelId,blockId,subId;
+        };
+        std::vector<PatchSelection> selectedPatches,marqueeBase;
+        juce::Point<int> marqueeStart,marqueeEnd;
+        bool marqueeArmed{},marqueeActive{},marqueeAdditive{};
+        static bool samePatch(const PatchSelection& left,const PatchSelection& right) {
+            return left.itemId==right.itemId&&left.channelId==right.channelId&&
+                   left.blockId==right.blockId&&left.subId==right.subId;
+        }
+        bool isSelected(const PatchSelection& choice) const {
+            return std::any_of(selectedPatches.begin(),selectedPatches.end(),
+                [&](const auto& selected){return samePatch(selected,choice);});
+        }
+        static PatchSelection choiceFor(const PatchGesture& gesture) {
+            return {gesture.itemId,gesture.channelId,gesture.patchId,gesture.subId};
+        }
+        juce::Rectangle<int> marqueeBounds() const {
+            const int left=juce::jmin(marqueeStart.x,marqueeEnd.x);
+            const int top=juce::jmin(marqueeStart.y,marqueeEnd.y);
+            return {left,top,std::abs(marqueeEnd.x-marqueeStart.x)+1,
+                       std::abs(marqueeEnd.y-marqueeStart.y)+1};
+        }
+        void updateMarquee() {
+            auto next=marqueeAdditive?marqueeBase:std::vector<PatchSelection>{};
+            const auto bounds=marqueeBounds();
+            for(const auto& item:parent.items) {
+                if(item.collapsed || !bounds.intersects(item.bounds))continue;
+                const auto itemId=item.value["id"].toString();
+                for(std::size_t i=0;i<parent.lanes.size();++i) {
+                    const auto& lane=parent.lanes[i];
+                    if(lane.container)continue;
+                    const int rowTop=lanesTop+static_cast<int>(i)*rowHeight;
+                    if(!bounds.intersects(juce::Rectangle<int>{item.bounds.getX(),rowTop,item.bounds.getWidth(),rowHeight}))
+                        continue;
+                    const auto channel=live::find(parent.state,"channels",lane.channel);
+                    if(!channel.isObject()||channel["type"].toString()=="Playback")continue;
+                    const auto track=live::channelItemTrack(parent.state,itemId,lane.channel);
+                    if(const auto* order=track["patchOrder"].getArray())
+                        for(const auto& blockKey:*order) {
+                            const auto blockId=blockKey.toString();
+                            const auto span=track["spans"][juce::Identifier(blockId)];
+                            if(!span.isObject())continue;
+                            const auto add=[&](const juce::String& childId) {
+                                const PatchSelection choice{itemId,lane.channel,blockId,childId};
+                                if(std::none_of(next.begin(),next.end(),
+                                    [&](const auto& old){return samePatch(old,choice);}))
+                                    next.push_back(choice);
+                            };
+                            // Marquee ownership follows the *starting layer*
+                            // even when the rectangle crosses into a neighbour.
+                            // This prevents accidental parent deletion while
+                            // selecting a row of child blocks.
+                            const bool railSelection=(marqueeStart.y-lanesTop)%rowHeight>=subRailTop;
+                            if(!railSelection) {
+                                if(bounds.intersects(parent.extent(item,span,
+                                        rowTop+10,subRailTop-10)))add({});
+                            } else {
+                                if(const auto* subs=span["subs"].getDynamicObject())
+                                    for(const auto& sub:subs->getProperties())
+                                        if(sub.value.isObject() && bounds.intersects(parent.extent(item,
+                                            sub.value,rowTop+subRailTop,subRailHeight,live::blockStart(span))))
+                                            add(sub.name.toString());
+                            }
+                        }
+                }
+            }
+            selectedPatches=std::move(next);
+            repaint();
+        }
+        void paintPatchSelection(juce::Graphics& g) const {
+            const auto focus=liveReferenceTokens().colour(ColourRole::focus);
+            g.setColour(focus);
+            for(const auto& choice:selectedPatches)
+                for(const auto& item:parent.items) {
+                    if(item.collapsed||item.value["id"].toString()!=choice.itemId)continue;
+                    const int rowTop=parent.channelY(choice.channelId);
+                    if(rowTop<lanesTop)continue;
+                    const auto track=live::channelItemTrack(parent.state,choice.itemId,choice.channelId);
+                    const auto span=track["spans"][juce::Identifier(choice.blockId)];
+                    if(span.isObject()) {
+                        if(choice.subId.isEmpty())
+                            g.drawRoundedRectangle(parent.extent(item,span,rowTop+9,rowHeight-18).toFloat(),6.f,2.f);
+                        else {
+                            const auto sub=span["subs"][juce::Identifier(choice.subId)];
+                            if(sub.isObject())
+                                g.drawRoundedRectangle(parent.extent(item,sub,rowTop+subRailTop,subRailHeight,
+                                    live::blockStart(span)).toFloat().reduced(1.f),4.f,2.f);
+                        }
+                    }
+                }
+            if(marqueeActive) {
+                const auto rect=marqueeBounds();
+                g.setColour(focus.withAlpha(.14f));g.fillRect(rect);
+                g.setColour(focus.withAlpha(.8f));g.drawRect(rect);
+            }
+        }
+        juce::String hoveredPatchId, hoveredSubId;
+        PatchGesture::Mode hoveredPatchMode{PatchGesture::Mode::none};
         // Popup menus are opened on mouse-up: showing them from mouse-down let the same click
         // dismiss the menu immediately, so right-click appeared to do nothing.
         bool popupPending{};
         juce::Point<int> popupPosition, popupScreen;
         void paint(juce::Graphics &g) override {
             parent.paintItems(g);
+            paintPatchSelection(g);
             paintPatchPreview(g);
             if(guideY>=0){g.setColour(liveReferenceTokens().colour(ColourRole::focus));g.drawVerticalLine(juce::roundToInt(guideX),static_cast<float>(guideY+4),static_cast<float>(guideY+rowHeight-4));}
         }
         void mouseMove(const juce::MouseEvent &event) override {
             guideY=-1;
             setMouseCursor(juce::MouseCursor::NormalCursor);
+            if(scissors && patchGesture.mode==PatchGesture::Mode::none && event.y>=lanesTop) {
+                PatchGesture target;
+                if(patchHitTest(event.getPosition(),target)) {
+                    const auto at=std::find_if(parent.items.begin(),parent.items.end(),
+                        [&](const auto& item){return item.value["id"].toString()==target.itemId;});
+                    if(at!=parent.items.end()) {
+                        const double snapped=live::barSnap(barAt(*at,event.position.x));
+                        guideX=static_cast<float>(at->bounds.getX()+1+
+                            (at->lead-at->start+snapped)*at->scale);
+                        guideY=target.rowTop+(target.subId.isNotEmpty()?subRailTop:0);
+                        setMouseCursor(juce::MouseCursor::CrosshairCursor);
+                        setTooltip(target.subId.isEmpty()?"Split Patch block":
+                                   "Split Sub-patch strip");
+                        repaint();
+                        return;
+                    }
+                }
+            }
             if(patchGesture.mode==PatchGesture::Mode::none&&event.y>=lanesTop) {
-                PatchGesture hover;
-                if(patchHitTest(event.getPosition(),hover)) {
-                    const bool edge=hover.mode==PatchGesture::Mode::left||hover.mode==PatchGesture::Mode::right||
-                                    hover.mode==PatchGesture::Mode::subLeft||hover.mode==PatchGesture::Mode::subRight;
-                    setMouseCursor(edge?juce::MouseCursor::LeftRightResizeCursor:juce::MouseCursor::DraggingHandCursor);
-                    setTooltip(edge?"Drag block edge":"Drag patch block");
+                PatchGesture updateTarget;
+                if(patchUpdateHit(event.getPosition(),updateTarget)) {
+                    setMouseCursor(juce::MouseCursor::PointingHandCursor);
+                    setTooltip(updateTarget.subId.isEmpty()?
+                        "Update this Patch from the current channel sound":
+                        "Update this Sub-patch parameter set");
                     return;
                 }
+                PatchGesture hover;
+                if(patchHitTest(event.getPosition(),hover)) {
+                    if(hoveredPatchId!=hover.patchId || hoveredSubId!=hover.subId ||
+                       hoveredPatchMode!=hover.mode) {
+                        hoveredPatchId=hover.patchId;hoveredSubId=hover.subId;hoveredPatchMode=hover.mode;
+                        repaint();
+                    }
+                    const bool shared=hover.mode==PatchGesture::Mode::joined;
+                    const bool subShared=hover.mode==PatchGesture::Mode::subJoined;
+                    const bool edge=shared||subShared||hover.mode==PatchGesture::Mode::left||hover.mode==PatchGesture::Mode::right||
+                                    hover.mode==PatchGesture::Mode::subLeft||hover.mode==PatchGesture::Mode::subRight;
+                    if(event.y>=hover.rowTop+rowHeight/2) {
+                        for(const auto& item:parent.items)
+                            if(!item.collapsed && item.bounds.contains(event.getPosition()) &&
+                               (event.x>=item.bounds.getRight()-5 ||
+                                std::abs(event.position.x-(item.bounds.getX()+1+item.lead*item.scale))<=5)) {
+                                setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+                                setTooltip("Resize Item boundary (lower half)");
+                                return;
+                            }
+                    }
+                    setMouseCursor(edge?juce::MouseCursor::LeftRightResizeCursor:
+                                   hover.subId.isNotEmpty()?juce::MouseCursor::PointingHandCursor:
+                                   juce::MouseCursor::DraggingHandCursor);
+                    setTooltip(shared?"Move shared Patch boundary (above Sub-patch rail)":
+                               subShared?"Move shared Sub-patch boundary":
+                               edge?"Resize Patch boundary":
+                               hover.subId.isNotEmpty()?"Choose Sub-patch sound":"Drag Patch block");
+                    return;
+                }
+            }
+            if(hoveredPatchMode!=PatchGesture::Mode::none) {
+                hoveredPatchId.clear();hoveredSubId.clear();hoveredPatchMode=PatchGesture::Mode::none;
+                repaint();
             }
             if(hoverClip(event)){repaint();return;}
             repaint();
@@ -704,6 +884,12 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         }
         void mouseDown(const juce::MouseEvent &event) override {
             if(event.mods.isLeftButtonDown()) {
+                // A musical-lane click transfers keyboard deletion ownership
+                // from Patch selections to Chords/Sections.
+                if(event.y<lanesTop && !selectedPatches.empty()) {
+                    selectedPatches.clear();repaint();
+                }
+                popupPending=false;
                 ++parent.owner.liveSelectionRevision;
                 if(event.y>=lanesTop)
                     if(const auto *lane=parent.laneAt(event.y))
@@ -712,15 +898,91 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             if (event.mods.isPopupMenu()) {
                 if (beginClipEdit(event)) return;
                 if (beginEdit(event)) return;
-                if (patchContextMenu(event.getPosition(),event.getScreenPosition())) return;
-                const auto position=event.getPosition(),screen=event.getScreenPosition();
-                juce::Component::SafePointer<Body> self(this);
-                juce::Timer::callAfterDelay(120,[self,position,screen]{if(self)self->addPatchBlockMenu(position,screen);});
+                // Open at release to avoid the right-button-up dismissing the
+                // popup. The old 120 ms timer made the UI feel unresponsive.
+                popupPosition=event.getPosition();
+                popupScreen=event.getScreenPosition();
+                popupPending=true;
                 return;
             }
             if (beginClipEdit(event)) return;
-            if (beginEdit(event)) return;
-            if (beginPatchEdit(event)) return;
+            if(event.mods.isLeftButtonDown() && scissors && event.y>=lanesTop) {
+                PatchGesture cut;
+                if(patchHitTest(event.getPosition(),cut)) {
+                    const auto it=std::find_if(parent.items.begin(),parent.items.end(),
+                        [&](const auto& item){return item.value["id"].toString()==cut.itemId;});
+                    if(it!=parent.items.end()) {
+                        const double atBar=live::barSnap(barAt(*it,event.position.x));
+                        const auto span=cut.originSpans[juce::Identifier(cut.patchId)];
+                        const double subOffset=atBar-live::blockStart(span);
+                        const auto channel=cut.channelId,block=cut.patchId,
+                            sub=cut.subId,itemId=cut.itemId;
+                        parent.owner.run([&]{
+                            if(sub.isEmpty())
+                                parent.owner.splitLivePatchBlock(channel,block,atBar,itemId);
+                            else
+                                parent.owner.splitLiveSubPatchBlock(channel,block,sub,subOffset,itemId);
+                        });
+                    }
+                    return;
+                }
+            }
+            if(event.mods.isLeftButtonDown() && !scissors && event.y>=lanesTop) {
+                PatchGesture hitBlock;
+                if(patchHitTest(event.getPosition(),hitBlock)) {
+                    grabKeyboardFocus();
+                    selection.clear();clipSelection.clear();
+                    const auto chosen=choiceFor(hitBlock);
+                    if(event.mods.isShiftDown()) {
+                        if(!isSelected(chosen))selectedPatches.push_back(chosen);
+                        repaint();
+                        return; // Shift adds without moving this block
+                    }
+                    if(!isSelected(chosen)) {
+                        selectedPatches={chosen};
+                        repaint();
+                    }
+                } else if(const auto* lane=parent.laneAt(event.y)) {
+                    const auto channel=live::find(parent.state,"channels",lane->channel);
+                    if(!lane->container&&channel.isObject()&&
+                       channel["type"].toString()!="Playback") {
+                        const auto hitItem=std::find_if(parent.items.begin(),parent.items.end(),
+                            [&](const auto& item){return !item.collapsed &&
+                                item.bounds.contains(event.getPosition());});
+                        if(hitItem!=parent.items.end()) {
+                            const auto leadX=hitItem->bounds.getX()+1+
+                                hitItem->lead*hitItem->scale;
+                            const bool itemEdge=event.x>=hitItem->bounds.getRight()-5 ||
+                                std::abs(static_cast<float>(event.x)-leadX)<=5.f;
+                            if(!itemEdge) {
+                                grabKeyboardFocus();
+                                selection.clear();clipSelection.clear();
+                                marqueeArmed=true;marqueeActive=false;
+                                marqueeAdditive=event.mods.isShiftDown();
+                                marqueeBase=selectedPatches;
+                                marqueeStart=event.getPosition();
+                                marqueeEnd=marqueeStart;
+                                if(!marqueeAdditive)selectedPatches.clear();
+                                repaint();
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+            // At a shared Item/Patch edge, the upper lane half owns Patch
+            // resizing. Below the lane midpoint the original Item trim wins.
+            PatchGesture grip;
+            const bool edge=patchHitTest(event.getPosition(),grip) &&
+                (grip.mode==PatchGesture::Mode::left || grip.mode==PatchGesture::Mode::right ||
+                 grip.mode==PatchGesture::Mode::subLeft || grip.mode==PatchGesture::Mode::subRight);
+            if((grip.mode==PatchGesture::Mode::joined ||
+                grip.mode==PatchGesture::Mode::subJoined) && beginPatchEdit(event))return;
+            if(grip.mode==PatchGesture::Mode::baseCut && beginPatchEdit(event))return;
+            if(edge && (grip.subId.isNotEmpty() ||
+                        event.y<grip.rowTop+rowHeight/2) && beginPatchEdit(event))return;
+            if(beginEdit(event))return;
+            if(beginPatchEdit(event))return;
             if (!event.mods.isLeftButtonDown())
                 return;
             for (const auto &item : parent.items) {
@@ -744,6 +1006,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     if (event.y < headerHeight + rulerHeight) {
                         parent.owner.run([&] {
                             parent.owner.app.seek(mrs::Timeline(project->time, project->sample_rate).to_samples(tick));
+                            parent.owner.loadStoppedLiveTimelinePatches(
+                                item.value["id"].toString(),juce::jmax(0.,bar));
                         });
                     } else {
                         // Resolve clicks against the same single-valued lane used by Core.
@@ -772,11 +1036,57 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         }
 
         void mouseDrag(const juce::MouseEvent &event) override {
+            if(marqueeArmed) {
+                marqueeEnd=event.getPosition();
+                if(std::abs(marqueeEnd.x-marqueeStart.x)>=3 ||
+                   std::abs(marqueeEnd.y-marqueeStart.y)>=3) {
+                    marqueeActive=true;
+                    updateMarquee();
+                }
+                return;
+            }
             if(patchGesture.mode!=PatchGesture::Mode::none){previewPatchEdit(event);return;}
             if(editing)previewEdit(event);
         }
-        void mouseUp(const juce::MouseEvent &) override {
-            if(patchGesture.mode!=PatchGesture::Mode::none){finishPatchEdit();return;}
+        void mouseUp(const juce::MouseEvent &event) override {
+            if(marqueeArmed) {
+                marqueeArmed=false;marqueeActive=false;
+                marqueeBase.clear();repaint();return;
+            }
+            if(popupPending) {
+                popupPending=false;
+                if(!patchContextMenu(popupPosition,popupScreen))
+                    addPatchBlockMenu(popupPosition,popupScreen);
+                return;
+            }
+            if(patchGesture.mode!=PatchGesture::Mode::none) {
+                if(patchGesture.mode==PatchGesture::Mode::subBody &&
+                   !scissors && !event.mods.isShiftDown() &&
+                   event.getDistanceFromDragStart()<=3) {
+                    const auto hit=patchGesture;
+                    patchGesture=PatchGesture{};
+                    chooseSubPatch(hit,event.getScreenPosition());
+                    return;
+                }
+                if(patchGesture.mode==PatchGesture::Mode::body && !scissors &&
+                   !event.mods.isShiftDown() &&
+                   event.getDistanceFromDragStart()<=3) {
+                    const auto hit=patchGesture;
+                    patchGesture=PatchGesture{};
+                    const auto item=std::find_if(parent.items.begin(),parent.items.end(),
+                        [&](const auto& candidate){
+                            return candidate.value["id"].toString()==hit.itemId;});
+                    if(item!=parent.items.end()) {
+                        const auto atBar=barAt(*item,static_cast<float>(event.x));
+                        parent.owner.run([&] {
+                            parent.owner.loadStoppedLiveTimelinePatch(
+                                hit.channelId,hit.itemId,atBar);
+                        });
+                    }
+                    return;
+                }
+                finishPatchEdit();return;
+            }
             if(editing)finishEdit();
         }
         bool patchHitTest(juce::Point<int> position, PatchGesture &out) const {
@@ -794,34 +1104,96 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 const auto *order=track["patchOrder"].getArray();
                 if(order==nullptr)continue;
                 const int y=lanesTop+laneIndex*rowHeight;
+                // The lower half of an INTERNAL shared seam adjusts two
+                // neighbouring Patch blocks. Check this before individual
+                // strips to keep the seam accessible even with Sub-patches.
+                if(position.y>=y+rowHeight/2 && position.y<y+subRailTop) {
+                    const auto rows=live::orderedSpans(track["spans"]);
+                    for(std::size_t i=1;i<rows.size();++i) {
+                        const auto& left=rows[i-1],&right=rows[i];
+                        const double boundary=live::blockStart(left.second)+live::blockLength(left.second);
+                        if(std::abs(boundary-live::blockStart(right.second))>1.e-7)continue;
+                        const auto leftRect=parent.extent(item,left.second,y+10,rowHeight-20);
+                        if(std::abs(position.x-leftRect.getRight())>7)continue;
+                        out.mode=PatchGesture::Mode::joined;
+                        out.itemId=item.value["id"].toString();
+                        out.channelId=lane.channel;
+                        out.patchId=left.first;out.joinedRightId=right.first;
+                        out.subId.clear();out.librarySubId.clear();
+                        out.libraryPatchId=live::patchLibraryId(left.first,left.second);
+                        out.originSpans=track["spans"];
+                        out.originStart=live::blockStart(left.second);
+                        out.originLength=live::blockLength(left.second);
+                        out.startX=position.x;out.rowTop=y;
+                        return true;
+                    }
+                }
                 for(const auto &patchIdVar:*order) {
                     const auto patchId=patchIdVar.toString();
                     const auto span=track["spans"][juce::Identifier(patchId)];
                     if(!span.isObject())continue;
+                    // Lower-half seam between two adjacent Sub-patches has its
+                    // own coupled-resize gesture, never touching parent Patch.
+                    if(!scissors && position.y>=y+subRailTop+subRailHeight/2 &&
+                       position.y<y+subRailTop+subRailHeight) {
+                        const auto children=live::orderedSpans(span["subs"]);
+                        for(std::size_t i=1;i<children.size();++i) {
+                            const auto& left=children[i-1];
+                            const auto& right=children[i];
+                            const double boundary=live::blockStart(left.second)+
+                                                  live::blockLength(left.second);
+                            if(std::abs(boundary-live::blockStart(right.second))>1.e-7)
+                                continue;
+                            const auto leftRect=parent.extent(item,left.second,
+                                y+subRailTop,subRailHeight,live::blockStart(span));
+                            if(std::abs(position.x-leftRect.getRight())>6)continue;
+                            out.mode=PatchGesture::Mode::subJoined;
+                            out.itemId=item.value["id"].toString();out.channelId=lane.channel;
+                            out.patchId=patchId;out.subId=left.first;
+                            out.joinedRightId=right.first;
+                            out.libraryPatchId=live::patchLibraryId(patchId,span);
+                            out.librarySubId=live::subPatchLibraryId(left.first,left.second);
+                            out.originSpans=track["spans"];
+                            out.originStart=live::blockStart(left.second);
+                            out.originLength=live::blockLength(left.second);
+                            out.startX=position.x;out.rowTop=y;
+                            return true;
+                        }
+                    }
                     if(const auto *subs=span["subs"].getDynamicObject())
                         for(const auto &pair:subs->getProperties()) {
                             if(!pair.value.isObject())continue;
-                            const auto rect=parent.extent(item,pair.value,y+64,26,live::blockStart(span));
+                            const auto rect=parent.extent(item,pair.value,y+subRailTop,subRailHeight,live::blockStart(span));
                             if(!rect.contains(position))continue;
-                            out.mode=position.x<=rect.getX()+5?PatchGesture::Mode::subLeft:
-                                     position.x>=rect.getRight()-5?PatchGesture::Mode::subRight:
-                                     PatchGesture::Mode::subBody;
+                            // Only a shared boundary moves. Outer edges of
+                            // the rail are fixed; individual segments select.
+                            out.mode=PatchGesture::Mode::subBody;
                             out.itemId=item.value["id"].toString();out.channelId=lane.channel;
                             out.patchId=patchId;out.subId=pair.name.toString();
-                            out.originSpans=track["spans"].clone();
+                            out.libraryPatchId=live::patchLibraryId(patchId,span);
+                            out.librarySubId=live::subPatchLibraryId(out.subId,pair.value);
+                            out.originSpans=track["spans"];
                             out.originStart=live::blockStart(pair.value);
                             out.originLength=live::blockLength(pair.value);
                             out.startX=position.x;out.rowTop=y;
                             return true;
                         }
-                    const auto rect=parent.extent(item,span,y+10,rowHeight-20);
+                    // The rail consists solely of real Sub-patches. There
+                    // are no synthetic Base hit zones or editable Base cuts.
+                    const auto rail=parent.extent(item,span,y+subRailTop,subRailHeight);
+                    if(rail.contains(position))return false;
+                    const auto rect=parent.extent(item,span,y+10,subRailTop-10);
                     if(!rect.contains(position))continue;
-                    out.mode=position.x<=rect.getX()+5?PatchGesture::Mode::left:
-                             position.x>=rect.getRight()-5?PatchGesture::Mode::right:
+                    // Only the upper half of the lane resizes Patch edges.
+                    // The lower half leaves the Item trim available.
+                    const bool upperGrip=position.y<y+rowHeight/2;
+                    out.mode=upperGrip&&position.x<=rect.getX()+9?PatchGesture::Mode::left:
+                             upperGrip&&position.x>=rect.getRight()-9?PatchGesture::Mode::right:
                              PatchGesture::Mode::body;
                     out.itemId=item.value["id"].toString();out.channelId=lane.channel;
-                    out.patchId=patchId;out.subId={};
-                    out.originSpans=track["spans"].clone();
+                    out.patchId=patchId;out.subId={};out.librarySubId.clear();
+                    out.libraryPatchId=live::patchLibraryId(patchId,span);
+                    out.originSpans=track["spans"];
                     out.originStart=live::blockStart(span);
                     out.originLength=live::blockLength(span);
                     out.startX=position.x;out.rowTop=y;
@@ -830,11 +1202,30 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             }
             return false;
         }
+        bool patchUpdateHit(juce::Point<int> position,PatchGesture& out) const {
+            if(!patchHitTest(position,out))return false;
+            const auto item=std::find_if(parent.items.begin(),parent.items.end(),
+                [&](const auto& candidate){return candidate.value["id"].toString()==out.itemId;});
+            if(item==parent.items.end())return false;
+            const auto span=out.originSpans[juce::Identifier(out.patchId)];
+             const auto geometry=out.subId.isEmpty()?span:
+                span["subs"][juce::Identifier(out.subId)];
+            if(!geometry.isObject())return false;
+            const auto bounds=out.subId.isEmpty()?
+                parent.extent(*item,geometry,out.rowTop+10,rowHeight-20):
+                parent.extent(*item,geometry,out.rowTop+subRailTop,subRailHeight,live::blockStart(span));
+            return parent.patchUpdateBounds(bounds).contains(position);
+        }
         bool beginPatchEdit(const juce::MouseEvent &event) {
             if(!event.mods.isLeftButtonDown())return false;
             PatchGesture hit;
             if(!patchHitTest(event.getPosition(),hit))return false;
-            patchGesture=hit;
+            // Only a real edit needs its own snapshot. Hover must not deep-copy
+            // patch spans (the old path did so on every pointer movement).
+            if(hit.mode==PatchGesture::Mode::baseBody)
+                return true; // Base selects but has no meaningful free-body movement.
+            hit.originSpans=hit.originSpans.clone();
+            patchGesture=std::move(hit);
             repaint();
             return true;
         }
@@ -844,38 +1235,70 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             const auto item=std::find_if(parent.items.begin(),parent.items.end(),
                 [&](const auto &candidate){return candidate.value["id"].toString()==g.itemId;});
             if(item==parent.items.end())return;
-            const double dx=(event.x-g.startX)/juce::jmax(1.e-9,item->scale);
+            const double dx=live::barSnap((event.x-g.startX)/juce::jmax(1.e-9,item->scale));
             double start=g.originStart,length=g.originLength;
-            bool move=false,adjust=false;
+            bool move=false,leftResize=false;
             switch(g.mode) {
                 case PatchGesture::Mode::body: move=true;start+=dx;break;
-                case PatchGesture::Mode::left: start+=dx;length-=dx;adjust=true;break;
-                case PatchGesture::Mode::right: length+=dx;adjust=true;break;
+                case PatchGesture::Mode::left: start+=dx;length-=dx;leftResize=true;break;
+                case PatchGesture::Mode::right: length+=dx;break;
+                case PatchGesture::Mode::joined: length+=dx;break;
+                case PatchGesture::Mode::subJoined: length+=dx;break;
                 case PatchGesture::Mode::subBody: move=true;start+=dx;break;
                 case PatchGesture::Mode::subLeft: start+=dx;length-=dx;break;
                 case PatchGesture::Mode::subRight: length+=dx;break;
+                case PatchGesture::Mode::baseCut: start+=dx;break;
                 default: return;
             }
-            if(g.subId.isEmpty())
-                g.previewSpans=live::editedPatchSpans(g.originSpans,item->bars,g.patchId,start,length,adjust,move);
-            else
-                g.previewSpans=live::editedSubPatchSpan(g.originSpans,g.patchId,g.subId,start,length,move);
+            if(g.subId.isEmpty() && g.mode!=PatchGesture::Mode::joined) {
+                const auto magnet=live::magneticPatchEdge(g.originSpans,g.patchId,
+                    start,length,move,leftResize,8./juce::jmax(1.,item->scale));
+                start=magnet.start;length=magnet.length;
+            }
+            if(g.previewCalculated && start==g.lastPreviewStart && length==g.lastPreviewLength)
+                return; // One preview per grid step, not per mouse event.
+            g.previewCalculated=true;g.lastPreviewStart=start;g.lastPreviewLength=length;
+            try {
+                if(g.mode==PatchGesture::Mode::baseCut)
+                    g.previewSpans=live::movedBaseCut(g.originSpans,g.patchId,g.originStart,start);
+                else if(g.mode==PatchGesture::Mode::joined)
+                    g.previewSpans=live::joinedPatchSpans(g.originSpans,g.patchId,g.joinedRightId,start+length);
+                else if(g.mode==PatchGesture::Mode::subJoined)
+                    g.previewSpans=live::joinedSubPatchSpans(g.originSpans,g.patchId,g.subId,
+                                                           g.joinedRightId,start+length);
+                else if(g.subId.isEmpty())
+                    g.previewSpans=live::editedPatchSpans(g.originSpans,item->bars,g.patchId,start,length,false,move);
+                else
+                    g.previewSpans=live::editedSubPatchSpan(g.originSpans,g.patchId,g.subId,start,length,move);
+            } catch(const std::exception& error) {
+                g.previewSpans=juce::var{};
+                setTooltip(juce::String::fromUTF8(error.what()));
+            }
             repaint();
         }
         void finishPatchEdit() {
             if(patchGesture.mode==PatchGesture::Mode::none)return;
             const auto spans=patchGesture.previewSpans;
+            const bool changed=spans.isObject()&&!live::sameShowValue(spans,patchGesture.originSpans);
             const auto channelId=patchGesture.channelId,patchId=patchGesture.patchId;
+            const auto itemId=patchGesture.itemId;
             const bool sub=patchGesture.subId.isNotEmpty();
+            const bool baseCut=patchGesture.mode==PatchGesture::Mode::baseCut;
             const bool bodyMove=patchGesture.mode==PatchGesture::Mode::body||
                                 patchGesture.mode==PatchGesture::Mode::subBody;
-            patchGesture={};
-            if(spans.isObject())
+            // Keep preview visible during commit to avoid an old-position flash
+            // before the local Undo notification publishes the new geometry.
+            if(changed)
                 parent.owner.run([&]{
                     parent.owner.setLivePatchSpans(channelId,patchId,spans,
+                        baseCut?"Move Base boundary":
+                        patchGesture.mode==PatchGesture::Mode::subJoined?"Move shared Sub-patch boundary":
                         sub?(bodyMove?"Move sub-patch strip":"Resize sub-patch strip")
-                           :(bodyMove?"Move patch block":"Resize patch block"));
+                           :(bodyMove?"Move patch block":
+                              patchGesture.mode==PatchGesture::Mode::joined?
+                                "Move shared Patch boundary":"Resize patch block"),itemId);
                 });
+            patchGesture={};
             repaint();
         }
         void cancelPatchEdit() {
@@ -890,142 +1313,382 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     const auto span=patchGesture.previewSpans[juce::Identifier(patchGesture.patchId)];
                     if(!span.isObject())return;
                     juce::Rectangle<int> rect;
-                    if(patchGesture.subId.isEmpty())
+                    if(patchGesture.mode==PatchGesture::Mode::baseCut) {
+                        const auto base=live::subPatchBaseSegments(span);
+                        for(const auto& segment:base)
+                            if(std::abs(segment.start-patchGesture.lastPreviewStart)<1.e-6) {
+                                rect=parent.extent(item,live::blockSpan(segment.start,.25),
+                                    patchGesture.rowTop+subRailTop,subRailHeight,
+                                    live::blockStart(span));
+                                break;
+                            }
+                        if(rect.isEmpty())return;
+                    } else if(patchGesture.subId.isEmpty())
                         rect=parent.extent(item,span,patchGesture.rowTop+10,rowHeight-20);
                     else {
                         const auto sub=span["subs"][juce::Identifier(patchGesture.subId)];
                         if(!sub.isObject())return;
-                        rect=parent.extent(item,sub,patchGesture.rowTop+64,26,live::blockStart(span));
+                        rect=parent.extent(item,sub,patchGesture.rowTop+subRailTop,subRailHeight,live::blockStart(span));
                     }
-                    g.setColour(liveReferenceTokens().colour(ColourRole::focus));
+                    const auto channel=live::find(parent.state,"channels",patchGesture.channelId);
+                    if(patchGesture.mode==PatchGesture::Mode::joined) {
+                        // Both adjacent blocks preview in their own library
+                        // colours; neither old position is repainted below.
+                        for(const auto& blockId:{patchGesture.patchId,patchGesture.joinedRightId}) {
+                            const auto geometry=patchGesture.previewSpans[juce::Identifier(blockId)];
+                            const auto patch=live::find(channel,"patches",live::patchLibraryId(blockId,geometry));
+                            if(!geometry.isObject()||!patch.isObject())continue;
+                            const auto area=parent.extent(item,geometry,patchGesture.rowTop+10,rowHeight-20);
+                            const auto tint=liveBlockColour(patch["color"].toString());
+                            g.setColour(tint.withAlpha(.22f));g.fillRect(area);
+                            g.setColour(tint.withAlpha(.95f));g.drawRect(area,2);
+                        }
+                        return;
+                    }
+                    if(patchGesture.mode==PatchGesture::Mode::subJoined) {
+                        const auto parentSpan=patchGesture.previewSpans[
+                            juce::Identifier(patchGesture.patchId)];
+                        const auto patch=live::find(channel,"patches",
+                            patchGesture.libraryPatchId);
+                        for(const auto& id:{patchGesture.subId,patchGesture.joinedRightId}) {
+                            const auto child=parentSpan["subs"][juce::Identifier(id)];
+                            if(!child.isObject())continue;
+                            const auto libId=live::subPatchLibraryId(id,child);
+                            const auto variant=live::find(patch,"subPatches",libId);
+                            const auto colour=variant["color"].toString()=="inherit"?
+                                patch["color"]:variant["color"];
+                            const auto area=parent.extent(item,child,
+                                patchGesture.rowTop+subRailTop,subRailHeight,
+                                live::blockStart(parentSpan)).toFloat().reduced(2.f,2.f);
+                            const auto tint=liveBlockColour(colour.toString());
+                            g.setColour(tint.withAlpha(.6f));
+                            g.fillRoundedRectangle(area,4.f);
+                            g.setColour(tint);
+                            g.drawRoundedRectangle(area,4.f,1.7f);
+                        }
+                        return;
+                    }
+                    const auto base=live::find(channel,"patches",patchGesture.libraryPatchId);
+                    const auto sub=patchGesture.subId.isEmpty()?juce::var{}:
+                        live::find(base,"subPatches",patchGesture.librarySubId);
+                    const auto choice=sub.isObject()&&sub["color"].toString()!="inherit"?
+                        sub["color"]:base["color"];
+                    const auto tint=liveBlockColour(choice.toString());
+                    g.setColour(tint.withAlpha(.22f));
+                    g.fillRect(rect);
+                    g.setColour(tint.withAlpha(.95f));
                     g.drawRect(rect,2);
                     return;
                 }
         }
-        bool patchContextMenu(juce::Point<int> position, juce::Point<int> screen) {
-            PatchGesture hit;
-            if(!patchHitTest(position,hit))return false;
+        // A plain left click selects the Sub-patch variant from this Patch.
+        // Scissors, Shift and drag still use the existing editing gestures.
+        void chooseSubPatch(const PatchGesture& hit,juce::Point<int> screen) {
+            if(hit.subId.isEmpty())return;
             const auto channel=live::find(parent.state,"channels",hit.channelId);
-            const auto patch=live::find(channel,"patches",hit.patchId);
-            const auto span=hit.originSpans[juce::Identifier(hit.patchId)];
-            const auto subs=span["subs"];
-            juce::PopupMenu menu;menu.setLookAndFeel(&parent.owner.theme);
-            juce::PopupMenu replaceMenu;
-            std::vector<juce::String> replacementIds;
-            if(const auto *bank=channel["patches"].getArray())
-                for(const auto &candidate:*bank) {
-                    const auto id=candidate["id"].toString();
-                    if(id.isEmpty()||id==hit.patchId||live::legacyPatch(candidate))continue;
-                    replaceMenu.addItem(2000+static_cast<int>(replacementIds.size()),
-                                        candidate["name"].toString());
-                    replacementIds.push_back(id);
-                }
-            if(!replacementIds.empty())menu.addSubMenu("Replace patch with\u2026",replaceMenu);
-            menu.addItem(1,"Remove patch block");
-            std::vector<juce::String> subIds;
-            if(const auto *list=patch["subPatches"].getArray())
-                for(const auto &sub:*list) {
-                    const auto subId=sub["id"].toString();
-                    const bool present=subs[juce::Identifier(subId)].isObject();
-                    menu.addItem(100+static_cast<int>(subIds.size()),
-                                 juce::String(present?"Remove strip: ":"Add strip: ")+sub["name"].toString(),
-                                 true,present);
-                    subIds.push_back(subId);
-                }
+            const auto patch=live::find(channel,"patches",hit.libraryPatchId);
+            if(!patch.isObject())return;
+            const auto* variants=patch["subPatches"].getArray();
+            if(!variants || variants->isEmpty())return;
+            std::vector<juce::String> ids;
+            juce::PopupMenu menu;
+            menu.setLookAndFeel(&parent.owner.theme);
+            for(const auto& variant:*variants) {
+                const auto id=variant["id"].toString();
+                if(id.isEmpty())continue;
+                ids.push_back(id);
+                menu.addItem(static_cast<int>(ids.size()),variant["name"].toString(),
+                             true,id==hit.librarySubId);
+            }
             juce::Component::SafePointer<Desktop> safe(&parent.owner);
-            juce::Component::SafePointer<Body> self(this);
-            const auto channelId=hit.channelId,patchId=hit.patchId;
-            menu.showMenuAsync(liveMenuOptions(*this).withTargetScreenArea(juce::Rectangle<int>(screen.x,screen.y,1,1)),[safe,self,channelId,patchId,subIds,replacementIds](int action){
-                if(!safe||!action)return;
-                safe->run([&]{
-                    if(action==1){safe->removeLivePatchBlock(channelId,patchId);return;}
-                    if(action>=2000&&action<3000){
-                        const auto at=static_cast<std::size_t>(action-2000);
-                        if(at<replacementIds.size())
-                            safe->replaceLivePatchBlock(channelId,patchId,replacementIds[at]);
+            const auto channelId=hit.channelId,patchId=hit.patchId,libraryPatch=hit.libraryPatchId,
+                       instance=hit.subId,itemId=hit.itemId;
+            const auto gen=parent.owner.liveDocumentGeneration;
+            menu.showMenuAsync(liveMenuOptions(*this).withTargetScreenArea(
+                juce::Rectangle<int>(screen.x,screen.y,1,1)),
+                [safe,ids,channelId,patchId,libraryPatch,instance,itemId,gen](int action) {
+                    if(!safe || !safe->liveDocument || safe->liveDocumentGeneration!=gen ||
+                       action<=0 || action>static_cast<int>(ids.size()))return;
+                    const auto chosen=ids[static_cast<std::size_t>(action-1)];
+                    safe->run([&] {
+                        const auto track=live::channelItemTrack(
+                            safe->liveDocument->interfaceState,itemId,channelId);
+                        const auto source=track["spans"];
+                        const auto changed=live::replaceSubPatchSegment(
+                            source,patchId,instance,chosen);
+                        if(!live::sameShowValue(source,changed))
+                            safe->setLivePatchSpans(channelId,patchId,changed,
+                                                    "Select Sub-patch",itemId);
+                        // Selection at Stop also loads the chosen sound for
+                        // direct plugin editing; there is no channel Patch menu.
+                        if(safe->liveDocument->interfaceState["currentItem"].toString()==itemId &&
+                           !safe->app.recording() &&
+                           safe->displayState().playback!=mrs::PlaybackState::playing)
+                            safe->loadLiveChannelPatch(channelId,libraryPatch,chosen);
+                    });
+                });
+        }
+        bool subPatchContextMenu(const PatchGesture& hit,juce::Point<int> position,
+                                 juce::Point<int> screen) {
+            const auto channel=live::find(parent.state,"channels",hit.channelId);
+            const auto patch=live::find(channel,"patches",hit.libraryPatchId);
+            if(!patch.isObject())return false;
+            const auto span=hit.originSpans[juce::Identifier(hit.patchId)];
+            const auto item=std::find_if(parent.items.begin(),parent.items.end(),
+                [&](const auto& i){return i.value["id"].toString()==hit.itemId;});
+            if(item==parent.items.end())return false;
+            const auto offset=live::barSnap(barAt(*item,static_cast<float>(position.x))-
+                                               live::blockStart(span));
+            const bool hasSub=hit.subId.isNotEmpty();
+            const auto sub=hasSub?live::find(patch,"subPatches",hit.librarySubId):juce::var{};
+            juce::PopupMenu menu;
+            menu.setLookAndFeel(&parent.owner.theme);
+            const bool stopped=!parent.owner.app.recording() &&
+                parent.owner.displayState().playback!=mrs::PlaybackState::playing;
+            juce::PopupMenu insertion;
+            insertion.addItem(1,"Capture current sound...",stopped);
+            std::vector<juce::String> existingIds;
+            if(const auto* available=patch["subPatches"].getArray()) {
+                if(!available->isEmpty())insertion.addSeparator();
+                for(const auto& variant:*available) {
+                    const auto id=variant["id"].toString();
+                    if(id.isEmpty())continue;
+                    existingIds.push_back(id);
+                    insertion.addItem(100+static_cast<int>(existingIds.size()-1),
+                                      variant["name"].toString(),stopped);
+                }
+            }
+            menu.addSubMenu("+ Sub-patch",insertion,stopped);
+            if(hasSub) {
+                menu.addItem(2,"Rename");
+                menu.addItem(3,"Delete");
+                menu.addItem(4,"Update",stopped);
+            }
+            const auto channelId=hit.channelId,patchBlock=hit.patchId,patchId=hit.libraryPatchId,
+                       subBlock=hit.subId,subId=hit.librarySubId,itemId=hit.itemId;
+            const auto generation=parent.owner.liveDocumentGeneration;
+            juce::Component::SafePointer<Desktop> safe(&parent.owner);
+            menu.showMenuAsync(liveMenuOptions(*this).withTargetScreenArea(
+                    juce::Rectangle<int>(screen.x,screen.y,1,1)),
+                [safe,channelId,patchBlock,patchId,subBlock,subId,itemId,
+                 generation,offset,sub,existingIds](int action) {
+                    if(!safe||!action||!safe->liveDocument||
+                       safe->liveDocumentGeneration!=generation)return;
+                    if(action>=100 && action-100<static_cast<int>(existingIds.size())) {
+                        const auto chosen=existingIds[static_cast<std::size_t>(action-100)];
+                        safe->run([&] {
+                            safe->insertExistingLiveSubPatch(channelId,patchId,chosen,
+                                                               itemId,patchBlock,offset);
+                        });
                         return;
                     }
-                    const auto index=action-100;
-                    if(index<0||index>=static_cast<int>(subIds.size()))return;
-                    const auto subId=subIds[static_cast<std::size_t>(index)];
-                    const auto track=live::channelItemTrack(safe->liveDocument->interfaceState,
-                        safe->liveDocument->interfaceState["currentItem"].toString(),channelId);
-                    const auto span=track["spans"][juce::Identifier(patchId)];
-                    if(span["subs"][juce::Identifier(subId)].isObject())
-                        safe->removeLiveSubPatchBlock(channelId,patchId,subId);
-                    else
-                        safe->addLiveSubPatchBlock(channelId,patchId,subId);
-                });
-                if(self)self->repaint();
-            });
-            return true;
-        }
-        // Right-click on an empty spot of a live channel lane inserts a patch block from that
-        // channel's patch library; existing blocks keep their own menu.
-        bool addPatchBlockMenu(juce::Point<int> position, juce::Point<int> screen) {
-            const auto *lane=parent.laneAt(position.y);
-            if(lane==nullptr)return false;
-            const auto channel=live::find(parent.state,"channels",lane->channel);
-            if(!channel.isObject()||channel["type"].toString()=="Playback")return false;
-            // The channel patch bank is an array (same shape the Audio FX channel menu uses),
-            // not an id-keyed object.
-            const auto *patches=channel["patches"].getArray();
-            std::vector<juce::String> ids,names;
-            if(patches!=nullptr)
-                for(const auto &patch:*patches) {
-                    if(!patch.isObject()||live::legacyPatch(patch))continue;
-                    const auto id=patch["id"].toString();
-                    if(id.isEmpty())continue;
-                    ids.push_back(id);
-                    names.push_back(patch["name"].toString());
-                }
-            juce::PopupMenu menu;menu.setLookAndFeel(&parent.owner.theme);
-            std::vector<std::size_t> order(ids.size());
-            for(std::size_t i=0;i<order.size();++i)order[i]=i;
-            std::sort(order.begin(),order.end(),[&](std::size_t a,std::size_t b){
-                return names[a].compareIgnoreCase(names[b])<0;});
-            menu.addSectionHeader(ids.empty()?"Patches: none captured yet":"Patches");
-            if(ids.empty()) {
-                menu.addItem(1,"Capture the channel chain first",false,false);
-            } else {
-                for(std::size_t i=0;i<order.size();++i)
-                    menu.addItem(static_cast<int>(i)+1,names[order[i]]);
-            }
-            menu.addSeparator();
-            menu.addItem(9000,"Capture current chain as patchР В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В РІР‚в„ўР вЂ™Р’В¦");
-            juce::Component::SafePointer<Desktop> safe(&parent.owner);
-            juce::Component::SafePointer<Body> self(this);
-            const auto channelId=lane->channel;
-            // New blocks start at the playhead, not at the first free gap.
-            double preferredBar=-1.;
-            const auto playheadX=static_cast<float>(parent.playhead.getX());
-            for(const auto &item:parent.items)
-                if(!item.collapsed && playheadX>=static_cast<float>(item.bounds.getX()) &&
-                   playheadX<=static_cast<float>(item.bounds.getRight())) {
-                    preferredBar=barAt(item,playheadX);
-                    break;
-                }
-            menu.showMenuAsync(liveMenuOptions(*this).withTargetScreenArea(juce::Rectangle<int>(screen.x,screen.y,1,1)),
-                [safe,self,channelId,ids,order,preferredBar](int action){
-                    if(!safe||action<=0)return;
-                    if(action==9000) {
-                        safe->textDialog("Patch name","Patch",
-                            [safe,channelId](juce::String name){
-                                if(!safe||name.trim().isEmpty())return;
-                                safe->run([&]{safe->captureLiveChannelPatch(channelId,name.trim(),"blue");});
+                    if(action==1) {
+                        safe->textDialog("Sub-patch name","",
+                            [safe,channelId,patchBlock,patchId,itemId,offset,generation]
+                            (juce::String name) {
+                                if(!safe||!safe->liveDocument||
+                                   safe->liveDocumentGeneration!=generation||name.trim().isEmpty())return;
+                                safe->run([&] {
+                                    safe->captureLiveChannelSubPatch(channelId,patchId,
+                                        name.trim(),"violet",live::SubPatchCaptureMode::automatic,
+                                        itemId,patchBlock,offset);
+                                });
                             });
                         return;
                     }
-                    const auto index=static_cast<std::size_t>(action-1);
-                    if(index>=order.size())return;
-                    const auto patchId=ids[order[index]];
-                    safe->run([&]{safe->addLivePatchBlock(channelId,patchId,preferredBar);});
-                    if(self)self->repaint();
+                    if(action==2) {
+                        safe->textDialog("Sub-patch name",sub["name"].toString(),
+                            [safe,channelId,patchId,subId,generation](juce::String name) {
+                                if(safe&&safe->liveDocument&&safe->liveDocumentGeneration==generation&&
+                                   name.trim().isNotEmpty())
+                                    safe->run([&] {
+                                        safe->renameLiveChannelSubPatch(channelId,patchId,subId,name.trim());
+                                    });
+                            });
+                        return;
+                    }
+                    safe->run([&] {
+                        if(action==3)safe->deleteLiveChannelSubPatch(channelId,patchId,subId);
+                        else if(action==4)safe->updateLiveChannelSubPatch(channelId,patchId,subId);
+                    });
+                });
+            return true;
+        }
+        bool patchContextMenu(juce::Point<int> position, juce::Point<int> screen) {
+            PatchGesture hit;
+            if(!patchHitTest(position,hit))return false;
+            if(hit.subId.isNotEmpty() ||
+               (hit.mode!=PatchGesture::Mode::joined &&
+                position.y>=hit.rowTop+subRailTop &&
+                position.y<hit.rowTop+subRailTop+subRailHeight))
+                return subPatchContextMenu(hit,position,screen);
+            const auto channel=live::find(parent.state,"channels",hit.channelId);
+            const auto patch=live::find(channel,"patches",hit.libraryPatchId);
+            if(!patch.isObject())return false;
+            juce::PopupMenu menu;
+            menu.setLookAndFeel(&parent.owner.theme);
+            const bool stopped=!parent.owner.app.recording() &&
+                parent.owner.displayState().playback!=mrs::PlaybackState::playing;
+            menu.addItem(1,"+ Patch",stopped);
+            menu.addItem(2,"Rename");
+            menu.addItem(3,"Delete");
+            menu.addItem(4,"Update",stopped);
+            juce::PopupMenu replacements;
+            std::vector<juce::String> patchIds;
+            if(const auto* bank=channel["patches"].getArray())
+                for(const auto& candidate:*bank) {
+                    const auto id=candidate["id"].toString();
+                    if(id.isEmpty()||id==hit.libraryPatchId||live::legacyPatch(candidate))continue;
+                    patchIds.push_back(id);
+                    replacements.addItem(100+static_cast<int>(patchIds.size()-1),
+                                          candidate["name"].toString());
+                }
+            if(!patchIds.empty())menu.addSubMenu("Replace",replacements);
+            const auto item=std::find_if(parent.items.begin(),parent.items.end(),
+                [&](const auto& i){return i.value["id"].toString()==hit.itemId;});
+            const double atBar=item==parent.items.end()?-1.:
+                barAt(*item,static_cast<float>(position.x));
+            const auto channelId=hit.channelId,patchBlock=hit.patchId,patchId=hit.libraryPatchId,
+                       itemId=hit.itemId;
+            const auto gen=parent.owner.liveDocumentGeneration;
+            juce::Component::SafePointer<Desktop> safe(&parent.owner);
+            menu.showMenuAsync(liveMenuOptions(*this).withTargetScreenArea(
+                    juce::Rectangle<int>(screen.x,screen.y,1,1)),
+                [safe,channelId,patchBlock,patchId,itemId,gen,atBar,patchIds,patch](int action) {
+                    if(!safe||!action||!safe->liveDocument||
+                       safe->liveDocumentGeneration!=gen)return;
+                    if(action==1) {
+                        safe->textDialog("Patch name","",
+                            [safe,channelId,itemId,atBar,gen](juce::String name) {
+                                if(safe&&safe->liveDocument&&safe->liveDocumentGeneration==gen&&
+                                   name.trim().isNotEmpty())
+                                    safe->run([&] {
+                                        safe->captureLiveChannelPatch(channelId,name.trim(),"blue",
+                                                                       itemId,atBar);
+                                    });
+                            });
+                        return;
+                    }
+                    if(action==2) {
+                        safe->textDialog("Patch name",patch["name"].toString(),
+                            [safe,channelId,patchId,gen](juce::String name) {
+                                if(safe&&safe->liveDocument&&safe->liveDocumentGeneration==gen&&
+                                   name.trim().isNotEmpty())
+                                    safe->run([&] {
+                                        safe->renameLiveChannelPatch(channelId,patchId,name.trim());
+                                    });
+                            });
+                        return;
+                    }
+                    safe->run([&] {
+                        if(action==3)safe->deleteLiveChannelPatch(channelId,patchId);
+                        else if(action==4)safe->updateLiveChannelPatch(channelId,patchId);
+                        else if(action>=100 && action-100<static_cast<int>(patchIds.size())) {
+                            safe->replaceLivePatchBlock(channelId,patchBlock,
+                                patchIds[static_cast<std::size_t>(action-100)],itemId);
+                            safe->loadStoppedLiveTimelinePatch(channelId,itemId,atBar);
+                        }
+                    });
+                });
+            return true;
+        }
+        // Only the Timeline's empty lane offers new and existing Patch names.
+        // The channel-header menu intentionally has no Patch operations.
+        bool addPatchBlockMenu(juce::Point<int> position, juce::Point<int> screen) {
+            const auto* lane=parent.laneAt(position.y);
+            if(!lane||lane->container)return false;
+            const auto channel=live::find(parent.state,"channels",lane->channel);
+            if(!channel.isObject()||channel["type"].toString()=="Playback")return false;
+            const auto item=std::find_if(parent.items.begin(),parent.items.end(),
+                [&](const auto& row){return !row.collapsed && row.bounds.contains(position);});
+            if(item==parent.items.end())return false;
+            const auto itemId=item->value["id"].toString();
+            const auto atBar=barAt(*item,static_cast<float>(position.x));
+            const bool stopped=!parent.owner.app.recording() &&
+                parent.owner.displayState().playback!=mrs::PlaybackState::playing;
+            juce::PopupMenu menu;
+            menu.setLookAndFeel(&parent.owner.theme);
+            menu.addItem(1,"+ Patch",stopped);
+            menu.addItem(2,"Default");
+            std::vector<juce::String> patchIds;
+            if(const auto* bank=channel["patches"].getArray())
+                for(const auto& patch:*bank) {
+                    if(!patch.isObject()||live::legacyPatch(patch))continue;
+                    patchIds.push_back(patch["id"].toString());
+                    menu.addItem(100+static_cast<int>(patchIds.size()-1),
+                                 patch["name"].toString());
+                }
+            const auto channelId=lane->channel;
+            const auto gen=parent.owner.liveDocumentGeneration;
+            juce::Component::SafePointer<Desktop> safe(&parent.owner);
+            menu.showMenuAsync(liveMenuOptions(*this).withTargetScreenArea(
+                    juce::Rectangle<int>(screen.x,screen.y,1,1)),
+                [safe,channelId,itemId,atBar,gen,patchIds](int action) {
+                    if(!safe||!action||!safe->liveDocument||
+                       safe->liveDocumentGeneration!=gen)return;
+                    if(action==1) {
+                        safe->textDialog("Patch name","",
+                            [safe,channelId,itemId,atBar,gen](juce::String name) {
+                                if(safe&&safe->liveDocument&&safe->liveDocumentGeneration==gen&&
+                                   name.trim().isNotEmpty())
+                                    safe->run([&] {
+                                        safe->captureLiveChannelPatch(channelId,name.trim(),
+                                                                       "blue",itemId,atBar);
+                                    });
+                            });
+                        return;
+                    }
+                    safe->run([&] {
+                        if(action==2) {
+                            safe->editLiveInterface("Use default channel sound",
+                                [&](auto& state) {
+                                    auto& item=live::require(state,"items",itemId);
+                                    for(auto& track:live::array(item,"tracks"))
+                                        if(track["channelId"].toString()==channelId) {
+                                            if(auto* obj=track.getDynamicObject()) {
+                                                obj->removeProperty("patchId");
+                                                obj->removeProperty("subPatchId");
+                                            }
+                                            return;
+                                        }
+                                    throw std::runtime_error("Selected Item channel is missing");
+                                });
+                        }
+                        else if(action>=100 &&
+                                action-100<static_cast<int>(patchIds.size())) {
+                            const auto selected=patchIds[static_cast<std::size_t>(action-100)];
+                            safe->addLivePatchBlock(channelId,selected,atBar,itemId);
+                            const auto track=live::channelItemTrack(
+                                safe->liveDocument->interfaceState,itemId,channelId);
+                            const auto placed=track["spans"][juce::Identifier(selected)];
+                            if(placed.isObject())
+                                safe->loadStoppedLiveTimelinePatch(
+                                    channelId,itemId,live::blockStart(placed)+.001);
+                        }
+                    });
                 });
             return true;
         }
         bool keyPressed(const juce::KeyPress &key) override {
-            if (key == juce::KeyPress::escapeKey) { cancelPatchEdit(); cancelEdit(); return true; }
+            if((key==juce::KeyPress::backspaceKey || key==juce::KeyPress::deleteKey) &&
+               !selectedPatches.empty() &&
+               !key.getModifiers().isCtrlDown() && !key.getModifiers().isAltDown()) {
+                const auto selected=selectedPatches;
+                parent.owner.run([&]{
+                    std::vector<Desktop::LivePatchBlockSelection> targets;
+                    targets.reserve(selected.size());
+                    for(const auto& choice:selected)
+                        targets.push_back({choice.itemId,choice.channelId,choice.blockId,choice.subId});
+                    parent.owner.removeSelectedLivePatchBlocks(targets);
+                });
+                selectedPatches.clear();repaint();
+                return true;
+            }
+            if (key == juce::KeyPress::escapeKey) {
+                marqueeArmed=false;marqueeActive=false;
+                marqueeBase.clear();selectedPatches.clear();
+                cancelPatchEdit();cancelEdit();repaint();return true;
+            }
             if (clipSelection.isNotEmpty()) {
                 if(key==juce::KeyPress::deleteKey || key==juce::KeyPress::backspaceKey){removeClip();return true;}
                 if(key==juce::KeyPress::returnKey){clipProperties();return true;}
@@ -1035,7 +1698,10 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey) { removeSelected(); return true; }
             return false;
         }
-        void focusLost(FocusChangeType) override { cancelPatchEdit(); cancelEdit(); }
+        void focusLost(FocusChangeType) override {
+            marqueeArmed=false;marqueeActive=false;marqueeBase.clear();
+            cancelPatchEdit();cancelEdit();
+        }
         void mouseDoubleClick(const juce::MouseEvent &event) override {
             cancelEdit();
             if(event.y>=lanesTop){if(beginClipEdit(event)){cancelEdit();if(!scissors)clipProperties(event.getScreenPosition());}return;}
@@ -1112,13 +1778,19 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 if(!event.mods.isLeftButtonDown())return true;
                 grabKeyboardFocus();
                 if(clipSelection.isEmpty()){
-                    if(parent.currentEntry(item) && parent.owner.livePlaybackReady())parent.owner.run([&]{parent.owner.app.seek(parent.sampleAt(item,event.position.x));});
+                    if(parent.currentEntry(item) && parent.owner.livePlaybackReady())parent.owner.run([&]{
+                        parent.owner.app.seek(parent.sampleAt(item,event.position.x));
+                        parent.owner.loadStoppedLiveTimelinePatches(id,juce::jmax(0.,barAt(item,event.position.x)));
+                    });
                     return true;
                 }
                 // Pointer selection retains the accepted click-to-seek action.
                 // A subsequent drag still edits only the preview until release.
                 if(!scissors && !clipEdge && parent.currentEntry(item) && parent.owner.livePlaybackReady())
-                    parent.owner.run([&]{parent.owner.app.seek(parent.sampleAt(item,event.position.x));});
+                    parent.owner.run([&]{
+                        parent.owner.app.seek(parent.sampleAt(item,event.position.x));
+                        parent.owner.loadStoppedLiveTimelinePatches(id,juce::jmax(0.,barAt(item,event.position.x)));
+                    });
                 editRows=regionRows(item,index).clone();
                 if(scissors && !clipEdge){parent.owner.run([&]{commitClips(live::splitPlaybackRegion(editRows,clipSelection,barAt(item,event.position.x)),"Split Playback region");});return true;}
                 // Click-to-select/seek must never serialize or clone the whole
@@ -1163,7 +1835,10 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 if(action==5){auto row=live::object();safe->commitClips(live::defaultPlaybackRegions(row,safe->clipSourceBars,live::playbackSecondsPerBar(safe->parent.state,sourceItem)),"Restore Playback region");}
             });
         }
-        void mouseExit(const juce::MouseEvent&)override{guideY=-1;repaint();}
+        void mouseExit(const juce::MouseEvent&)override{
+            guideY=-1;hoveredPatchId.clear();hoveredSubId.clear();
+            hoveredPatchMode=PatchGesture::Mode::none;repaint();
+        }
         bool scissors{},clipEditing{};
         juce::String clipItem,clipStem,clipSelection;
         double clipSourceBars{};int clipEdge{},guideY{-1};float guideX{};
@@ -1213,6 +1888,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 repaint();
                 if(selection.isEmpty())return true;
                 editRows=live::musicalRows(originalState,id,selectedLane).clone();
+                lastMusicalPreviewDelta.reset();
                 copy=event.mods.isAltDown() && selectedLane==live::MusicalLane::chords && mode==live::SpanGesture::move;
                 editing=true;parent.body.repaint();
                 return true;
@@ -1233,6 +1909,9 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 parent.layout();parent.playhead.update();repaint();
                 return;
             }
+            const auto snappedMusicalDelta=live::barSnap(delta);
+            if(!clipEditing && lastMusicalPreviewDelta &&
+               *lastMusicalPreviewDelta==snappedMusicalDelta)return;
             try {
                 live::EditPath path;
                 juce::var changedRows;
@@ -1258,6 +1937,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 }
                 const auto patch=live::valuePatch(originalState,std::move(path),changedRows);
                 invalid=false;parent.state=patch.apply(originalState,true);
+                if(!clipEditing)lastMusicalPreviewDelta=snappedMusicalDelta;
                 if(clipEditing)parent.layout();
                 else for(auto& item:parent.items)if(item.value["id"].toString()==selectedItem)
                     item.value=live::find(parent.state,"items",selectedItem);
@@ -1290,10 +1970,16 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 return;
             }
             const auto next=parent.state;
-            restoreModelState();
+            // Chords/Sections must keep the preview geometry until the
+            // local Undo patch is committed. Restoring first flashes the old
+            // position and makes the mouse-up feel delayed.
+            if(clipEditing)restoreModelState();
             if(!parent.owner.liveDocument ||
                parent.owner.liveDocumentGeneration!=editGeneration ||
-               parent.owner.liveUiRevision!=editRevision||parent.owner.liveEdits.mutation!=editMutation)return;
+               parent.owner.liveUiRevision!=editRevision||parent.owner.liveEdits.mutation!=editMutation) {
+                if(!clipEditing)restoreModelState();
+                return;
+            }
             parent.owner.run([&]{
                 if(clipEditing){
                     parent.owner.setLivePlaybackRegions(clipItem,clipStem,
@@ -1301,6 +1987,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 }else parent.owner.setLiveMusicalRows(selectedItem,selectedLane==live::MusicalLane::sections,
                                                       live::musicalRows(next,selectedItem,selectedLane));
             });
+            if(!clipEditing)restoreModelState();
             if (!clipEditing && viewKey.isEmpty() && copy) {
                 const auto committed=live::musicalRows(parent.owner.liveDocument->interfaceState,selectedItem,selectedLane);
                 if (const auto *values=committed.getArray()) for(const auto &row:*values)
@@ -1329,19 +2016,33 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         }
         void removeSelected() {
             if(selection.isEmpty())return;
-            parent.owner.run([&]{parent.owner.editLiveInterface("Remove musical event",[&](auto &state){
-                auto values=live::musicalRows(state,selectedItem,selectedLane).clone();
-                for(int i=values.size();--i>=0;)if(values[i]["id"].toString()==selection)values.getArray()->remove(i);
-                live::setMusicalRows(state,selectedItem,selectedLane,values);
-            });});selection.clear();
+            const auto targetItem=selectedItem,targetId=selection;
+            const auto lane=selectedLane;
+            parent.owner.run([&] {
+                if(!parent.owner.liveDocument)return;
+                const auto rows=live::musicalRows(parent.owner.liveDocument->interfaceState,targetItem,lane);
+                if(!live::spanById(rows,targetId).isObject())return;
+                auto updated=rows.clone();
+                for(int i=updated.size();--i>=0;)
+                    if(updated[i]["id"].toString()==targetId)updated.getArray()->remove(i);
+                // #374: reuse the accepted scoped edit path; a full Show clone
+                // and opaque VST3 snapshots must not be retained by Undo.
+                parent.owner.setLiveMusicalRows(targetItem,lane==live::MusicalLane::sections,updated);
+            });
+            selection.clear();repaint();
         }
         void create(Item item,live::MusicalLane lane,double at,const juce::String &name) {
             const auto id=item.value["id"].toString();
-            parent.owner.run([&]{parent.owner.editLiveInterface("Add musical event",[&](auto &state){
-                auto next=live::newMusicalSpan(state,id,lane,at,item.bars,name);
-                selection=next[next.size()-1]["id"].toString();selectedItem=id;selectedLane=lane;
-                live::setMusicalRows(state,id,lane,next);
-            });});
+            parent.owner.run([&]{
+                if(!parent.owner.liveDocument)return;
+                // Never clone/validate the entire Show (including opaque VST3
+                // states) for one chord or section. Reuse accepted local Undo.
+                const auto next=live::newMusicalSpan(
+                    parent.owner.liveDocument->interfaceState,id,lane,at,item.bars,name);
+                parent.owner.setLiveMusicalRows(id,lane==live::MusicalLane::sections,next);
+                selection=next[next.size()-1]["id"].toString();
+                selectedItem=id;selectedLane=lane;
+            });
         }
         void context(Item item,double at,juce::Point<int> screen) {
             juce::PopupMenu menu;
@@ -1400,6 +2101,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         juce::String selectedItem,selection,viewKey;
         double previewViewValue{};
         std::uint64_t editGeneration{},editRevision{},editMutation{};
+        std::optional<double> lastMusicalPreviewDelta;
         juce::var originalState,editRows;
 
       private:
@@ -1409,6 +2111,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
     static constexpr int headerHeight = 60, rulerHeight = 24, sectionHeight = 34, chordHeight = 40;
     static constexpr int lanesTop = headerHeight + rulerHeight + sectionHeight + chordHeight;
     static constexpr int rowHeight = 124;
+    static constexpr int subRailTop = rowHeight - 51, subRailHeight = 38;
     static double numeric(const juce::var &value, double fallback, double minimum, double maximum) {
         return live::number(value) ? juce::jlimit(minimum, maximum, static_cast<double>(value)) : fallback;
     }
@@ -1549,6 +2252,23 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         const double length = numeric(span["length"], .25, 0, 4096);
         return {item.bounds.getX() + 1 + juce::roundToInt((item.lead - item.start + start) * item.scale), y,
                 juce::jmax(1, juce::roundToInt(length * item.scale)), height};
+    }
+    static juce::Rectangle<int> patchUpdateBounds(juce::Rectangle<int> blockBounds) {
+        if(blockBounds.getWidth()<52)return {};
+        const int top=blockBounds.getY()+
+            juce::jmax(3,juce::jmin(8,(blockBounds.getHeight()-16)/2));
+        return {blockBounds.getRight()-31,top,16,16};
+    }
+    static void paintPatchUpdate(juce::Graphics& g,juce::Rectangle<int> blockBounds) {
+        const auto button=patchUpdateBounds(blockBounds);
+        if(button.isEmpty())return;
+        const auto centre=button.getCentre().toFloat();
+        g.setColour(juce::Colours::white.withAlpha(.83f));
+        juce::Path refresh;
+        refresh.addCentredArc(centre.x,centre.y,5.2f,5.2f,0.f,.5f,5.4f,true);
+        g.strokePath(refresh,juce::PathStrokeType(1.6f));
+        g.drawLine(centre.x+1.7f,centre.y-4.9f,centre.x+5.3f,centre.y-5.9f,1.6f);
+        g.drawLine(centre.x+5.3f,centre.y-5.9f,centre.x+5.3f,centre.y-2.2f,1.6f);
     }
     void block(juce::Graphics &g, juce::Rectangle<int> area, const juce::String &label, const juce::var &color) const {
         g.setColour(liveBlockColour(color.toString()).withAlpha(.18f));
@@ -1853,30 +2573,80 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 }
             return;
         }
-        if (const auto *order = track["patchOrder"].getArray())
-            for (const auto &patchId : *order) {
-                const auto patch = live::find(channel, "patches", patchId.toString());
-                const auto span = track["spans"][juce::Identifier(patchId.toString())];
-                if (!patch.isObject() || !span.isObject())
-                    continue;
-                const auto patchBounds = extent(item, span, y + 10, rowHeight - 20);
-                block(g, patchBounds, {}, patch["color"]);
-                // The 5 px edge zones were always editable but invisible; draw the same resize
-                // affordance the other accepted blocks use so blocks are obviously draggable.
-                g.setColour(juce::Colours::white.withAlpha(0.55f));
-                g.fillRect(patchBounds.getX(), patchBounds.getY() + 3, 4, patchBounds.getHeight() - 8);
-                g.fillRect(patchBounds.getRight() - 4, patchBounds.getY() + 3, 4, patchBounds.getHeight() - 8);
-                text(g, patch["name"].toString(), patchBounds.reduced(6).withHeight(30));
-                if (const auto *subs = patch["subPatches"].getArray())
-                    for (const auto &sub : *subs) {
-                        const auto geometry = span["subs"][juce::Identifier(sub["id"].toString())];
-                        if (geometry.isObject()) {
-                            const auto subBounds = extent(item, geometry, y + 64, 26, numeric(span["start"], 0, 0, 4096));
-                            block(g, subBounds, sub["name"].toString(),
-                                  sub["color"].toString() == "inherit" ? patch["color"] : sub["color"]);
-                            g.setColour(juce::Colours::white.withAlpha(0.45f));
-                            g.fillRect(subBounds.getX(), subBounds.getY() + 3, 3, subBounds.getHeight() - 6);
-                            g.fillRect(subBounds.getRight() - 3, subBounds.getY() + 3, 3, subBounds.getHeight() - 6);
+        // The order stores *instance* IDs. Old shows use their Patch library
+        // ID as the instance key; Scissors adds UUID keys with patchId refs.
+        if(const auto* order=track["patchOrder"].getArray())
+            for(const auto& blockKey:*order) {
+                const auto blockId=blockKey.toString();
+                const auto span=track["spans"][juce::Identifier(blockId)];
+                if(!span.isObject())continue;
+                const auto patch=live::find(channel,"patches",live::patchLibraryId(blockId,span));
+                if(!patch.isObject())continue;
+                const auto patchBounds=extent(item,span,y+9,rowHeight-18);
+                const bool previewBase=body.patchGesture.previewSpans.isObject() &&
+                    body.patchGesture.itemId==item.value["id"].toString() &&
+                    body.patchGesture.subId.isEmpty() &&
+                    (body.patchGesture.patchId==blockId ||
+                     (body.patchGesture.mode==Body::PatchGesture::Mode::joined &&
+                      body.patchGesture.joinedRightId==blockId));
+                if(!previewBase) {
+                    // A single rounded container (not an old rectangular Patch
+                    // with a dark strip tacked on). Draw using existing MR UDS
+                    // colours; the bottom rail and its hit geometry are identical.
+                    const auto tint=liveBlockColour(patch["color"].toString());
+                    const auto area=patchBounds.toFloat().reduced(.5f);
+                    g.setColour(tint.withAlpha(.20f));
+                    g.fillRoundedRectangle(area,7.f);
+                    g.setColour(tint.withAlpha(.9f));
+                    g.drawRoundedRectangle(area,7.f,1.2f);
+                    const auto header=patchBounds.reduced(12,0).withHeight(subRailTop-16);
+                    g.setColour(liveReferenceTokens().colour(ColourRole::text));
+                    g.setFont(owner.theme.font(13.5f));
+                    g.drawFittedText(juce::String("Patch · ")+patch["name"].toString(),
+                                     header.withTrimmedRight(36),juce::Justification::centredLeft,1);
+                    const auto rail=extent(item,span,y+subRailTop,subRailHeight);
+                    g.setColour(liveReferenceTokens().colour(ColourRole::border).withAlpha(.34f));
+                    g.drawRoundedRectangle(rail.toFloat().reduced(.5f),4.f,1.f);
+
+                }
+                // A single library Sub-patch can be split into several strips;
+                // each strip has its own key, without cloning vendor state.
+                if(previewBase && body.patchGesture.mode==Body::PatchGesture::Mode::joined)
+                    continue; // The joined preview replaces both parents and their strips.
+                if(const auto* entries=span["subs"].getDynamicObject())
+                    for(const auto& child:entries->getProperties()) {
+                        if(!child.value.isObject())continue;
+                        const auto subId=live::subPatchLibraryId(child.name.toString(),child.value);
+                        const auto sub=live::find(patch,"subPatches",subId);
+                        if(!sub.isObject())continue;
+                        const auto bounds=extent(item,child.value,y+subRailTop,subRailHeight,live::blockStart(span));
+                        const bool previewSub=body.patchGesture.previewSpans.isObject() &&
+                            body.patchGesture.itemId==item.value["id"].toString() &&
+                            body.patchGesture.patchId==blockId &&
+                            (body.patchGesture.subId==child.name.toString() ||
+                             (body.patchGesture.mode==Body::PatchGesture::Mode::subJoined &&
+                              body.patchGesture.joinedRightId==child.name.toString()));
+                        if(!previewSub) {
+                            const auto tint=liveBlockColour(
+                                (sub["color"].toString()=="inherit"?patch["color"]:sub["color"]).toString());
+                            const auto area=bounds.toFloat().reduced(2.f,2.f);
+                            if(area.getWidth()<=0.f)continue;
+                            g.setColour(tint.withAlpha(.60f));
+                            g.fillRoundedRectangle(area,4.f);
+                            g.setColour(tint.withAlpha(.95f));
+                            g.drawRoundedRectangle(area,4.f,1.3f);
+                            if(bounds.getWidth()>29) {
+                                g.setColour(liveReferenceTokens().colour(ColourRole::text));
+                                g.setFont(owner.theme.font(13.f));
+                                auto title=sub["name"].toString();
+                                if(item.value["id"].toString()==state["currentItem"].toString() &&
+                                   dirtySubPatches.contains(channel["id"].toString()+"|"+
+                                                              patch["id"].toString()+"|"+subId))
+                                    title+=" "+juce::String::charToString(0x2605);
+                                g.drawFittedText(title,bounds.reduced(6,0),
+                                    juce::Justification::centred,1);
+                            }
+                            // Update is exclusively in the Sub-patch context menu.
                         }
                     }
             }
@@ -1899,6 +2669,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
     juce::String stemControlsKey;
     juce::var state;
     juce::String signature, revealedItem;
+    juce::uint32 dirtyCheckedAt{};
+    std::map<juce::String,bool> dirtySubPatches;
     std::uint64_t observedMixRevision{~std::uint64_t{0}},observedPaintRevision{~std::uint64_t{0}};
     std::vector<Item> items;
     std::string activeSection, activeChord;

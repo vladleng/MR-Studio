@@ -138,30 +138,91 @@ public:
     // chain requires stopped transport and an activated channel, and applying a
     // captured chain needs a stopped, activated channel as well.
     void captureLiveChannelPatch(const juce::String&, const juce::String& name,
-                                 const juce::String& colour = "blue");
+                                 const juce::String& colour = "blue",
+                                 const juce::String& itemId={},double preferredBar=-1.);
+    // Apply & assign Item default (existing behavior), or load only into the
+    // current Live Input for Capture/Update without changing Item defaults.
     void applyLiveChannelPatch(const juce::String&, const juce::String& patchId,
-                               const juce::String& subPatchId = {});
+                               const juce::String& subPatchId = {},bool assignItemDefault=true);
+    void loadLiveChannelPatch(const juce::String&,const juce::String& patchId,
+                              const juce::String& subPatchId = {});
+    // At Stop, audition the sound assigned by a Patch/Sub-patch Timeline span.
+    void loadStoppedLiveTimelinePatch(const juce::String& channel,
+                                      const juce::String& itemId,double atBar);
+    void loadStoppedLiveTimelinePatches(const juce::String& itemId,double atBar);
+    struct LoadedLivePatch {
+        juce::String itemId,patchId,subPatchId;
+    };
+    std::map<juce::String,LoadedLivePatch> liveLoadedPatches;
+    bool livePatchLoadedForEditing(const juce::String& channel,const juce::String& patchId,
+                                   const juce::String& subPatchId) const;
+    // Lightweight UI-only VST3 parameter comparison for unsaved-state marker.
+    bool liveSubPatchParametersDirty(const juce::String& channel,const juce::String& patchId,
+                                     const juce::String& subPatchId) const;
     // #289 B - sub-patches: named parameter-override sets of the same captured
     // chain. Switching is stopped-only and uses the parameter-only Core path.
     void applyLiveChannelSubPatch(const juce::String&, const juce::String& patchId,
                                   const juce::String& subPatchId);
+    // Insert a saved variation inside an existing full-length Sub-patch.
+    void insertExistingLiveSubPatch(const juce::String& channel,
+                                    const juce::String& patchId,
+                                    const juce::String& subPatchId,
+                                    const juce::String& itemId,
+                                    const juce::String& patchBlockId,
+                                    double clickOffset);
     void captureLiveChannelSubPatch(const juce::String&, const juce::String& patchId,
-                                    const juce::String& name, const juce::String& colour = "violet");
+                                    const juce::String& name, const juce::String& colour = "violet",
+                                    live::SubPatchCaptureMode mode=live::SubPatchCaptureMode::automatic,
+                                    const juce::String& itemId={},const juce::String& blockId={},
+                                    double preferredStart=0.,
+                                    const juce::String& replaceSubBlockId={});
+    // Explicit Save/Update of the currently applied patch. Shared library IDs
+    // remain stable so every block keeps its reference; no runtime switch.
+    void updateLiveChannelPatch(const juce::String&, const juce::String& patchId);
+    void updateLiveChannelSubPatch(const juce::String&, const juce::String& patchId,
+                                   const juce::String& subPatchId);
+    void confirmLivePatchUpdate(const juce::String& channelId,const juce::String& patchId,
+                                const juce::String& subPatchId,const juce::String& itemId);
     void renameLiveChannelSubPatch(const juce::String&, const juce::String& patchId,
                                    const juce::String& subPatchId, const juce::String& name);
     void deleteLiveChannelSubPatch(const juce::String&, const juce::String& patchId,
                                    const juce::String& subPatchId);
-    // #289 C - free patch/sub-patch block authoring on the current item. These
-    // only change show geometry (one Undo per gesture); DSP is not involved.
-    void addLivePatchBlock(const juce::String&, const juce::String& patchId, double preferredStartBars);
-    void addLivePatchBlock(const juce::String& channel, const juce::String& patchId) { addLivePatchBlock(channel, patchId, -1.); }
-    void addLiveSubPatchBlock(const juce::String&, const juce::String& patchId, const juce::String& subPatchId);
-    void replaceLivePatchBlock(const juce::String& channel, const juce::String& patchId, const juce::String& replacementId);
-    void removeLivePatchBlock(const juce::String&, const juce::String& patchId);
-    void removeLiveSubPatchBlock(const juce::String&, const juce::String& patchId, const juce::String& subPatchId);
+    // #289 C - geometry authoring targets the visible Item explicitly; an
+    // omitted Item id preserves legacy/current-Item callers. Editing another
+    // Item never changes transport, channel DSP or the active Item.
+    void addLivePatchBlock(const juce::String&, const juce::String& patchId, double preferredStartBars,
+                           const juce::String& itemId = {});
+    void addLivePatchBlock(const juce::String& channel, const juce::String& patchId) {
+        addLivePatchBlock(channel, patchId, -1.);
+    }
+    void addLiveSubPatchBlock(const juce::String&, const juce::String& patchId,
+                               const juce::String& subPatchId, const juce::String& itemId = {},
+                               double preferredStart = 0.);
+    void replaceLivePatchBlock(const juce::String& channel, const juce::String& patchId,
+                               const juce::String& replacementId, const juce::String& itemId = {});
+    // Selected blocks must all belong to one channel's patch library; an
+    // atomic local Undo edit updates references without changing time/length.
+    void replaceSelectedLivePatchBlocks(
+        const juce::String& channel,const juce::String& replacementId,
+        const std::vector<std::pair<juce::String,juce::String>>& itemBlockIds);
+    void removeLivePatchBlock(const juce::String&, const juce::String& patchId,
+                              const juce::String& itemId = {});
+    void removeLiveSubPatchBlock(const juce::String&, const juce::String& patchId,
+                                 const juce::String& subPatchId, const juce::String& itemId = {});
+    struct LivePatchBlockSelection {
+        juce::String itemId,channelId,blockId,subId;
+    };
+    void removeSelectedLivePatchBlocks(const std::vector<LivePatchBlockSelection>&);
     void setLivePatchSpans(const juce::String&, const juce::String& patchId, juce::var spans,
-                           const juce::String& label);
-    std::vector<mrs::NativeInsert> captureLiveChannelInserts(const juce::String& channel);
+                           const juce::String& label, const juce::String& itemId = {});
+    void splitLivePatchBlock(const juce::String& channelId,const juce::String& blockId,
+                             double atBar,const juce::String& itemId);
+    void splitLiveSubPatchBlock(const juce::String& channelId,const juce::String& blockId,
+                                const juce::String& subBlockId,double offsetBar,
+                                const juce::String& itemId);
+    std::vector<mrs::NativeInsert> captureLiveChannelInserts(const juce::String& channel,
+                                                              bool includeExposedParameters=false,
+                                                              bool parametersOnly=false);
     // #289 A-Upd1: after a stopped item switch, adopt the item's default
     // channel patches for activated channels (errors keep the current chain).
     void applyLiveItemDefaultPatches();

@@ -70,6 +70,12 @@ void state(const NodeState& node){PreparedGraph graph{snapshot(node),{48000,2,64
 
 }
 void editor(const NodeState& node){PreparedGraph graph{snapshot(node),{48000,2,64},hosted_factory};const auto parent=CreateWindowW(L"STATIC",L"test",WS_OVERLAPPED,0,0,400,200,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);CHECK(parent!=nullptr);int w{},h{};CHECK(graph.open_editor(node.id,parent,w,h)&&w==320&&h==120);auto child=GetWindow(parent,GW_CHILD);CHECK(child!=nullptr);SendMessageW(child,WM_COMMAND,MAKEWPARAM(1,BN_CLICKED),0);CHECK(graph.consume_edits());std::array<float,128> audio;audio.fill(1);graph.process(audio.data(),64);CHECK(audio[0]==0.75f);
+    // #374 J RED: a parameter changed through the vendor editor is sampled
+    // as its *current* normalized value for the Sub-patch capture baseline.
+    const auto liveValues=graph.parameter_infos(node.id);
+    const auto gain=std::find_if(liveValues.begin(),liveValues.end(),
+        [](const auto& info){return info.id==100;});
+    CHECK(gain!=liveValues.end() && std::abs(gain->initial-.75f)<1.e-6f);
     // A preset changes processor/controller state without performEdit for each parameter.
     SendMessageW(child,WM_COMMAND,MAKEWPARAM(2,BN_CLICKED),0);CHECK(graph.consume_edits());
     auto saved=graph.capture();CHECK(saved.nodes.front().parameters.empty());

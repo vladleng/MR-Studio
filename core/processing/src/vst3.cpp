@@ -172,7 +172,15 @@ public:
         const auto copy=[](MemoryStream& stream){if(stream.getSize()<0 || static_cast<std::uint64_t>(stream.getSize())>PluginState::maximum_bytes)throw std::runtime_error("VST3 state exceeds 16 MiB budget");std::vector<std::byte> v(static_cast<std::size_t>(stream.getSize()));if(!v.empty())std::memcpy(v.data(),stream.getData(),v.size());return v;};
         MemoryStream component,controller;ok(component_->getState(&component),"capture component state failed");state.component=copy(component);if(controller_->getState(&controller)==kResultOk)state.controller=copy(controller);return state;
     }
-    std::vector<mrs::processing::ParameterInfo> parameters() const override{return infos_;}
+    // Capture/dirty reads run on the control thread. ParameterInfo.initial
+    // is the host's captured normalized value here, not the creation-time
+    // preset default: vendor performEdit writes values_ but not infos_.
+    std::vector<mrs::processing::ParameterInfo> parameters() const override {
+        auto sampled=infos_;
+        for(std::size_t i=0;i<sampled.size();++i)
+            sampled[i].initial=values_[i].load(std::memory_order_relaxed);
+        return sampled;
+    }
     bool set_parameter(std::uint32_t id,float value) noexcept override{const auto i=index(id);if(!i||!std::isfinite(value)||value<0||value>1)return false;values_[*i]=value;if(!initial_pending_[*i]){initial_pending_[*i]=true;++initial_count_;}return true;}
     std::optional<float> parameter_value(std::uint32_t id) const noexcept override{auto i=index(id);return i?std::optional<float>{values_[*i].load()}:std::nullopt;}
     std::uint32_t latency() const noexcept override{return latency_;}bool live_safe() const noexcept override{return false;}

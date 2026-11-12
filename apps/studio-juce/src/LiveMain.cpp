@@ -80,6 +80,10 @@ class LiveShell final : public juce::Component {
   private:
     juce::Viewport viewport;
 };
+juce::String liveWindowCaption(const ui::Desktop& desktop) {
+    return "MR Live " + juce::String(mrs::desktop::live_application_version.data()) +
+           " - " + desktop.projectCaption();
+}
 class LiveWindow final : public juce::DocumentWindow, private juce::Timer {
   public:
     explicit LiveWindow(bool testing = false)
@@ -87,6 +91,7 @@ class LiveWindow final : public juce::DocumentWindow, private juce::Timer {
         setUsingNativeTitleBar(true);
         shell = new LiveShell(testing);
         setContentOwned(shell, true);
+        setName(liveWindowCaption(host()));
         setResizable(true, false);
         setBounds(0, 0, 1400, 850);
         const bool restored =
@@ -141,7 +146,7 @@ class LiveWindow final : public juce::DocumentWindow, private juce::Timer {
             setBounds(ui::live::fitWindow(getBounds(), work, frame, centre));
     }
     void timerCallback() override {
-        const auto caption = "MR Live - " + host().projectCaption();
+        const auto caption = liveWindowCaption(host());
         if (getName() != caption) setName(caption);
         if (workArea() != lastWorkArea)
             constrainToDisplay(false);
@@ -182,6 +187,10 @@ class LiveApplication final : public juce::JUCEApplication {
                 };
                 {
                     LiveWindow native(true);
+                    check(native.getName() == liveWindowCaption(native.host()) &&
+                          native.getName().startsWith("MR Live " +
+                              juce::String(mrs::desktop::live_application_version.data()) + " - "),
+                          "MR Live caption includes exact product version and project name");
                     const auto &displays = juce::Desktop::getInstance().getDisplays();
                     const auto *display = displays.getDisplayForRect(native.getBounds());
                     check(display && display->userBounds.toNearestInt().contains(native.getBounds()),

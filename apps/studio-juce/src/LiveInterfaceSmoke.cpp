@@ -1046,7 +1046,12 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
         const auto now=juce::Time::getCurrentTime(); const juce::Point<float> point{x,y};
         return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),point,mods,1,0,0,0,0,body,body,now,point,now,clicks,false);
     };
+    const auto beforeSectionCreation=editing.liveLocalPatchApplications;
+    const auto originalSectionChannels=editing.liveDocument->interfaceState["channels"].getArray();
     body->mouseDoubleClick(event(origin+64.f,96.f,2));timeline->refresh();
+    liveCheck(editing.liveLocalPatchApplications==beforeSectionCreation+1 &&
+              editing.liveDocument->interfaceState["channels"].getArray()==originalSectionChannels,
+              "#374 C: Section creation commits one local Undo without cloning VST3 state");
     auto rows=live::musicalRows(editing.liveDocument->interfaceState,id,live::MusicalLane::sections);
     liveCheck(rows.size()==1 && rows[0]["name"].toString()=="Verse" && static_cast<double>(rows[0]["start"])==2.,
               "Double-click empty Sections creates native Verse at common origin");
@@ -1091,18 +1096,60 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
               "Native seam drag commits both neighbouring boundaries together");
     editing.undoLiveInterface();editing.undoLiveInterface();timeline->refresh();
     liveCheck(editing.liveDocument->signature()==before,"Seam Undo and fixture Undo preserve original section data");
+    // #374 Upd1: Section deletion and Undo must use the same local musical
+    // row patch, not clone the whole Show with opaque plugin state.
+    const auto sectionBeforeDelete=editing.liveDocument->signature();
+    const auto sectionChannels=editing.liveDocument->interfaceState["channels"].getArray();
+    const auto localBeforeSectionDelete=editing.liveLocalPatchApplications;
+    body->mouseDown(event(origin+80.f,96.f));
+    body->mouseUp(event(origin+80.f,96.f));
+    liveCheck(body->keyPressed(juce::KeyPress(juce::KeyPress::backspaceKey)),
+              "#374 Upd1: Backspace deletes selected Section");
+    timeline->refresh();
+    liveCheck(live::musicalRows(editing.liveDocument->interfaceState,id,live::MusicalLane::sections).size()==0 &&
+              editing.liveLocalPatchApplications==localBeforeSectionDelete+1 &&
+              editing.liveDocument->interfaceState["channels"].getArray()==sectionChannels,
+              "#374 Upd1: Section deletion uses exactly one local patch without VST3 bank copy");
+    editing.undoLiveInterface();timeline->refresh();
+    liveCheck(editing.liveDocument->signature()==sectionBeforeDelete &&
+              editing.liveLocalPatchApplications==localBeforeSectionDelete+2 &&
+              editing.liveDocument->interfaceState["channels"].getArray()==sectionChannels,
+              "#374 Upd1: one Undo restores Section through local patch path");
+    const auto beforeChordCreation=editing.liveLocalPatchApplications;
+    const auto originalChordChannels=editing.liveDocument->interfaceState["channels"].getArray();
     body->mouseDoubleClick(event(origin+32.f,136.f,2));timeline->refresh();
+    liveCheck(editing.liveLocalPatchApplications==beforeChordCreation+1 &&
+              editing.liveDocument->interfaceState["channels"].getArray()==originalChordChannels,
+              "#374 C: Chord creation commits one local Undo without cloning VST3 state");
     rows=live::musicalRows(editing.liveDocument->interfaceState,id,live::MusicalLane::chords);
     liveCheck(rows.size()==1 && static_cast<double>(rows[0]["start"])==1.,"Chord creation shares the Sections origin");
+    const auto chordBeforeDelete=editing.liveDocument->signature();
+    const auto chordChannels=editing.liveDocument->interfaceState["channels"].getArray();
+    const auto localBeforeChordDelete=editing.liveLocalPatchApplications;
     body->mouseDown(event(origin+48.f,136.f));
+    body->mouseUp(event(origin+48.f,136.f));
     liveCheck(body->keyPressed(juce::KeyPress(juce::KeyPress::deleteKey)),"Delete handles selected chord");timeline->refresh();
-    liveCheck(live::musicalRows(editing.liveDocument->interfaceState,id,live::MusicalLane::chords).size()==0,"Delete removes actual chord metadata");
+    liveCheck(live::musicalRows(editing.liveDocument->interfaceState,id,live::MusicalLane::chords).size()==0 &&
+              editing.liveLocalPatchApplications==localBeforeChordDelete+1 &&
+              editing.liveDocument->interfaceState["channels"].getArray()==chordChannels,
+              "#374 Upd1: Chord Delete uses one bounded Undo without cloning VST3 state");
     editing.undoLiveInterface();timeline->refresh();
+    liveCheck(editing.liveDocument->signature()==chordBeforeDelete &&
+              editing.liveLocalPatchApplications==localBeforeChordDelete+2,
+              "#374 Upd1: Chord Undo restores state with one local patch");
     const auto musical=live::canonical(live::musicalVersion(editing.liveDocument->interfaceState,id));
     bounds=timeline->itemBounds(id);
-    body->mouseDown(event(static_cast<float>(bounds.getRight()-2),180.f));
-    body->mouseDrag(event(static_cast<float>(bounds.getRight()-130),180.f));
-    body->mouseUp(event(static_cast<float>(bounds.getRight()-130),180.f));timeline->refresh();
+    // #374 A: the earlier upper-corner assertion was tied to the removed
+    // 8px corner grip and did not even target an authored Patch block. Check
+    // the lower-half Item trim here; an actual Patch edge receives its own
+    // two-zone gesture regression below with a known Patch geometry.
+    constexpr float itemTrimLowerY=245.f; // first timeline lane, lower half
+    body->mouseMove(event(static_cast<float>(bounds.getRight()-2),itemTrimLowerY));
+    liveCheck(body->getMouseCursor()==juce::MouseCursor(juce::MouseCursor::LeftRightResizeCursor),
+              "#374 A: lower-half lane preserves independent Item trim");
+    body->mouseDown(event(static_cast<float>(bounds.getRight()-2),itemTrimLowerY));
+    body->mouseDrag(event(static_cast<float>(bounds.getRight()-130),itemTrimLowerY));
+    body->mouseUp(event(static_cast<float>(bounds.getRight()-130),itemTrimLowerY));timeline->refresh();
     const auto view=editing.liveDocument->interfaceState["performance"]["arrangement"][juce::Identifier(id)];
     liveCheck(static_cast<double>(view["length"])==20. && static_cast<double>(view["scale"])==32.,
               "Right grip changes explicit item end without changing scale");
@@ -1192,6 +1239,375 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
     }
     liveCheck(live::find(editing.liveDocument->interfaceState,"items",id)["notes"].toString()==oldNotes && !editing.liveDirty,
               "One Notes Undo restores saved text and clears the show dirty flag");
+
+    // #374 RED->GREEN: authoring a patch in a different visible Item must not
+    // select that Item, touch the audio engine or clone the VST3 channel bank.
+    juce::String inactive,patchChannel,patchId,secondPatch,legacySubPatch;
+    editing.editLiveInterface("Inactive patch authoring fixture",[&](auto& state) {
+        patchChannel=live::addChannel(state,"Player","Offline patch edit");
+        inactive=live::addItem(state,"Other item");
+        live::insertEntry(state,inactive);
+        auto& channel=live::require(state,"channels",patchChannel);
+        patchId=live::addChannelPatch(state,channel,{},"Rhythm","blue");
+        secondPatch=live::addChannelPatch(state,channel,{},"Solo","violet");
+    });
+    const auto activeBeforePatch=editing.liveDocument->interfaceState["currentItem"].toString();
+    {
+        // Compatibility fields still exist in accepted 0.9.2 shows. Reassigning
+        // their Patch must never leave a Sub-patch reference owned by the old
+        // Patch, or validation rejects the entire Undo transaction.
+        editing.editLiveInterface("Legacy Item Patch assignment fixture",[&](auto& state) {
+            legacySubPatch=live::createDefaultSubPatch(
+                live::require(live::require(state,"channels",patchChannel),"patches",patchId),"blue");
+            auto& item=live::require(state,"items",activeBeforePatch);
+            for(auto& track:live::array(item,"tracks"))
+                if(track["channelId"].toString()==patchChannel) {
+                    live::put(track,"patchId",patchId);
+                    live::put(track,"subPatchId",legacySubPatch);
+                    return;
+                }
+            throw std::runtime_error("Missing legacy Item Patch track");
+        });
+        editing.assignLiveItemPatch(patchChannel,secondPatch);
+        const auto reassigned=live::channelItemTrack(
+            editing.liveDocument->interfaceState,activeBeforePatch,patchChannel);
+        liveCheck(reassigned["patchId"].toString()==secondPatch &&
+                  reassigned["subPatchId"].isVoid(),
+                  "Changing a legacy Item Patch clears its dependent Sub-patch");
+        editing.undoLiveInterface();
+        const auto restored=live::channelItemTrack(
+            editing.liveDocument->interfaceState,activeBeforePatch,patchChannel);
+        liveCheck(restored["patchId"].toString()==patchId &&
+                  restored["subPatchId"].toString()==legacySubPatch,
+                  "One Undo restores the legacy Patch/Sub-patch assignment");
+        editing.undoLiveInterface(true);
+        liveCheck(live::channelItemTrack(editing.liveDocument->interfaceState,
+                      activeBeforePatch,patchChannel)["subPatchId"].isVoid(),
+                  "Redo clears the dependent legacy Sub-patch again");
+        // Restore the original empty library fixture for the independent
+        // Timeline authoring scenarios below.
+        editing.undoLiveInterface();
+        editing.undoLiveInterface();
+    }
+    {
+        // #374 G: Update needs the explicitly loaded sound, not the Patch
+        // that happens to be assigned to the current Item.
+        const auto itemTrack=live::channelItemTrack(
+            editing.liveDocument->interfaceState,activeBeforePatch,patchChannel);
+        editing.liveLoadedPatches[patchChannel]={activeBeforePatch,patchId,{}};
+        liveCheck(editing.livePatchLoadedForEditing(patchChannel,patchId,{}) &&
+                  !editing.livePatchLoadedForEditing(patchChannel,secondPatch,{}) &&
+                  itemTrack["patchId"].toString()!=patchId,
+                  "#374 G: authoring load identity is separate from Item default");
+        editing.liveLoadedPatches.clear();
+    }
+    const auto activeEntryBefore=editing.liveCurrentEntry;
+    const auto engineBeforePatch=editing.app.engine();
+    const auto channelBankBefore=editing.liveDocument->interfaceState["channels"].getArray();
+    const auto localBeforePatch=editing.liveLocalPatchApplications;
+    editing.addLivePatchBlock(patchChannel,patchId,2.,inactive);
+    const auto inactiveSpan=[&] {
+        return live::channelItemTrack(editing.liveDocument->interfaceState,inactive,patchChannel)
+            ["spans"][juce::Identifier(patchId)];
+    };
+    liveCheck(inactiveSpan().isObject() && std::abs(live::blockStart(inactiveSpan())-2.)<1.e-9 &&
+              !live::channelItemTrack(editing.liveDocument->interfaceState,activeBeforePatch,patchChannel)
+                  ["spans"][juce::Identifier(patchId)].isObject(),
+              "#374 RMB patch insertion edits the targeted inactive Item, not the active one");
+    auto edited=live::editedPatchSpans(
+        live::channelItemTrack(editing.liveDocument->interfaceState,inactive,patchChannel)["spans"],
+        16.,patchId,2.,5.,false);
+    editing.setLivePatchSpans(patchChannel,patchId,edited,"Resize inactive patch",inactive);
+    liveCheck(std::abs(live::blockLength(inactiveSpan())-5.)<1.e-9,
+              "#374 Patch resize commits to inactive Item without switching transport");
+    editing.replaceLivePatchBlock(patchChannel,patchId,secondPatch,inactive);
+    const auto secondSpan=live::channelItemTrack(editing.liveDocument->interfaceState,inactive,patchChannel)
+        ["spans"][juce::Identifier(secondPatch)];
+    liveCheck(secondSpan.isObject() && std::abs(live::blockLength(secondSpan)-5.)<1.e-9,
+              "#374 Patch replacement targets clicked Item instead of show.currentItem");
+    liveCheck(editing.liveDocument->interfaceState["channels"].getArray()==channelBankBefore,
+              "#374 Local create/resize/replace preserve VST3 channel-bank identity");
+    editing.saveFile(file);
+    const auto reopenedInactive=LiveDocument::read(file);
+    file.deleteFile();
+    liveCheck(live::channelItemTrack(reopenedInactive.interfaceState,inactive,patchChannel)
+                  ["spans"][juce::Identifier(secondPatch)].isObject(),
+              "#374 Inactive Item patch geometry persists after Save/Reopen");
+    editing.removeLivePatchBlock(patchChannel,secondPatch,inactive);
+    liveCheck(!live::channelItemTrack(editing.liveDocument->interfaceState,inactive,patchChannel)
+                  ["spans"][juce::Identifier(secondPatch)].isObject(),
+              "#374 Patch deletion operates on inactive Item");
+    editing.undoLiveInterface();
+    liveCheck(live::channelItemTrack(editing.liveDocument->interfaceState,inactive,patchChannel)
+                  ["spans"][juce::Identifier(secondPatch)].isObject(),
+              "#374 One Undo restores the deleted block on the inactive Item");
+    liveCheck(editing.liveDocument->interfaceState["currentItem"].toString()==activeBeforePatch &&
+              editing.liveCurrentEntry==activeEntryBefore && editing.app.engine()==engineBeforePatch &&
+              editing.liveLocalPatchApplications==localBeforePatch+5,
+              "#374 Patch create/resize/replace/remove/Undo remains local, without transport or channel VST3 changes");
+    {
+        // The #586 test asserted the *removed* corner grip without an actual
+        // Patch edge under the cursor. Build a real block and exercise both
+        // halves of the lane, including the resulting Undo and unchanged Item.
+        editing.addLivePatchBlock(patchChannel,patchId,2.,activeBeforePatch);
+        auto activeSpans=live::channelItemTrack(editing.liveDocument->interfaceState,
+                                                 activeBeforePatch,patchChannel)["spans"];
+        activeSpans=live::editedPatchSpans(activeSpans,16.,patchId,2.,4.,false);
+        editing.setLivePatchSpans(patchChannel,patchId,activeSpans,
+                                 "Prepare two-zone Patch edge",activeBeforePatch);
+        timeline->refresh();
+        const auto laneRect=timeline->playbackStemLaneBounds(patchChannel);
+        liveCheck(!laneRect.isEmpty(),"#374 A: authored Patch has a visible lane for cursor regression");
+        const auto viewState=editing.liveDocument->interfaceState["performance"]["arrangement"]
+            [juce::Identifier(activeBeforePatch)];
+        const double scale=static_cast<double>(viewState["scale"]);
+        const double lead=static_cast<double>(viewState["lead"]);
+        const double start=viewState["start"].isVoid()?0.:static_cast<double>(viewState["start"]);
+        const auto rect=timeline->itemBounds(activeBeforePatch);
+        const float patchRight=static_cast<float>(rect.getX()+1+
+            juce::roundToInt((lead-start+6.)*scale));
+        const auto topY=static_cast<float>(laneRect.getY()+15);
+        const auto bottomY=static_cast<float>(laneRect.getY()+92);
+        body->mouseMove(event(patchRight-3.f,topY));
+        liveCheck(body->getMouseCursor()==juce::MouseCursor(juce::MouseCursor::LeftRightResizeCursor),
+                  "#374 A: top-half edge of an authored Patch shows Patch resize cursor");
+        body->mouseMove(event(patchRight-3.f,bottomY));
+        liveCheck(body->getMouseCursor()!=juce::MouseCursor(juce::MouseCursor::LeftRightResizeCursor),
+                  "#374 A: lower-half Patch body does not capture Patch edge resize");
+        const auto originalView=viewState.clone();
+        body->mouseDown(event(patchRight-3.f,topY));
+        body->mouseDrag(event(patchRight+29.f,topY));
+        body->mouseUp(event(patchRight+29.f,topY));timeline->refresh();
+        const auto resized=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
+        liveCheck(std::abs(live::blockLength(resized)-5.)<1.e-9 &&
+                  live::sameShowValue(editing.liveDocument->interfaceState["performance"]["arrangement"]
+                                     [juce::Identifier(activeBeforePatch)],originalView),
+                  "#374 A: upper-half drag resizes only Patch, not Item");
+        editing.undoLiveInterface();timeline->refresh();
+        const auto restored=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
+        liveCheck(std::abs(live::blockLength(restored)-4.)<1.e-9,
+                  "#374 A: one Undo restores a top-half Patch resize");
+    }
+    {
+        // #374 Upd1: shared lower-half seam must resize BOTH blocks with
+        // one Undo, and Backspace must remove selected timeline objects only.
+        editing.addLivePatchBlock(patchChannel,secondPatch,6.,activeBeforePatch);
+        const auto firstTracks=live::channelItemTrack(editing.liveDocument->interfaceState,activeBeforePatch,patchChannel);
+        const auto secondSpans=live::editedPatchSpans(firstTracks["spans"],16.,secondPatch,6.,4.,false);
+        editing.setLivePatchSpans(patchChannel,secondPatch,secondSpans,"Prepare shared seam",activeBeforePatch);
+        timeline->refresh();
+        const auto laneRect=timeline->playbackStemLaneBounds(patchChannel);
+        const auto viewState=editing.liveDocument->interfaceState["performance"]["arrangement"]
+            [juce::Identifier(activeBeforePatch)];
+        const double scale=static_cast<double>(viewState["scale"]);
+        const double lead=static_cast<double>(viewState["lead"]);
+        const double start=viewState["start"].isVoid()?0.:static_cast<double>(viewState["start"]);
+        const auto rect=timeline->itemBounds(activeBeforePatch);
+        const float seamX=static_cast<float>(rect.getX()+1+
+            juce::roundToInt((lead-start+6.)*scale));
+        // The lower half of the *Patch header* owns its shared boundary.
+        // The bottom Sub-patch rail starts at +73px and must never route
+        // child/Base scissors or resize gestures to the parent Patch.
+        const float seamY=static_cast<float>(laneRect.getY()+68);
+        body->mouseMove(event(seamX-2.f,static_cast<float>(laneRect.getY()+92)));
+        liveCheck(body->getMouseCursor()!=juce::MouseCursor::LeftRightResizeCursor,
+                  "#374 E1: Sub-patch rail cannot resize the shared parent Patch seam");
+        body->mouseMove(event(seamX-2.f,seamY));
+        liveCheck(body->getMouseCursor()==juce::MouseCursor::LeftRightResizeCursor,
+                  "#374 E1: shared Patch header seam displays coupled resize cursor");
+        const auto originalView=viewState.clone();
+        body->mouseDown(event(seamX-2.f,seamY));
+        body->mouseDrag(event(seamX+30.f,seamY));
+        body->mouseUp(event(seamX+30.f,seamY));timeline->refresh();
+        const auto joinedTrack=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel);
+        liveCheck(std::abs(live::blockLength(joinedTrack["spans"][juce::Identifier(patchId)])-5.)<1.e-9 &&
+                  std::abs(live::blockStart(joinedTrack["spans"][juce::Identifier(secondPatch)])-7.)<1.e-9 &&
+                  std::abs(live::blockLength(joinedTrack["spans"][juce::Identifier(secondPatch)])-3.)<1.e-9 &&
+                  live::sameShowValue(editing.liveDocument->interfaceState["performance"]
+                     ["arrangement"][juce::Identifier(activeBeforePatch)],originalView),
+                  "#374 Upd1: lower-half seam changes both Patch lengths without touching Item");
+        editing.undoLiveInterface();timeline->refresh();
+        const auto unjoined=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel);
+        liveCheck(std::abs(live::blockLength(unjoined["spans"][juce::Identifier(patchId)])-4.)<1.e-9 &&
+                  std::abs(live::blockStart(unjoined["spans"][juce::Identifier(secondPatch)])-6.)<1.e-9,
+                  "#374 Upd1: single Undo restores both coupled Patch boundaries");
+        // #374 J: every visible Sub-patch interval has a library sound.
+        // A real default fills the parent before adding one Rhythm strip.
+        editing.editLiveInterface("Full Sub-patch rail fixture",[&](auto& state){
+            auto& patch=live::require(live::require(state,"channels",patchChannel),"patches",patchId);
+            const auto defaultId=live::createDefaultSubPatch(patch,"blue");
+            auto sub=live::object();
+            live::put(sub,"id","sub-backspace");
+            live::put(sub,"name","Rhythm variation");
+            live::put(sub,"inserts",patch["inserts"].clone());
+            live::array(patch,"subPatches").add(sub);
+            auto& item=live::require(state,"items",activeBeforePatch);
+            for(auto& track:live::array(item,"tracks")) {
+                if(track["channelId"].toString()!=patchChannel)continue;
+                auto spans=track["spans"].clone();
+                auto parent=spans[juce::Identifier(patchId)].clone();
+                live::put(spans,juce::Identifier(patchId),
+                    live::fullDefaultSubPatchSpan(parent,defaultId));
+                live::put(track,"spans",spans);
+                break;
+            }
+        });
+        editing.addLiveSubPatchBlock(patchChannel,patchId,"sub-backspace",
+                                    activeBeforePatch,0.);
+        timeline->refresh();
+        const auto first=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
+        liveCheck(live::subPatchRailCovered(first["subs"],4.) &&
+                  live::orderedSpans(first["subs"]).size()==2 &&
+                  live::subPatchBaseGaps(first).empty() && first["baseCuts"].isVoid(),
+                  "#374 J: first Sub-patch splits default and preserves full coverage without Base");
+        const float subY=static_cast<float>(laneRect.getY()+94);
+        const float firstSubX=seamX-static_cast<float>(3.5*scale);
+        body->mouseDown(event(firstSubX,subY));
+        body->mouseUp(event(firstSubX,subY));
+        liveCheck(body->keyPressed(juce::KeyPress(juce::KeyPress::backspaceKey)),
+                  "#374 J: Backspace handles selected Sub-patch strip");
+        const auto removed=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
+        liveCheck(live::subPatchRailCovered(removed["subs"],4.) &&
+                  live::orderedSpans(removed["subs"]).size()==1 &&
+                  !removed["subs"]["sub-backspace"].isObject() &&
+                  live::find(live::find(live::find(editing.liveDocument->interfaceState,
+                    "channels",patchChannel),"patches",patchId),"subPatches",
+                    "sub-backspace").isObject(),
+                  "#374 J: deleting a strip extends its neighbour and retains its library sound");
+        editing.undoLiveInterface();timeline->refresh();
+        const auto restored=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
+        const auto restoredSegments=live::orderedSpans(restored["subs"]);
+        const bool restoredRhythm=std::any_of(restoredSegments.begin(),restoredSegments.end(),
+            [](const auto& entry) {
+                return live::subPatchLibraryId(entry.first,entry.second)=="sub-backspace";
+            });
+        liveCheck(live::subPatchRailCovered(restored["subs"],4.) &&
+                  restoredSegments.size()==2 && restoredRhythm,
+                  "#374 J: one Undo restores a Sub-patch library reference and full coverage");
+        timeline->setClipScissors(true);
+        body->mouseMove(event(firstSubX,subY));
+        liveCheck(body->getMouseCursor()==juce::MouseCursor::CrosshairCursor,
+                  "#374 J: Sub-patch Scissors hover targets its strip");
+        body->mouseDown(event(firstSubX,subY));
+        body->mouseUp(event(firstSubX,subY));timeline->refresh();
+        const auto cutSub=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
+        liveCheck(live::subPatchRailCovered(cutSub["subs"],4.) &&
+                  live::orderedSpans(cutSub["subs"]).size()==3,
+                  "#374 J: Scissors produces two child instances without a Base gap");
+        editing.undoLiveInterface();timeline->refresh();
+        const float defaultX=seamX-static_cast<float>(2.5*scale);
+        body->mouseDown(event(defaultX,subY));
+        body->mouseUp(event(defaultX,subY));timeline->refresh();
+        const auto cutDefault=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
+        liveCheck(live::subPatchRailCovered(cutDefault["subs"],4.) &&
+                  live::orderedSpans(cutDefault["subs"]).size()==3 &&
+                  cutDefault["baseCuts"].isVoid(),
+                  "#374 J: Scissors cuts the actual default Sub-patch, never synthetic Base");
+        editing.saveFile(file);
+        const auto reopenedSubPatchShow=LiveDocument::read(file);
+        file.deleteFile();
+        const auto reopenedSpan=live::channelItemTrack(reopenedSubPatchShow.interfaceState,
+            activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
+        liveCheck(live::subPatchRailCovered(reopenedSpan["subs"],4.) &&
+                  reopenedSpan["baseCuts"].isVoid(),
+                  "#374 J: Scissors coverage survives Save/Reopen without Base");
+        editing.undoLiveInterface();timeline->refresh();
+        timeline->setClipScissors(false);
+
+        // #374 J: shared seam is the ONLY resize gesture for Sub-patches.
+        const float subSeamX=seamX-static_cast<float>(3.*scale);
+        const float subSeamY=static_cast<float>(laneRect.getY()+103);
+        body->mouseMove(event(subSeamX-2.f,subSeamY));
+        liveCheck(body->getMouseCursor()==juce::MouseCursor::LeftRightResizeCursor,
+                  "#374 J: shared Sub-patch boundary displays resize cursor");
+        body->mouseDown(event(subSeamX-2.f,subSeamY));
+        body->mouseDrag(event(subSeamX+static_cast<float>(scale/4)-2.f,subSeamY));
+        body->mouseUp(event(subSeamX+static_cast<float>(scale/4)-2.f,subSeamY));
+        timeline->refresh();
+        const auto resized=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
+        const auto subRows=live::orderedSpans(resized["subs"]);
+        liveCheck(subRows.size()==2 &&
+                  std::abs(live::blockLength(subRows[0].second)-1.25)<1.e-9 &&
+                  std::abs(live::blockStart(subRows[1].second)-1.25)<1.e-9 &&
+                  live::subPatchRailCovered(resized["subs"],4.),
+                  "#374 J: joined Sub-patch resize keeps both endpoints attached");
+        editing.undoLiveInterface();timeline->refresh();
+
+        const float patchY=static_cast<float>(laneRect.getY()+37);
+        body->mouseDown(event(seamX-40.f,patchY));
+        body->mouseUp(event(seamX-40.f,patchY));
+        const juce::ModifierKeys shiftLeft{
+            juce::ModifierKeys::leftButtonModifier|juce::ModifierKeys::shiftModifier};
+        body->mouseDown(event(seamX+30.f,patchY,1,shiftLeft));
+        body->mouseUp(event(seamX+30.f,patchY,1,shiftLeft));
+        const auto channelBank=editing.liveDocument->interfaceState["channels"].getArray();
+        const auto deletionBase=editing.liveLocalPatchApplications;
+        liveCheck(body->keyPressed(juce::KeyPress(juce::KeyPress::backspaceKey)),
+                  "#374 Upd1: Backspace deletes multi-selected Patch blocks");
+        const auto deleted=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel);
+        liveCheck(deleted["patchOrder"].size()==0 &&
+                  !deleted["spans"][juce::Identifier(patchId)].isObject() &&
+                  !deleted["spans"][juce::Identifier(secondPatch)].isObject() &&
+                  editing.liveDocument->interfaceState["channels"].getArray()==channelBank &&
+                  editing.liveLocalPatchApplications==deletionBase+1,
+                  "#374 Upd1: multi-Backspace uses one local Undo and retains both library Patches");
+        editing.undoLiveInterface();timeline->refresh();
+        const auto restoredBlocks=live::channelItemTrack(editing.liveDocument->interfaceState,
+            activeBeforePatch,patchChannel);
+        liveCheck(restoredBlocks["patchOrder"].size()==2 &&
+                  restoredBlocks["spans"][juce::Identifier(patchId)].isObject() &&
+                  restoredBlocks["spans"][juce::Identifier(secondPatch)].isObject() &&
+                  editing.liveLocalPatchApplications==deletionBase+2,
+                  "#374 Upd1: one Undo restores both selected Patch blocks");
+        editing.undoLiveInterface(true);timeline->refresh();
+        liveCheck(live::channelItemTrack(editing.liveDocument->interfaceState,
+                      activeBeforePatch,patchChannel)["patchOrder"].size()==0,
+                  "#374 Upd1: one Redo removes both Patch blocks");
+        editing.undoLiveInterface();timeline->refresh();
+        editing.saveFile(file);
+        const auto savedBlocks=LiveDocument::read(file);
+        file.deleteFile();
+        liveCheck(live::channelItemTrack(savedBlocks.interfaceState,
+                      activeBeforePatch,patchChannel)["patchOrder"].size()==2,
+                  "#374 Upd1: group-deleted and Undo-restored blocks survive Show Save/Reopen");
+    }
+    {
+        // #374 Windows Save regression: safely replace an existing show with a
+        // large opaque VST3 blob through ONE sibling temporary file. The file
+        // remains readable after two overwrites and no source show is changed.
+        auto onDisk=editing.liveDocument->clone();
+        const auto target=juce::File::getSpecialLocation(juce::File::tempDirectory)
+            .getNonexistentChildFile("live-save-overwrite",".mrlive",false);
+        onDisk.write(target);
+        liveCheck(target.existsAsFile()&&LiveDocument::read(target).interfaceState.isObject(),
+                  "#374 First Save As produces a valid MR Live show");
+        auto stateBlob=live::object();
+        live::put(stateBlob,"component",juce::String::repeatedString("QUJD",262144));
+        live::put(stateBlob,"controller","");
+        live::put(live::map(onDisk.interfaceState,"patchStates"),
+                  juce::Identifier("0123456789abcdef0123456789abcdef"),stateBlob);
+        onDisk.write(target);
+        const auto overwrittenShow=LiveDocument::read(target);
+        liveCheck(overwrittenShow.interfaceState["patchStates"]
+                      [juce::Identifier("0123456789abcdef0123456789abcdef")]
+                      ["component"].toString().length()==1048576,
+                  "#374 Save replaces existing show and keeps large VST3 state");
+        onDisk.write(target);
+        liveCheck(LiveDocument::read(target).signature()==onDisk.signature(),
+                  "#374 A second Save replaces show without truncation or changed content");
+        liveCheck(target.deleteFile(),"#374 Save test cleans its temporary show");
+    }
 }
 // #309 point 4: native Studio-style channel DnD must be ONE show undo
 // operation and must never reinterpret Backing as the next Playback root.
@@ -1367,6 +1783,8 @@ void liveInterfaceSmoke(const juce::File &fixture) {
     live::test::showValueEquality();
     live::test::channelPatchLibrary();
     live::test::subPatchChainVariants();
+    live::test::subPatchRailGeometry();
+    live::test::subPatchAuthoringE();
     live::test::patchBlockAuthoring();
     live::test::editProtocol();
     live::test::notesDirtyRoundTrip();
@@ -1955,6 +2373,36 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   "Reconnecting the correct device auto-monitors two saved audio channels independently");
         // Legacy descriptors may omit optional outputNames. Undo must restore
         // that absence while still checking device identity and enabled ports.
+        {
+            const auto saved=inputPilot.liveDocument->interfaceState.clone();
+            const auto item=saved["currentItem"].toString();
+            inputPilot.editLiveInterface("Stopped seek sound fixture",[&](auto& state) {
+                auto& channel=live::require(state,"channels",showChannel);
+                mrs::NativeInsert gain;gain.id=mrs::Id{"seek-gain"};
+                gain.kind=mrs::InsertKind::gain;gain.gain=.25f;
+                const auto seekPatchA=live::addChannelPatch(state,channel,{gain},"Seek A","blue");
+                gain.gain=.75f;
+                const auto seekPatchB=live::addChannelPatch(state,channel,{gain},"Seek B","violet");
+                auto spans=live::object();
+                live::put(spans,juce::Identifier(seekPatchA),live::blockSpan(0.,4.));
+                live::put(spans,juce::Identifier(seekPatchB),live::blockSpan(4.,4.));
+                auto& target=live::require(state,"items",item);
+                live::put(target,"bars",juce::jmax(8.,static_cast<double>(target["bars"])));
+                for(auto& track:live::array(target,"tracks"))
+                    if(track["channelId"].toString()==showChannel) {
+                        live::put(track,"spans",spans);
+                        live::put(track,"patchOrder",juce::var(juce::Array<juce::var>{seekPatchA,seekPatchB}));
+                    }
+            });
+            for(const double bar:{1.,5.,1.}) {
+                inputPilot.loadStoppedLiveTimelinePatches(item,bar);
+                const auto chain=inputPilot.captureLiveChannelInserts(showChannel,false,true);
+                liveCheck(chain.size()==1 && std::abs(chain.front().gain-(bar<4.?.25f:.75f))<1.e-6f,
+                          "Stopped seek loads Timeline sound A, B, then A on active Core channel");
+            }
+            inputPilot.editLiveInterface("Restore stopped seek fixture",[&](auto& state){state=saved.clone();});
+            inputPilot.liveLoadedPatches.clear();
+        }
         inputPilot.editLiveInterface("Legacy output descriptor fixture",[&](auto& state){
             auto profile=live::find(state,"channels",showChannel)["liveInput"];
             profile.getDynamicObject()->removeProperty("outputNames");
