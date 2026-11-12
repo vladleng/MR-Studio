@@ -85,6 +85,14 @@ int main(int argc,char** argv){try{
     crop.start(trim_store,{},trimmed.clips[0].id,source,models,settings);wait([&]{crop.poll(trim_store,{});},[&]{return crop.status();});
     check(crop.status().state==JobState::ready&&crop.preview()->notes.size()==1&&crop.preview()->notes[0].start==.75&&crop.preview()->analysis_seconds==.5&&crop.preview()->source_offset_seconds==.5);
     auto cropped=crop.prepare(trim_store,{});trim_store->execute(cropped);crop.placed();check(trim_store->state().project->clips[1].midi->notes[0].start==ppq/2);
+    // A range selected without splitting is cropped once; stem output lands on
+    // the captured existing instrument track at the independent drop position.
+    auto stem_project=project;Track instrument;instrument.id=new_id();instrument.kind=TrackKind::instrument;instrument.name="VSTi target";stem_project.tracks.push_back(instrument);stem_project.validate();auto stem_store=std::make_shared<ProjectStore>(stem_project);
+    auto stem_settings=settings;stem_settings.placement.target_track=instrument.id;stem_settings.placement.position=24000;stem_settings.placement.range_offset=4000;stem_settings.placement.range_length=8000;stem_settings.placement.velocity=87;stem_settings.instruments={"acoustic_piano"};Controller stem;
+    stem.start(stem_store,{},stem_project.clips[0].id,source,models,stem_settings);wait([&]{stem.poll(stem_store,{});},[&]{return stem.status();});check(stem.status().state==JobState::ready&&stem.preview()->source_frame_count==8000&&stem.preview()->source_first_frame==4000);
+    stem_store->execute(stem.prepare(stem_store,{}));const auto stem_after=*stem_store->state().project;check(stem_after.tracks==stem_project.tracks&&stem_after.clips.size()==2&&stem_after.clips.back().track==instrument.id&&stem_after.clips.back().midi->notes.front().velocity==87);check(stem_store->undo()&&*stem_store->state().project==stem_project&&stem_store->redo()&&*stem_store->state().project==stem_after);stem.placed();
+    auto invalid_stem=stem_settings;invalid_stem.instruments={};rejects([&]{stem.start(stem_store,{},stem_project.clips[0].id,source,models,invalid_stem);});invalid_stem=stem_settings;invalid_stem.placement.range_length=16001;rejects([&]{stem.start(stem_store,{},stem_project.clips[0].id,source,models,invalid_stem);});
+    stem_settings.instruments={"electric_bass"};stem.start(stem_store,{},stem_project.clips[0].id,source,models,stem_settings);wait([&]{stem.poll(stem_store,{});},[&]{return stem.status();});check(stem.status().state==JobState::failed&&!stem.preview()&&*stem_store->state().project==stem_after);
     // ABA: equal Project content after Undo must still reject the captured revision.
     launch();store->execute(RenameTrack{project.tracks[0].id,"Edited"});check(store->undo());wait(poll,status);check(status().state==JobState::stale&&*store->state().project==project);
     rejects([&]{controller.prepare(store,{});});

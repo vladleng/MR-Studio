@@ -54,7 +54,16 @@ void Controller::start(const std::shared_ptr<IProjectStore>& store,std::filesyst
     const auto at=std::find_if(capture.project->clips.begin(),capture.project->clips.end(),[&](const auto& c){return c.id==clip;});
     need(at!=capture.project->clips.end()&&!at->midi,"Choose an audio clip");
     need(!at->stretch&&std::none_of(capture.project->ara_bindings.begin(),capture.project->ara_bindings.end(),[&](const auto& b){return b.source==at->source;}),"Render stretched/ARA audio before transcription");
-    const auto source_stamp=stamp(source);request.range=SourceRange{at->source_offset,at->length,capture.project->sample_rate};request.source=source;request.project_id=capture.project->id;request.clip_id=clip;request.project_revision=capture.revision;
+    const auto placement=request.placement;
+    need(placement.range_offset>=0&&placement.range_offset<at->length,"Invalid selected audio range");
+    const auto frames=placement.range_length.value_or(at->length-placement.range_offset);
+    need(frames>0&&frames<=at->length-placement.range_offset,"Invalid selected audio range");
+    if(placement.target_track){
+        need(request.instruments.size()==1,"Choose exactly one stem instrument");
+        need(std::any_of(capture.project->tracks.begin(),capture.project->tracks.end(),[&](const auto& t){return t.id==*placement.target_track&&t.kind==TrackKind::instrument;}),"Choose an existing instrument track");
+    }
+    const auto instruments=request.instruments;
+    const auto source_stamp=stamp(source);request.range=SourceRange{at->source_offset+placement.range_offset,frames,capture.project->sample_rate};request.source=source;request.project_id=capture.project->id;request.clip_id=clip;request.project_revision=capture.revision;
     auto job=std::make_unique<Job>();job->cpu_threads=choose_cpu_threads(request.cpu_threads);request.cpu_threads=job->cpu_threads;
     job->result=std::async(std::launch::async,[models=std::move(models),request=std::move(request),media=std::move(media),
         stop=job->stop.get_token(),progress=&job->progress,phase=&job->phase]()mutable{
@@ -67,6 +76,7 @@ void Controller::start(const std::shared_ptr<IProjectStore>& store,std::filesyst
             },[phase](Phase value){phase->store(value,std::memory_order_relaxed);});
         }catch(const std::exception& e){Result r;r.state=stop.stop_requested()?State::cancelled:State::failed;r.error=e.what();return r;}
     });
+    placement_=placement;instruments_=instruments;
     owner_=store;captured_=std::move(capture);project_path_=std::move(path);clip_=std::move(clip);source_=std::move(source);stamp_=source_stamp;
     status_={JobState::running,0,0,{}};job_=std::move(job);
 }
@@ -86,9 +96,12 @@ void Controller::poll(const std::shared_ptr<IProjectStore>& store,const std::fil
         need(result.project_id==captured_.project->id&&result.clip_id==clip_&&result.project_revision==captured_.revision,"Worker identity mismatch");
         const auto& clips=captured_.project->clips;const auto at=std::find_if(clips.begin(),clips.end(),[&](const auto& c){return c.id==clip_;});
         need(at!=clips.end(),"Captured audio clip missing");
-        const double first=static_cast<double>(at->source_offset)/captured_.project->sample_rate;
-        const double last=static_cast<double>(at->source_offset+at->length)/captured_.project->sample_rate;
+        const double first=static_cast<double>(at->source_offset+placement_.range_offset)/captured_.project->sample_rate;
+        const double last=static_cast<double>(at->source_offset+placement_.range_offset+placement_.range_length.value_or(at->length-placement_.range_offset))/captured_.project->sample_rate;
         for(auto* notes:{&result.notes,&result.original_notes}){for(auto& note:*notes){note.start=std::max(note.start,first);note.end=std::min(note.end,last);}std::erase_if(*notes,[](const auto& n){return n.end<=n.start;});}
+        if(placement_.target_track&&std::any_of(result.notes.begin(),result.notes.end(),[&](const auto& n){return n.instrument!=instruments_.front();})){
+            status_.state=JobState::failed;status_.error="Model returned an instrument outside the selected stem category";return;
+        }
         result.state=result.notes.empty()&&result.original_notes.empty()?State::empty:State::ready;
         status_.state=result.state==State::ready?JobState::ready:JobState::empty;status_.error.clear();status_.elapsed_seconds=result.elapsed_seconds;status_.cpu_threads=result.cpu_threads;result_=std::move(result);
     }else{status_.state=result.state==State::timeout?JobState::timeout:JobState::failed;status_.error=result.error=="process_exit"&&result.diagnostics.find("missing_EOS_within_2000_tokens")!=std::string::npos?"missing_eos":std::move(result.error);}
@@ -118,7 +131,7 @@ PlaceTranscription Controller::prepare(const std::shared_ptr<IProjectStore>& sto
     std::vector<TranscribedNote> reference;
     if(!original_timing&&(result_->musical.quantize||result_->musical.fill_gaps>0||result_->musical.trim_leading_bars))for(const auto& n:result_->original_notes)if(!roles||std::find(roles->begin(),roles->end(),n.instrument)!=roles->end())reference.push_back(n);
     std::ostringstream provenance;provenance<<"Audio-to-MIDI "<<(result_->backend==Backend::python_medium?"Python MuScriptor":"Synthetic protocol fixture")<<"; model="<<result_->model_id<<"@"<<result_->model_revision<<"; source_pcm_sha256="<<result_->source_sha256<<"; frames="<<result_->source_first_frame<<"+"<<result_->source_frame_count<<"; rate="<<result_->source_rate<<"; code="<<(result_->backend==Backend::python_medium?python_source_commit:std::string_view("synthetic-fixture"))<<"; executable_sha256="<<result_->executable_sha256<<"; adapter_sha256="<<result_->worker_sha256<<"; weights_sha256="<<result_->weights_sha256;
-    return PlaceTranscription(captured_.project,clip_,notes,std::move(time),reference,provenance.str());
+    return PlaceTranscription(captured_.project,clip_,notes,std::move(time),reference,provenance.str(),placement_);
 }
 void Controller::placed(){need(status_.state==JobState::ready&&result_.has_value(),"No placed transcription result");result_.reset();status_.state=JobState::placed;}
 }

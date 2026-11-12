@@ -310,6 +310,9 @@ juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupM
         m.addSeparator();m.addItem(715,"Separation models...",!standaloneLive);
         m.addItem(716,"Separation results...",!standaloneLive);
 #endif
+#if defined(MRS_TRANSCRIPTION_UI)
+        juce::PopupMenu preferences;preferences.addItem(717,"Audio-to-MIDI",!standaloneLive);m.addSubMenu("Preferences",preferences);
+#endif
         return m;
     }
     // Existing menus retain their action IDs after inserting Options next to File.
@@ -435,6 +438,9 @@ void Desktop::action(int n){if(busyGesture()){if(n==3||n==4){reportSaveError("Fi
     }
     if(n==7){const auto logs=mrs::diagnostics::folder();if(logs.empty())throw std::runtime_error("Diagnostics unavailable; see package README");if(!testing)juce::File(juce::String(logs.wstring().c_str())).revealToUser();return;}
     if(n>=500&&n<=700){auto c=app.click_settings();if(n==500)c.playback=!c.playback;else if(n==501)c.recording=!c.recording;else if(n==502)c.accent=!c.accent;else if(n==503)c.playback=c.recording=!(c.playback||c.recording);else if(n==504){if(c.count_bars){lastCountBars=c.count_bars;c.count_bars=0;}else c.count_bars=lastCountBars;}else if(n>=510&&n<=514)c.count_bars=n-510;else if(n>=600)c.level=n-600;else return;app.set_click_settings(c);if(c.count_bars)lastCountBars=c.count_bars;prefs.click=c;saveSettings();return;}
+#if defined(MRS_TRANSCRIPTION_UI)
+    if(n==717){showTranscriptionPreferences(*this);return;}
+#endif
     if(n==9)return;
     if(n==702){confirmDiscard([this]{choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& file){importLiveShow(file);},"*.json");});return;}
     if(n==701){if(standaloneLive){confirmDiscard([this]{run([this]{newLiveShow();});});return;}auto createShow=[this]{choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[this](const auto& file){createLive(file);},"*.mrlive");};createShow();return;}
@@ -1420,7 +1426,7 @@ void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(arrangementCan
     auto paintedClips=p->clips;std::stable_partition(paintedClips.begin(),paintedClips.end(),[&](const auto& c){return c.id!=owner.selectedClip&&!owner.selectedClips.contains(c.id.value);});
     const auto originalCount=paintedClips.size();if(copyDrag&&dragMoved)paintedClips.insert(paintedClips.end(),dragGroup.begin(),dragGroup.end());
     for(std::size_t painted=0;painted<paintedClips.size();++painted){const auto& stored=paintedClips[painted];auto c=stored;if(fadeOriginal&&fadeOriginal->id==c.id){c.fade_in=fadeInPreview;c.fade_out=fadeOutPreview;}const bool ghost=painted>=originalCount;
-        if(drag&&(!copyDrag||ghost)&&(drag->id==c.id||std::any_of(dragGroup.begin(),dragGroup.end(),[&](const auto& item){return item.id==c.id;}))){
+        if(drag&&!transcriptionDrop&&(!copyDrag||ghost)&&(drag->id==c.id||std::any_of(dragGroup.begin(),dragGroup.end(),[&](const auto& item){return item.id==c.id;}))){
             if(trim){
                 const auto at=std::find_if(trimPreviews.begin(),trimPreviews.end(),[&](const auto& item){return item.id==c.id;});if(at!=trimPreviews.end())c=*at;
             }else{const auto start=mrs::clip_start(stored,time)+dragStart-drag->start;if(c.midi)c.midi->start=time.to_ticks(start);else c.start=start;const auto at=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==c.track;});c.track=p->tracks[static_cast<std::size_t>(static_cast<int>(at-p->tracks.begin())+dragTrackDelta)].id;}
@@ -1449,6 +1455,8 @@ void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(arrangementCan
             if(c.id==owner.selectedClip||owner.selectedClips.contains(c.id.value)){const auto maxWidth=juce::jmax(6.f,width-6);g.fillRect(r.getX()+juce::jlimit(6.f,maxWidth,inWidth)-3,r.getY()+23,6.f,6.f);g.fillRect(r.getRight()-juce::jlimit(6.f,maxWidth,outWidth)-3,r.getY()+23,6.f,6.f);}}
 
     }
+    if(selectedAudioRange&&selectedAudioRange->revision==owner.app.services().projects->state().revision)for(const auto& c:p->clips)if(c.id==selectedAudioRange->clip){auto r=clipRect(c);r.setX(r.getX()+static_cast<float>(selectedAudioRange->offset/static_cast<double>(p->sample_rate)*pixelsPerSecond));r.setWidth(static_cast<float>(selectedAudioRange->length/static_cast<double>(p->sample_rate)*pixelsPerSecond));g.setColour(owner.selectionColour().withAlpha(.24f));g.fillRect(r);}
+    if(transcriptionDrop&&drag&&dragTrack){auto preview=*drag;preview.track=*dragTrack;preview.start=dragStart;const auto placement=transcriptionRange(drag->id);preview.length=placement.range_length.value_or(drag->length);const auto r=clipRect(preview);g.setColour(owner.selectionColour().withAlpha(.18f));g.fillRoundedRectangle(r,4);g.setColour(owner.selectionColour());g.drawRoundedRectangle(r,4,1.5f);g.drawText(juce::String::fromUTF8("MIDI · Convert stem"),r.toNearestInt().reduced(8),juce::Justification::centredLeft);}
     {juce::Graphics::ScopedSaveState save(g);g.reduceClipRegion(juce::Rectangle<int>(left,headerHeight(),getWidth()-left,getHeight()-headerHeight()));
         const auto ghosts=wavDropRects();
         for(std::size_t i=0;i<ghosts.size();++i){const auto& rect=ghosts[i];
@@ -1534,9 +1542,12 @@ void Arrangement::clipMenu(mrs::Id id,juce::Point<int> point){
         if(result==21||result==22){showSeparation(safe->owner,id);return;}
 #endif
 #if defined(MRS_TRANSCRIPTION_UI)
-        if(result==23){showTranscription(safe->owner,id);return;}
+        if(result==23){showTranscription(safe->owner,id,safe->transcriptionRange(id));return;}
 #endif
         if(result==6){safe->owner.renameClips(ids);return;}if(result==10||result==5)safe->owner.app.set_clip_colors(ids,result==5?std::nullopt:std::optional<std::uint32_t>{*color});else if(result==1)safe->owner.app.split_clips(ids,cut);else if(result==2)safe->owner.app.duplicate_clip(ids.front());else if(result==3)safe->owner.activateClip(safe->owner.app.merge_midi_clips(ids));else if(result==4)safe->owner.app.remove_clips(ids);});});
+}
+mrs::TranscriptionPlacement Arrangement::transcriptionRange(mrs::Id clip)const{
+    mrs::TranscriptionPlacement p;if(selectedAudioRange&&selectedAudioRange->clip==clip&&selectedAudioRange->revision==owner.app.services().projects->state().revision){p.range_offset=selectedAudioRange->offset;p.range_length=selectedAudioRange->length;}return p;
 }
 void Arrangement::mouseDown(const juce::MouseEvent& e){
     grabKeyboardFocus();rulerSeeking=false;fadeOriginal.reset();fadeStore.reset();shiftRemove=false;if(e.mods.isPopupMenu()){if(const auto id=clipAt(e.position))clipMenu(*id,e.getScreenPosition());return;}if(e.x<left||!e.mods.isLeftButtonDown())return;
@@ -1546,9 +1557,15 @@ void Arrangement::mouseDown(const juce::MouseEvent& e){
     sections->clearSelection();
     meters->clearSelection();tempos->clearSelection();
     const auto p=owner.project();const int index=trackAt(e.position.y);if(index>=0&&index<static_cast<int>(p->tracks.size()))owner.selectTrack(p->tracks[static_cast<std::size_t>(index)].id,e.mods);
-    dragGroup.clear();dragTrackDelta=0;copyDrag=false;dragMoved=false;
+    dragGroup.clear();dragTrackDelta=0;copyDrag=false;dragMoved=false;transcriptionDrop=false;selectingAudioRange=false;
     if(const auto id=clipAt(e.position)){
         const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==*id;});
+        if(e.mods.isCtrlDown()&&!c->midi&&!owner.app.recording()&&!owner.standaloneLive){
+            owner.activateClip(c->id);drag.reset();dragGroup.clear();selectingAudioRange=true;
+            audioRangeAnchor=std::clamp(sampleAt(e.position.x)-c->start,mrs::Sample{0},c->length-1);
+            selectedAudioRange=AudioRange{c->id,audioRangeAnchor,1,owner.app.services().projects->state().revision};repaint();return;
+        }
+        if(selectedAudioRange&&selectedAudioRange->clip!=c->id)selectedAudioRange.reset();
         if(owner.knifeMode){std::vector<mrs::Id> ids;if(owner.selectedClips.contains(c->id.value)){for(const auto& item:p->clips)if(owner.selectedClips.contains(item.id.value))ids.push_back(item.id);}else ids.push_back(c->id);owner.run([&]{const auto right=owner.app.split_clips(ids,sampleAt(e.position.x));owner.activateClip(right.front());owner.selectedClips.clear();for(const auto& id:right)owner.selectedClips.insert(id.value);});return;}
         copyDrag=e.mods.isAltDown();trim=copyDrag?0:edgeAt(*c,e.position);auto selection=owner.selectedClips;if(owner.selectedClip)selection.insert(owner.selectedClip->value);
         shiftRemove=e.mods.isShiftDown()&&!copyDrag&&selection.contains(c->id.value);
@@ -1566,11 +1583,23 @@ void Arrangement::mouseDown(const juce::MouseEvent& e){
     }
     drag.reset();dragTrack.reset();selecting=true;selectionOrigin=e.position;selectionBox={e.position,e.position};selectionBase=e.mods.isShiftDown()?owner.selectedClips:std::set<std::string>{};if(e.mods.isShiftDown()&&owner.selectedClip)selectionBase.insert(owner.selectedClip->value);owner.selectedClips=selectionBase;if(selectionBase.empty())owner.selectedClip.reset();repaint();
 }
-void Arrangement::mouseDrag(const juce::MouseEvent& e){if(fadeOriginal){const auto r=clipRect(*fadeOriginal);const auto frames=static_cast<mrs::Sample>(std::llround(static_cast<double>(fadeRight?r.getRight()-e.position.x:e.position.x-r.getX())/static_cast<double>(juce::jmax(1.f,r.getWidth()))*static_cast<double>(fadeOriginal->length)));if(fadeRight)fadeOutPreview=std::clamp(frames,mrs::Sample{0},fadeOriginal->length);else fadeInPreview=std::clamp(frames,mrs::Sample{0},fadeOriginal->length);repaint();return;}if(rulerSeeking){if(e.x>=left&&e.y>=0&&e.y<20)owner.run([&]{owner.app.seek(seekSampleAt(e.position.x));});return;}if(selecting){selectionBox=juce::Rectangle<float>(selectionOrigin,e.position).getIntersection(juce::Rectangle<float>(static_cast<float>(left),static_cast<float>(headerHeight()),static_cast<float>(getWidth()-left),static_cast<float>(getHeight()-headerHeight())));owner.selectedClips=selectionBase;owner.selectedClip=selectionBase.empty()?std::nullopt:std::optional<mrs::Id>{mrs::Id{*selectionBase.begin()}};for(const auto& c:owner.project()->clips)if(clipRect(c).intersects(selectionBox)){owner.selectedClips.insert(c.id.value);if(!owner.selectedClip)owner.selectedClip=c.id;}repaint();return;}if(!drag)return;
+void Arrangement::mouseDrag(const juce::MouseEvent& e){
+    if(selectingAudioRange&&selectedAudioRange){for(const auto& c:owner.project()->clips)if(c.id==selectedAudioRange->clip){const auto end=std::clamp(sampleAt(e.position.x)-c.start,mrs::Sample{0},c.length);selectedAudioRange->offset=std::min(audioRangeAnchor,end);selectedAudioRange->length=std::max(mrs::Sample{1},std::abs(end-audioRangeAnchor));}repaint();return;}
+    if(drag&&!trim&&!drag->midi&&dragGroup.size()==1&&!owner.standaloneLive){const auto p=owner.project();const auto target=trackAt(e.position.y);if(e.x>=left&&target>=0&&target<static_cast<int>(p->tracks.size())&&p->tracks[static_cast<std::size_t>(target)].kind==mrs::TrackKind::instrument&&e.getDistanceFromDragStart()>=2){transcriptionDrop=true;dragTrack=p->tracks[static_cast<std::size_t>(target)].id;dragStart=sampleAt(e.position.x);dragMoved=true;setMouseCursor(juce::MouseCursor::CopyingCursor);setTooltip(juce::String::fromUTF8("Convert stem to MIDI · Instrument Track"));repaint();return;}transcriptionDrop=false;}
+    if(fadeOriginal){const auto r=clipRect(*fadeOriginal);const auto frames=static_cast<mrs::Sample>(std::llround(static_cast<double>(fadeRight?r.getRight()-e.position.x:e.position.x-r.getX())/static_cast<double>(juce::jmax(1.f,r.getWidth()))*static_cast<double>(fadeOriginal->length)));if(fadeRight)fadeOutPreview=std::clamp(frames,mrs::Sample{0},fadeOriginal->length);else fadeInPreview=std::clamp(frames,mrs::Sample{0},fadeOriginal->length);repaint();return;}if(rulerSeeking){if(e.x>=left&&e.y>=0&&e.y<20)owner.run([&]{owner.app.seek(seekSampleAt(e.position.x));});return;}if(selecting){selectionBox=juce::Rectangle<float>(selectionOrigin,e.position).getIntersection(juce::Rectangle<float>(static_cast<float>(left),static_cast<float>(headerHeight()),static_cast<float>(getWidth()-left),static_cast<float>(getHeight()-headerHeight())));owner.selectedClips=selectionBase;owner.selectedClip=selectionBase.empty()?std::nullopt:std::optional<mrs::Id>{mrs::Id{*selectionBase.begin()}};for(const auto& c:owner.project()->clips)if(clipRect(c).intersects(selectionBox)){owner.selectedClips.insert(c.id.value);if(!owner.selectedClip)owner.selectedClip=c.id;}repaint();return;}if(!drag)return;
     const auto p=owner.project();const mrs::Timeline time(p->time,p->sample_rate);auto delta=static_cast<mrs::Sample>((e.x-dragX)/pixelsPerSecond*p->sample_rate);if(trim){updateTrim(delta,owner.snap&&!e.mods.isShiftDown());repaint();return;}if(!trim){mrs::Sample low=-mrs::max_sample,high=mrs::max_sample;for(const auto& c:dragGroup){const auto start=mrs::clip_start(c,time);low=std::max(low,-start);high=std::min(high,mrs::max_sample-mrs::clip_end(c,time));}delta=std::clamp(delta,low,high);if(owner.snap&&!e.mods.isShiftDown()){const auto snapped=sampleAt(static_cast<float>(left+static_cast<double>(drag->start+delta)/p->sample_rate*pixelsPerSecond-horizontal));delta=std::clamp(snapped-drag->start,low,high);}}dragStart=juce::jmax<mrs::Sample>(0,drag->start+delta);
     const auto anchor=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==drag->track;});if(anchor==p->tracks.end()){keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));return;}const int targetIndex=trackAt(e.position.y);if(targetIndex<0)return;int wanted=targetIndex-static_cast<int>(anchor-p->tracks.begin()),low=0,high=static_cast<int>(p->tracks.size())-1;if(!dragGroup.empty()){low=-static_cast<int>(p->tracks.size());high=static_cast<int>(p->tracks.size());for(const auto& c:dragGroup){const auto t=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& item){return item.id==c.track;});const int at=static_cast<int>(t-p->tracks.begin());low=std::max(low,-at);high=std::min(high,static_cast<int>(p->tracks.size())-1-at);}}dragTrackDelta=std::clamp(wanted,low,high);dragTrack=p->tracks[static_cast<std::size_t>(static_cast<int>(anchor-p->tracks.begin())+dragTrackDelta)].id;dragMoved=dragMoved||std::abs(e.x-dragX)>=2||dragTrackDelta!=0;repaint();
 }
 void Arrangement::mouseUp(const juce::MouseEvent& e){
+    if(selectingAudioRange){selectingAudioRange=false;repaint();return;}
+#if defined(MRS_TRANSCRIPTION_UI)
+    if(transcriptionDrop&&drag&&dragTrack){
+        const auto clip=drag->id;const auto baseline=dragGroup.front();auto placement=transcriptionRange(clip);placement.target_track=dragTrack;placement.position=sampleAt(e.position.x);
+        const auto p=owner.project();const auto row=trackAt(e.position.y);const bool valid=e.x>=left&&row>=0&&row<static_cast<int>(p->tracks.size())&&p->tracks[static_cast<std::size_t>(row)].id==*dragTrack;
+        cancelGesture();if(valid)owner.run([&]{const auto current=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==clip;});if(current==p->clips.end()||*current!=baseline)throw std::runtime_error("Source clip changed; retry conversion");showTranscription(owner,clip,placement);});return;
+    }
+#endif
+
     if(fadeOriginal){const auto original=*fadeOriginal;const auto store=fadeStore;const auto in=fadeInPreview,out=fadeOutPreview;fadeOriginal.reset();fadeStore.reset();owner.run([&]{if(owner.app.services().projects!=store)throw std::runtime_error("Project changed; retry fade");owner.app.set_clip_fades(original,in,out);});repaint();return;}
     if(drag&&shiftRemove&&!dragMoved&&std::abs(e.x-dragX)<2){owner.selectedClips.erase(drag->id.value);owner.selectedClip=owner.selectedClips.empty()?std::nullopt:std::optional<mrs::Id>{mrs::Id{*owner.selectedClips.begin()}};drag.reset();dragGroup.clear();shiftRemove=false;repaint();return;}
     shiftRemove=false;
@@ -1591,7 +1620,7 @@ bool Arrangement::keyPressed(const juce::KeyPress& key){if(key.getKeyCode()!=juc
 if(owner.separationJob)owner.separationJob->cancel();
 #endif
 cancelGesture();return true;}
-void Arrangement::cancelGesture(){rulerSeeking=false;fadeOriginal.reset();fadeStore.reset();shiftRemove=false;setMouseCursor(juce::MouseCursor::NormalCursor);drag.reset();dragTrack.reset();dragGroup.clear();copyDrag=false;dragMoved=false;selecting=false;selectionBox={};repaint();}
+void Arrangement::cancelGesture(){transcriptionDrop=false;selectingAudioRange=false;rulerSeeking=false;fadeOriginal.reset();fadeStore.reset();shiftRemove=false;setMouseCursor(juce::MouseCursor::NormalCursor);drag.reset();dragTrack.reset();dragGroup.clear();copyDrag=false;dragMoved=false;selecting=false;selectionBox={};repaint();}
 void Arrangement::focusLost(FocusChangeType){cancelGesture();}
 void Arrangement::wheel(float delta,juce::ModifierKeys mods,float x){if(mods.isCtrlDown()){if(mods.isShiftDown()){const auto before=static_cast<mrs::Sample>(std::clamp((x-left+horizontal)/pixelsPerSecond*owner.project()->sample_rate,0.,static_cast<double>(mrs::max_sample)));pixelsPerSecond=juce::jlimit(.1,2400.,pixelsPerSecond*std::pow(1.25,delta*4));horizontal=juce::jmax(0.,static_cast<double>(before)/owner.project()->sample_rate*pixelsPerSecond-(x-left));}
     else {const float before=(vertical+getHeight()/2.f-headerHeight())/trackHeight;trackHeight=juce::jlimit(40,360,trackHeight+static_cast<int>(delta*96));vertical=juce::jmax(0.f,before*trackHeight-(getHeight()/2.f-headerHeight()));rebuildFolderLayout();}}

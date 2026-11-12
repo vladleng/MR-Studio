@@ -178,7 +178,7 @@ public:
     static juce::Font browserFont() { return detailFont().withHeight(14.f).withHorizontalScale(1.04f); }
     static juce::Font stripFont() { return detailFont(); }
     static juce::Font channelFont() { return detailFont(); }
-    juce::Font getLabelFont(juce::Label& label) override {return preview_?roleFont(dynamic_cast<juce::ComboBox*>(label.getParentComponent())?3:2):dynamic_cast<juce::ComboBox*>(label.getParentComponent())?browserFont():detailFont();}
+    juce::Font getLabelFont(juce::Label& label) override {if(static_cast<bool>(label.getProperties()["mrExplicitLabelFont"]))return label.getFont();return preview_?roleFont(dynamic_cast<juce::ComboBox*>(label.getParentComponent())?3:2):dynamic_cast<juce::ComboBox*>(label.getParentComponent())?browserFont():detailFont();}
     void drawToggleButton(juce::Graphics& g,juce::ToggleButton& button,bool hover,bool down) override {
         drawTickBox(g,button,2.f,(button.getHeight()-16.f)*.5f,16.f,16.f,button.getToggleState(),button.isEnabled(),hover,down);
         g.setFont(detailFont());g.setColour(role(ColourRole::text,primaryText).withMultipliedAlpha(button.isEnabled()?1.f:.5f));

@@ -19,8 +19,19 @@ std::span<const TranscriptionInstrument> ace_midi_instruments();
 // Product transcription uses the isolated Python adapter argument vector.
 std::vector<std::string> ace_midi_arguments(std::string model, std::string wav, std::string output);
 
-// Non-RT preparation only. Creates independent instrument tracks and existing
-// MidiClips, with channel 1 per melodic track and channel 10 for drums. Tracks
+// Immutable UI job snapshot, in project samples. Range is relative to the
+// visible audio clip; position is the timeline drop position (never a source offset).
+struct TranscriptionPlacement {
+    std::optional<Id> target_track;
+    std::optional<Sample> position;
+    Sample range_offset{};
+    std::optional<Sample> range_length;
+    int velocity{100};
+    Tick quantize_grid{}; // 0 preserves original timing
+    double quantize_strength{1.};
+};
+// Non-RT preparation only. Creates independent instrument tracks or places
+// exactly one group on the captured existing instrument track. Uses MidiClips, with channel 1 per melodic track and channel 10 for drums. Tracks
 // have no external port assigned, so 34 categories do not share a MIDI port.
 // Refuses a changed project after async inference; caller must prepare from the
 // captured source snapshot, rather than silently accepting a newer revision.
@@ -28,7 +39,8 @@ class PlaceTranscription final : public ICommand {
 public:
     PlaceTranscription(std::shared_ptr<const Project> source, Id audio_clip,
                        std::span<const TranscribedNote> notes, std::optional<TimeMap> time = {},
-                       std::span<const TranscribedNote> original = {}, std::string provenance = {});
+                       std::span<const TranscribedNote> original = {}, std::string provenance = {},
+                       TranscriptionPlacement placement = {});
     std::string_view name() const override { return "Convert audio to MIDI"; }
     void apply(Project&) const override;
 private:
