@@ -13,8 +13,8 @@ on:
       checks:
         description: Targeted Live/separation checks or normal profile
         type: choice
-        options: [profile, studio, studio-live, live, separation, separation-ui]
-        default: profile
+        options: [live]
+        default: live
       ara:
         description: Include ARA2 for Studio profile (Live-only always excludes ARA2)
         type: boolean
@@ -41,7 +41,12 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           RELEASE_CHECKS: ${{ inputs.checks }}
           INTEGRATION: ${{ inputs.integration }}
-        run: python3 tools/ci/verify_ci_evidence.py
+        run: |
+          if [ "$RELEASE_CHECKS" != live ] || [ "$INTEGRATION" = true ]; then
+            echo 'This legacy Live branch supports Live-only acceptance. Studio/integration requires the current main product code.' >&2
+            exit 1
+          fi
+          python3 tools/ci/verify_ci_evidence.py
 
   studio:
     needs: preflight
