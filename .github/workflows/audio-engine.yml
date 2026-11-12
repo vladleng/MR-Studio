@@ -1,6 +1,6 @@
 name: Windows Studio Release
 # Product versions are validated against the source header before building.
-run-name: ${{ inputs.checks == 'live' && !inputs.integration && 'MR Live 0.9.3-Upd7 — Windows Release' || ((inputs.checks == 'studio' || inputs.checks == 'separation' || inputs.checks == 'separation-ui') && !inputs.integration && 'MR Studio 0.10.1-Upd5 — Windows Release' || 'MR Studio 0.10.1-Upd5 / MR Live 0.9.3-Upd7 — Windows Release') }}
+run-name: ${{ inputs.checks == 'live' && !inputs.integration && 'MR Live 0.9.3-Upd8 — Windows Release' || ((inputs.checks == 'studio' || inputs.checks == 'separation' || inputs.checks == 'separation-ui') && !inputs.integration && 'MR Studio 0.10.1-Upd5 — Windows Release' || 'MR Studio 0.10.1-Upd5 / MR Live 0.9.3-Upd8 — Windows Release') }}
 # Heavy Windows acceptance packages are opt-in. Fast Core contracts and
 # component-specific CI continue running automatically on relevant changes.
 on:
@@ -23,7 +23,7 @@ permissions:
   contents: read
   actions: read
 env:
-  RELEASE_BANNER: 'MR Studio 0.10.1-Upd5 / MR Live 0.9.3-Upd7 — Windows Release'
+  RELEASE_BANNER: 'MR Studio 0.10.1-Upd5 / MR Live 0.9.3-Upd8 — Windows Release'
 concurrency:
   group: windows-${{ github.ref }}-${{ inputs.checks }}-${{ inputs.integration }}-${{ inputs.ara }}
   cancel-in-progress: true

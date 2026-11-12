@@ -1006,6 +1006,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     if (event.y < headerHeight + rulerHeight) {
                         parent.owner.run([&] {
                             parent.owner.app.seek(mrs::Timeline(project->time, project->sample_rate).to_samples(tick));
+                            parent.owner.loadStoppedLiveTimelinePatches(
+                                item.value["id"].toString(),juce::jmax(0.,bar));
                         });
                     } else {
                         // Resolve clicks against the same single-valued lane used by Core.
@@ -1776,13 +1778,19 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 if(!event.mods.isLeftButtonDown())return true;
                 grabKeyboardFocus();
                 if(clipSelection.isEmpty()){
-                    if(parent.currentEntry(item) && parent.owner.livePlaybackReady())parent.owner.run([&]{parent.owner.app.seek(parent.sampleAt(item,event.position.x));});
+                    if(parent.currentEntry(item) && parent.owner.livePlaybackReady())parent.owner.run([&]{
+                        parent.owner.app.seek(parent.sampleAt(item,event.position.x));
+                        parent.owner.loadStoppedLiveTimelinePatches(id,juce::jmax(0.,barAt(item,event.position.x)));
+                    });
                     return true;
                 }
                 // Pointer selection retains the accepted click-to-seek action.
                 // A subsequent drag still edits only the preview until release.
                 if(!scissors && !clipEdge && parent.currentEntry(item) && parent.owner.livePlaybackReady())
-                    parent.owner.run([&]{parent.owner.app.seek(parent.sampleAt(item,event.position.x));});
+                    parent.owner.run([&]{
+                        parent.owner.app.seek(parent.sampleAt(item,event.position.x));
+                        parent.owner.loadStoppedLiveTimelinePatches(id,juce::jmax(0.,barAt(item,event.position.x)));
+                    });
                 editRows=regionRows(item,index).clone();
                 if(scissors && !clipEdge){parent.owner.run([&]{commitClips(live::splitPlaybackRegion(editRows,clipSelection,barAt(item,event.position.x)),"Split Playback region");});return true;}
                 // Click-to-select/seek must never serialize or clone the whole

@@ -149,6 +149,7 @@ public:
     // At Stop, audition the sound assigned by a Patch/Sub-patch Timeline span.
     void loadStoppedLiveTimelinePatch(const juce::String& channel,
                                       const juce::String& itemId,double atBar);
+    void loadStoppedLiveTimelinePatches(const juce::String& itemId,double atBar);
     struct LoadedLivePatch {
         juce::String itemId,patchId,subPatchId;
     };
@@ -220,7 +221,8 @@ public:
                                 const juce::String& subBlockId,double offsetBar,
                                 const juce::String& itemId);
     std::vector<mrs::NativeInsert> captureLiveChannelInserts(const juce::String& channel,
-                                                              bool includeExposedParameters=false);
+                                                              bool includeExposedParameters=false,
+                                                              bool parametersOnly=false);
     // #289 A-Upd1: after a stopped item switch, adopt the item's default
     // channel patches for activated channels (errors keep the current chain).
     void applyLiveItemDefaultPatches();
