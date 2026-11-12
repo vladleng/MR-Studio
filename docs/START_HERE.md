@@ -9,3 +9,5 @@
 Принятые решения Studio/Live описывает [MR Live integration](MR_LIVE_NATIVE_INTEGRATION.md); визуальный стандарт — [MR UDS](MR_UNIFIED_DESIGN_SYSTEM.md).
 
 Исторические записи старых Stage, FIX и UPD сохранены в Git history и Issues и не переопределяют текущие решения.
+
+Входные файлы [Claude Code](../CLAUDE.md) и [Gemini CLI](../GEMINI.md) импортируют общий `AGENTS.md`. Skills для всех харнесов хранятся в `.agents/skills/`; при отсутствии автоматического обнаружения читай нужный `SKILL.md` напрямую. Облачная задача должна использовать опубликованную ветку: обновление локального checkout не обновляет уже запущенные облачные задачи.
