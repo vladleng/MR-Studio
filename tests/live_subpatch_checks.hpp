@@ -391,12 +391,12 @@ inline void subPatchChainVariants() {
             auto second=subPatchChain(edited,baseInserts,other);
             auto first=object();put(first,"overrides",changedSub["overrides"].clone());
             const auto before=canonical(edited["patchStates"]);
-            for(const auto& variant:std::vector<juce::var>{first,second,first}) {
+            for(const auto& seekVariant:std::vector<juce::var>{first,second,first}) {
                 const auto restored=patchInsertsWithSubPatch(edited,
-                    find(find(edited,"channels",channel),"patches",patchId),variant);
+                    find(find(edited,"channels",channel),"patches",patchId),seekVariant);
                 check(restored.size()==1 && !restored[0].parameters.empty(),
                       "Parameter Sub-patch resolves explicit overrides for A/B/A");
-                const auto expected=static_cast<float>(static_cast<double>(variant["overrides"][0]["value"]));
+                const auto expected=static_cast<float>(static_cast<double>(seekVariant["overrides"][0]["value"]));
                 check(std::abs(restored[0].parameters[0].value-expected)<1.e-6f,
                       "A/B/A Sub-patch restoration returns the saved normalized value");
             }
