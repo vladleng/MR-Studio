@@ -1,0 +1,54 @@
+name: MuScriptor Windows runtime contract
+on:
+  workflow_call:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['CMakeLists.txt', 'tools/ci/sdk-lock.json', 'apps/studio-desktop/src/*transcription*', 'apps/studio-desktop/include/mrs/*transcription*', 'apps/studio-juce/src/TranscriptionRuntime*', 'apps/studio-juce/src/SeparationModels*', 'tools/transcription/**', 'tools/transcription_runtime_check.cpp', 'cmake/TranscriptionProfile.cmake', 'cmake/Separation.cmake', '.github/workflows/transcription-runtime.yml']
+  pull_request:
+    paths: ['CMakeLists.txt', 'tools/ci/sdk-lock.json', 'apps/studio-desktop/src/*transcription*', 'apps/studio-desktop/include/mrs/*transcription*', 'apps/studio-juce/src/TranscriptionRuntime*', 'apps/studio-juce/src/SeparationModels*', 'tools/transcription/**', 'tools/transcription_runtime_check.cpp', 'cmake/TranscriptionProfile.cmake', 'cmake/Separation.cmake', '.github/workflows/transcription-runtime.yml']
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-transcription-runtime-${{ github.ref }}-${{ github.workflow == 'Windows Studio Release' && github.run_id || '' }}
+  cancel-in-progress: true
+jobs:
+  runtime:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Prepare pinned public JUCE core only
+        shell: pwsh
+        run: |
+          $lock=Get-Content -Raw tools/ci/sdk-lock.json | ConvertFrom-Json
+          git init build/juce
+          git -C build/juce fetch --depth 1 $lock.juce.url $lock.juce.commit
+          if($LASTEXITCODE){throw 'JUCE source fetch failed'}
+          git -C build/juce checkout --detach FETCH_HEAD
+          if($LASTEXITCODE -or (git -C build/juce rev-parse HEAD) -ne $lock.juce.commit){throw 'JUCE pin mismatch'}
+      - name: Build isolated installer diagnostic (no application, ASIO, VST3 or ARA)
+        shell: pwsh
+        run: |
+          cmake -S . -B build/runtime -G 'Visual Studio 17 2022' -A x64 -DBUILD_TESTING=OFF -DMRS_BUILD_DESKTOP=OFF -DMRS_BUILD_LIVE=OFF -DMRS_BUILD_ASIO=OFF -DMRS_BUILD_VST3=OFF -DMRS_BUILD_ARA=OFF -DMRS_BUILD_JUCE_UI=OFF -DMRS_BUILD_SEPARATION_CHECK=ON "-DMRS_JUCE_SDK_ROOT=$pwd/build/juce"
+          if($LASTEXITCODE){throw 'Installer diagnostic configure failed'}
+          cmake --build build/runtime --config Release --target mrs_transcription_runtime_check --parallel 2
+          if($LASTEXITCODE){throw 'Installer diagnostic build failed'}
+      - name: Install, verify, protect active lease, detect corruption and remove
+        shell: pwsh
+        run: |
+          & build/runtime/Release/mrs_transcription_runtime_check.exe "$pwd/tools/transcription/requirements-cpu.txt"
+          if($LASTEXITCODE){throw 'MuScriptor runtime contract failed'}
+      - name: Record successful source and profile evidence
+        run: python tools/ci/ci_evidence.py transcription-runtime.yml runtime
+      - name: Upload check evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ci-evidence-runtime-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ci-evidence.json
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 14
