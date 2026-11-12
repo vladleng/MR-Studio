@@ -2380,18 +2380,18 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                 auto& channel=live::require(state,"channels",showChannel);
                 mrs::NativeInsert gain;gain.id=mrs::Id{"seek-gain"};
                 gain.kind=mrs::InsertKind::gain;gain.gain=.25f;
-                const auto first=live::addChannelPatch(state,channel,{gain},"Seek A","blue");
+                const auto seekPatchA=live::addChannelPatch(state,channel,{gain},"Seek A","blue");
                 gain.gain=.75f;
-                const auto second=live::addChannelPatch(state,channel,{gain},"Seek B","violet");
+                const auto seekPatchB=live::addChannelPatch(state,channel,{gain},"Seek B","violet");
                 auto spans=live::object();
-                live::put(spans,juce::Identifier(first),live::blockSpan(0.,4.));
-                live::put(spans,juce::Identifier(second),live::blockSpan(4.,4.));
+                live::put(spans,juce::Identifier(seekPatchA),live::blockSpan(0.,4.));
+                live::put(spans,juce::Identifier(seekPatchB),live::blockSpan(4.,4.));
                 auto& target=live::require(state,"items",item);
                 live::put(target,"bars",juce::jmax(8.,static_cast<double>(target["bars"])));
                 for(auto& track:live::array(target,"tracks"))
                     if(track["channelId"].toString()==showChannel) {
                         live::put(track,"spans",spans);
-                        live::put(track,"patchOrder",juce::var(juce::Array<juce::var>{first,second}));
+                        live::put(track,"patchOrder",juce::var(juce::Array<juce::var>{seekPatchA,seekPatchB}));
                     }
             });
             for(const double bar:{1.,5.,1.}) {
