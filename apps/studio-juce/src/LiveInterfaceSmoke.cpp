@@ -1242,16 +1242,47 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
 
     // #374 RED->GREEN: authoring a patch in a different visible Item must not
     // select that Item, touch the audio engine or clone the VST3 channel bank.
-    juce::String inactive,patchChannel,patchId,secondPatch;
+    juce::String inactive,patchChannel,patchId,secondPatch,legacySubPatch;
     editing.editLiveInterface("Inactive patch authoring fixture",[&](auto& state) {
         patchChannel=live::addChannel(state,"Player","Offline patch edit");
         inactive=live::addItem(state,"Other item");
         live::insertEntry(state,inactive);
         auto& channel=live::require(state,"channels",patchChannel);
         patchId=live::addChannelPatch(state,channel,{},"Rhythm","blue");
+        legacySubPatch=live::createDefaultSubPatch(
+            live::require(channel,"patches",patchId),"blue");
         secondPatch=live::addChannelPatch(state,channel,{},"Solo","violet");
+        live::createDefaultSubPatch(live::require(channel,"patches",secondPatch),"violet");
     });
     const auto activeBeforePatch=editing.liveDocument->interfaceState["currentItem"].toString();
+    {
+        // Compatibility fields still exist in accepted 0.9.2 shows. Reassigning
+        // their Patch must never leave a Sub-patch reference owned by the old
+        // Patch, or validation rejects the entire Undo transaction.
+        editing.editLiveInterface("Legacy Item Patch assignment fixture",[&](auto& state) {
+            auto& item=live::require(state,"items",activeBeforePatch);
+            for(auto& track:live::array(item,"tracks"))
+                if(track["channelId"].toString()==patchChannel) {
+                    live::put(track,"patchId",patchId);
+                    live::put(track,"subPatchId",legacySubPatch);
+                    return;
+                }
+            throw std::runtime_error("Missing legacy Item Patch track");
+        });
+        editing.assignLiveItemPatch(patchChannel,secondPatch);
+        const auto reassigned=live::channelItemTrack(
+            editing.liveDocument->interfaceState,activeBeforePatch,patchChannel);
+        liveCheck(reassigned["patchId"].toString()==secondPatch &&
+                  reassigned["subPatchId"].isVoid(),
+                  "Changing a legacy Item Patch clears its dependent Sub-patch");
+        editing.undoLiveInterface();
+        const auto restored=live::channelItemTrack(
+            editing.liveDocument->interfaceState,activeBeforePatch,patchChannel);
+        liveCheck(restored["patchId"].toString()==patchId &&
+                  restored["subPatchId"].toString()==legacySubPatch,
+                  "One Undo restores the legacy Patch/Sub-patch assignment");
+        editing.undoLiveInterface(true);
+    }
     {
         // #374 G: Update needs the explicitly loaded sound, not the Patch
         // that happens to be assigned to the current Item.

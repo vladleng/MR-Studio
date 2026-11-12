@@ -106,8 +106,8 @@ inline void patchBlockAuthoring() {
           sameShowValue(subMoved,withSub),
           "#374 J: Sub-patch body drag cannot detach a segment");
     const auto subResized=editedSubPatchSpan(withSub,"a","s",1,9,false);
-    check(std::abs(blockLength(subResized["a"]["subs"]["s"])-3)<1.e-9,
-          "A sub-patch resize is clamped to the parent length");
+    check(sameShowValue(subResized,withSub),
+          "#374 J: individual Sub-patch edge resize cannot detach a segment");
     check(!removedPatchSpan(spans,"a")["a"].isObject(),
           "Removing a patch block removes its geometry");
     // Scissors give each fragment a private timeline ID, but keep the same
