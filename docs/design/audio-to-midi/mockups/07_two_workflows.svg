@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1460" height="702" viewBox="0 0 1460 702" role="img"><rect x="0" y="0" width="1460" height="702" rx="0" fill="#10151C"  />
+<text x="42" y="24" fill="#6CA4D0" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="26" font-weight="700" dominant-baseline="hanging" text-anchor="start">MR</text>
+<text x="107" y="28" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="16" font-weight="700" dominant-baseline="hanging" text-anchor="start">STUDIO</text>
+<text x="1415" y="31" fill="#6C7B89" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="12"  dominant-baseline="hanging" text-anchor="end">AUDIO → MIDI  /  UX SPEC</text>
+<path d="M40 72 L1420 72" stroke="#313A44" stroke-width="1"  fill="none"/>
+<text x="45" y="93" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="19" font-weight="700" dominant-baseline="hanging" text-anchor="start">Два сценария · одна инфраструктура</text>
+<text x="45" y="126" fill="#9DAAB8" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="13"  dominant-baseline="hanging" text-anchor="start">Сложность интерфейса зависит от контекста исходного аудио</text>
+<text x="42" y="666" fill="#6C7B89" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="11"  dominant-baseline="hanging" text-anchor="start">MR STUDIO  /  UI WIREFRAME</text>
+<text x="1418" y="666" fill="#6C7B89" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="11"  dominant-baseline="hanging" text-anchor="end">07 / 07</text>
+<rect x="45" y="165" width="668" height="490" rx="12" fill="#1B232D" stroke="#34404C" stroke-width="1" />
+<text x="70" y="188" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="22" font-weight="700" dominant-baseline="hanging" text-anchor="start">A / Готовый стем</text>
+<text x="70" y="225" fill="#9DAAB8" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="13"  dominant-baseline="hanging" text-anchor="start">Drag &amp; Drop → существующая Instrument Track</text>
+<rect x="74" y="284" width="610" height="46" rx="8" fill="#222C37" stroke="#34404C" stroke-width="1" />
+<text x="95" y="298" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="17"  dominant-baseline="hanging" text-anchor="start">Аудиоклип или выделение</text>
+<path d="M379 330 L379 356" stroke="#6CA4D0" stroke-width="2"  fill="none"/>
+<rect x="74" y="356" width="610" height="46" rx="8" fill="#222C37" stroke="#34404C" stroke-width="1" />
+<text x="95" y="370" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="17"  dominant-baseline="hanging" text-anchor="start">Модель + один инструмент</text>
+<path d="M379 402 L379 428" stroke="#6CA4D0" stroke-width="2"  fill="none"/>
+<rect x="74" y="428" width="610" height="46" rx="8" fill="#222C37" stroke="#34404C" stroke-width="1" />
+<text x="95" y="442" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="17"  dominant-baseline="hanging" text-anchor="start">Общий прогресс + Chunks + Time</text>
+<path d="M379 474 L379 500" stroke="#6CA4D0" stroke-width="2"  fill="none"/>
+<rect x="74" y="500" width="610" height="46" rx="8" fill="#214442" stroke="#72BBA8" stroke-width="1" />
+<text x="95" y="514" fill="#72BBA8" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="17" font-weight="700" dominant-baseline="hanging" text-anchor="start">MIDI-клип на целевой дорожке</text>
+<rect x="746" y="165" width="668" height="490" rx="12" fill="#1B232D" stroke="#34404C" stroke-width="1" />
+<text x="771" y="188" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="22" font-weight="700" dominant-baseline="hanging" text-anchor="start">B / Полный микс</text>
+<text x="771" y="225" fill="#9DAAB8" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="13"  dominant-baseline="hanging" text-anchor="start">ПКМ → Convert to MIDI</text>
+<rect x="775" y="275" width="610" height="46" rx="8" fill="#222C37" stroke="#34404C" stroke-width="1" />
+<text x="796" y="289" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="17"  dominant-baseline="hanging" text-anchor="start">Выбранный аудиоклип</text>
+<path d="M1080 321 L1080 338" stroke="#6CA4D0" stroke-width="2"  fill="none"/>
+<rect x="775" y="338" width="610" height="46" rx="8" fill="#222C37" stroke="#34404C" stroke-width="1" />
+<text x="796" y="352" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="17"  dominant-baseline="hanging" text-anchor="start">Выбор модели</text>
+<path d="M1080 384 L1080 401" stroke="#6CA4D0" stroke-width="2"  fill="none"/>
+<rect x="775" y="401" width="610" height="46" rx="8" fill="#222C37" stroke="#34404C" stroke-width="1" />
+<text x="796" y="415" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="17"  dominant-baseline="hanging" text-anchor="start">Общий прогресс + Chunks + Time</text>
+<path d="M1080 447 L1080 464" stroke="#6CA4D0" stroke-width="2"  fill="none"/>
+<rect x="775" y="464" width="610" height="46" rx="8" fill="#222C37" stroke="#34404C" stroke-width="1" />
+<text x="796" y="478" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="17"  dominant-baseline="hanging" text-anchor="start">Выбор MIDI-партий галочками</text>
+<path d="M1080 510 L1080 527" stroke="#6CA4D0" stroke-width="2"  fill="none"/>
+<rect x="775" y="527" width="610" height="46" rx="8" fill="#214442" stroke="#72BBA8" stroke-width="1" />
+<text x="796" y="541" fill="#72BBA8" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="17" font-weight="700" dominant-baseline="hanging" text-anchor="start">Новые MIDI-дорожки</text></svg>
