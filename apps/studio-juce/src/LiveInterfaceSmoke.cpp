@@ -2376,11 +2376,22 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         {
             const auto saved=inputPilot.liveDocument->interfaceState.clone();
             const auto item=saved["currentItem"].toString();
+            juce::String settingsPatch,settingsDefault;
             inputPilot.editLiveInterface("Stopped seek sound fixture",[&](auto& state) {
                 auto& channel=live::require(state,"channels",showChannel);
                 mrs::NativeInsert gain;gain.id=mrs::Id{"seek-gain"};
                 gain.kind=mrs::InsertKind::gain;gain.gain=.25f;
                 const auto seekPatchA=live::addChannelPatch(state,channel,{gain},"Seek A","blue");
+                settingsPatch=seekPatchA;
+                auto& library=live::require(channel,"patches",seekPatchA);
+                settingsDefault=live::createDefaultSubPatch(library,"blue");
+                // Existing same-chain snapshots must retain native settings too.
+                auto solo=live::object();
+                live::put(solo,"id","settings-solo");live::put(solo,"name","Settings Solo");
+                live::put(solo,"color","violet");
+                gain.gain=.5f;
+                live::put(solo,"inserts",live::encodeLivePatchInserts(state,{gain}));
+                live::array(library,"subPatches").add(solo);
                 gain.gain=.75f;
                 const auto seekPatchB=live::addChannelPatch(state,channel,{gain},"Seek B","violet");
                 auto spans=live::object();
@@ -2399,6 +2410,20 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                 const auto chain=inputPilot.captureLiveChannelInserts(showChannel,false,true);
                 liveCheck(chain.size()==1 && std::abs(chain.front().gain-(bar<4.?.25f:.75f))<1.e-6f,
                           "Stopped seek loads Timeline sound A, B, then A on active Core channel");
+            }
+            inputPilot.loadLiveChannelPatch(showChannel,settingsPatch,settingsDefault);
+            const auto settingsGeneration=inputPilot.app.insert_generation();
+            const auto settingsOther=inputPilot.captureLiveChannelInserts(secondChannel,false,true);
+            for(const auto& variant:juce::StringArray{"settings-solo",settingsDefault,"settings-solo"}) {
+                inputPilot.loadLiveChannelPatch(showChannel,settingsPatch,variant);
+                const auto chain=inputPilot.captureLiveChannelInserts(showChannel,false,true);
+                liveCheck(chain.size()==1 && std::abs(chain.front().gain-
+                              (variant==settingsDefault?.25f:.5f))<1.e-6f,
+                          "#374 settings: Sub-patch applies its native state");
+                liveCheck(inputPilot.app.insert_generation()==settingsGeneration,
+                          "#374 settings RED: Sub-patch must not rebuild prepared plugin chains");
+                liveCheck(inputPilot.captureLiveChannelInserts(secondChannel,false,true)==settingsOther,
+                          "#374 settings: Sub-patch leaves other channels unchanged");
             }
             inputPilot.editLiveInterface("Restore stopped seek fixture",[&](auto& state){state=saved.clone();});
             inputPilot.liveLoadedPatches.clear();
