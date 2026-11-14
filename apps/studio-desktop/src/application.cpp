@@ -1012,6 +1012,44 @@ void Application::load_insert_preset(std::optional<Id> track,NativeInsert preset
     // controller/DSP may have been edited since the last project snapshot.
     edit(SetInserts{track,std::move(effects)},id);
 }
+void Application::apply_insert_states(std::optional<Id> track,std::vector<NativeInsert> inserts) {
+    require_not_playing();
+    const auto p=services_.projects->state().project;
+    const auto old=insert_chain(*p,track);
+    // Same structure required: identical slot ids/kinds/classes, same order. This
+    // is the documented sub-patch precondition; anything else goes through set_inserts.
+    require(old.size()==inserts.size(),"State publish requires an identical insert chain");
+    for(std::size_t i=0;i<old.size();++i)
+        require(old[i].id==inserts[i].id&&old[i].kind==inserts[i].kind&&
+                old[i].plugin_path==inserts[i].plugin_path&&old[i].class_id==inserts[i].class_id,
+                "State publish requires an identical insert chain");
+    auto runtime=insert_runtime_.find(track?track->value:std::string{});
+    require(runtime!=insert_runtime_.end()&&runtime->second.graph,"Plugin chain is not prepared; connect audio or offline clock");
+    // One candidate graph state matches the upcoming inserts exactly. VST3 nodes
+    // restore their opaque component/controller in place; native nodes publish via
+    // the bounded RT-safe parameter queue. No graph rebuild, no editor reopen.
+    const auto candidate_state=processing::insert_graph(inserts);
+    auto candidate=*p;SetInserts{track,inserts}.apply(candidate);candidate.validate();
+    std::vector<processing::NodeState> vst3_nodes;
+    for(const auto& node:candidate_state.nodes)
+        if(node.format==processing::ProcessorFormat::vst3)vst3_nodes.push_back(node);
+    const auto stop_device=static_cast<bool>(device_);
+    try {
+        if(stop_device)device_->stop();
+        if(!vst3_nodes.empty())runtime->second.graph->restore_chain(vst3_nodes);
+        // Native bypass/parameter changes (and VST3 parameter overrides) publish
+        // through the already-prepared instance via the bounded parameter queue.
+        runtime->second.pending=candidate_state;
+        publish_inserts();
+        edit(SetInserts{track,std::move(inserts)});
+        unsaved_=true;
+    }catch(...){
+        runtime->second.pending.reset();
+        if(stop_device)device_->start();
+        throw;
+    }
+    if(stop_device)device_->start();
+}
 void Application::name_insert_preset(std::optional<Id> track,const Id& slot,std::string name) {
     auto effects=insert_chain(*services_.projects->state().project,track);
     auto at=std::find_if(effects.begin(),effects.end(),[&](const auto& fx){return fx.id==slot;});

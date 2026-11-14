@@ -229,6 +229,10 @@ public:
     void close_editor(const Id&) noexcept;
     void close_editors() noexcept;
     void restore_node(const NodeState&); // quiescent: retain processor/editor instance
+    // Quiescent in-place state publish for the whole serial chain; retains every
+    // processor/editor instance and pending queues. All-or-nothing: on any node
+    // failure the pre-snapshot state of every touched node is restored.
+    void restore_chain(std::span<const NodeState>);
     // NON-RT, every DSP owner stopped/joined. Serial insert chains only;
     // retain node indices, processors, editors and pending parameter queues.
     void reorder_serial(std::span<const Id>);
@@ -237,6 +241,7 @@ public:
     bool anticipation_safe() const noexcept;
     std::uint64_t control_revision() const noexcept;
 private:
+    void restore_node_in_place(const NodeState&, const GraphState& pre_snapshot);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

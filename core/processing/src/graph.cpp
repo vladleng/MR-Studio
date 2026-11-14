@@ -429,12 +429,12 @@ GraphState PreparedGraph::capture() const {
 }
 std::uint32_t PreparedGraph::node_latency(const Id& id) const{auto it=impl_->index.find(id.value);return it==impl_->index.end()?0:impl_->nodes[it->second].processor->latency();}
 std::vector<ParameterInfo> PreparedGraph::parameter_infos(const Id& id) const{auto it=impl_->index.find(id.value);return it==impl_->index.end()?std::vector<ParameterInfo>{}:[&]{auto infos=impl_->nodes[it->second].infos;if(impl_->snapshot.graph->nodes[it->second].format==ProcessorFormat::vst3)for(auto& p:infos)if(auto v=impl_->nodes[it->second].processor->parameter_value(p.id))p.initial=*v;return infos;}();}
-void PreparedGraph::restore_node(const NodeState& state) {
+void PreparedGraph::restore_node_in_place(const NodeState& state,const GraphState& pre_snapshot) {
     auto& p=*impl_;const auto found=p.index.find(state.id.value);
     if(found==p.index.end())throw std::invalid_argument("unknown preset processor");
     const auto index=found->second;const auto& original=p.snapshot.graph->nodes[index];
     if(state.format!=ProcessorFormat::vst3||state.processor_id!=original.processor_id||state.plugin.class_id!=original.plugin.class_id)throw std::invalid_argument("preset changes processor structure");
-    auto saved=capture();auto next=std::make_shared<GraphState>(*p.snapshot.graph);next->nodes[index]=state;next->validate();
+    auto next=std::make_shared<GraphState>(*p.snapshot.graph);next->nodes[index]=state;next->validate();
     auto& node=p.nodes[index];const auto latency=node.processor->latency();
     try {
         node.processor->restore(state.plugin);
@@ -447,7 +447,41 @@ void PreparedGraph::restore_node(const NodeState& state) {
         (void)node.processor->capture(); // flush sparse overrides without advancing audio
         if(node.processor->latency()!=latency)throw std::runtime_error("Preset changes plugin latency; reload the insert before using this mode");
         node.infos=std::move(infos);node.bypass=state.bypass;p.last_parameters[state.id.value]=state.parameters;p.snapshot.graph=std::move(next);
-    }catch(...){node.processor->restore(saved.nodes[index].plugin);throw;}
+    }catch(...){
+        const auto original_node=std::find_if(pre_snapshot.nodes.begin(),pre_snapshot.nodes.end(),[&](const auto& n){return n.id==state.id;});
+        if(original_node!=pre_snapshot.nodes.end())node.processor->restore(original_node->plugin);
+        throw;
+    }
+}
+void PreparedGraph::restore_node(const NodeState& state) {
+    const auto saved=capture(); // single-node all-or-nothing rollback snapshot
+    restore_node_in_place(state,saved);
+}
+void PreparedGraph::restore_chain(std::span<const NodeState> states) {
+    const auto saved=capture(); // whole-chain rollback snapshot
+    for(const auto& state:states) {
+        try { restore_node_in_place(state,saved); }
+        catch(...) {
+            // Undo every already-restored node so the chain never stays partial
+            // across processor state, bypass, infos, parameter cache and snapshot.
+            for(const auto& prior:saved.nodes) {
+                const auto at=impl_->index.find(prior.id.value);
+                if(at==impl_->index.end())continue;
+                const auto index=at->second;
+                try {
+                    impl_->nodes[index].processor->restore(prior.plugin);
+                    impl_->nodes[index].bypass=prior.bypass;
+                    impl_->nodes[index].infos=impl_->nodes[index].processor->parameters();
+                    impl_->last_parameters[prior.id.value]=prior.parameters;
+                    auto next=std::make_shared<GraphState>(*impl_->snapshot.graph);
+                    const auto nodeIndex=std::find_if(next->nodes.begin(),next->nodes.end(),[&](const auto& n){return n.id==prior.id;});
+                    if(nodeIndex!=next->nodes.end())*nodeIndex=prior;
+                    next->validate();impl_->snapshot.graph=std::move(next);
+                } catch(...) {}
+            }
+            throw;
+        }
+    }
 }
 bool PreparedGraph::open_editor(const Id& id,void* parent,int& w,int& h){const auto it=impl_->index.find(id.value);if(it==impl_->index.end())return false;return impl_->nodes[it->second].processor->open_editor(parent,w,h);}
 void PreparedGraph::close_editors() noexcept {for(auto& n:impl_->nodes)n.processor->close_editor();}

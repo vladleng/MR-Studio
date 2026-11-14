@@ -296,6 +296,10 @@ public:
     void set_reverb_root(std::filesystem::path);
     std::shared_ptr<audio::ReverbLoader> reverb_loader(std::optional<Id>,const Id&,bool ensure=false);
     void load_insert_preset(std::optional<Id>,NativeInsert);
+    // Same-chain in-place state publish across the whole insert chain (no graph
+    // rebuild, retains processor/editor instances). Requires identical structure;
+    // otherwise throws and leaves the previous DSP untouched.
+    void apply_insert_states(std::optional<Id>, std::vector<NativeInsert>);
     void name_insert_preset(std::optional<Id>,const Id&,std::string);
     void preview_inserts(std::optional<Id>, const std::vector<NativeInsert>&);
     void cancel_insert_preview();

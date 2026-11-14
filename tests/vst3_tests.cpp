@@ -69,6 +69,32 @@ void state(const NodeState& node){PreparedGraph graph{snapshot(node),{48000,2,64
     for(auto v:audio)CHECK(std::abs(v-0.625f)<0.000001f); // DSP reset on activation cannot overwrite restored sound.
 
 }
+void restore_chain_test(const NodeState& node){
+    // #289 B: a sub-patch restores state for every node of the SAME chain in one
+    // all-or-nothing publish, retaining each processor instance.
+    auto first=node,second=node;second.id={"vst-node-2"};
+    GraphState s;s.id={"chain-graph"};s.nodes={first,second};
+    s.edges={{std::nullopt,first.id,1},{first.id,second.id,1}};s.outputs={second.id};
+    PreparedGraph graph{{std::make_shared<const GraphState>(s),0,false,false},{48000,2,64},hosted_factory};
+    std::array<float,128> audio;audio.fill(1);graph.process(audio.data(),64); // warm the real instances
+    // Restore a coherent two-node variant in one publish.
+    auto g1=graph.capture();
+    g1.nodes[0].bypass=true;
+    // build target NodeStates matching id/structure but changed opaque state
+    auto states=g1.nodes;
+    states[1].plugin.component=std::vector<std::byte>{std::byte{0x2A},std::byte{0x2A}};
+    graph.restore_chain(states);
+    const auto after=graph.capture();
+    CHECK(after.nodes[0].bypass&&after.nodes[1].plugin.component==states[1].plugin.component,
+          "restore_chain applies a full same-chain state variant");
+    // A node that changes structure must reject, and NOT partially apply prior nodes.
+    auto bad=states;bad[1].processor_id="other-plugin.vst3";
+    rejects([&]{graph.restore_chain(bad);});
+    const auto rolled=graph.capture();
+    CHECK(rolled.nodes[0].bypass==after.nodes[0].bypass&&
+          rolled.nodes[1].plugin==after.nodes[1].plugin,
+          "failed restore_chain leaves the previous chain state intact");
+}
 void editor(const NodeState& node){PreparedGraph graph{snapshot(node),{48000,2,64},hosted_factory};const auto parent=CreateWindowW(L"STATIC",L"test",WS_OVERLAPPED,0,0,400,200,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);CHECK(parent!=nullptr);int w{},h{};CHECK(graph.open_editor(node.id,parent,w,h)&&w==320&&h==120);auto child=GetWindow(parent,GW_CHILD);CHECK(child!=nullptr);SendMessageW(child,WM_COMMAND,MAKEWPARAM(1,BN_CLICKED),0);CHECK(graph.consume_edits());std::array<float,128> audio;audio.fill(1);graph.process(audio.data(),64);CHECK(audio[0]==0.75f);
     // A preset changes processor/controller state without performEdit for each parameter.
     SendMessageW(child,WM_COMMAND,MAKEWPARAM(2,BN_CLICKED),0);CHECK(graph.consume_edits());
@@ -142,4 +168,4 @@ int wmain(int argc,wchar_t** argv){CoInitializeEx(nullptr,COINIT_APARTMENTTHREAD
     auto saved=graph.capture();PreparedGraph restored{{std::make_shared<const GraphState>(saved),0,false,false},{48000,2,128},hosted_factory};for(int i=0;i<128;++i){audio.fill(0.01f);restored.process(audio.data(),128);}CHECK(std::abs(audio[0]-edited)<0.00001f);
     auto parent=CreateWindowW(L"STATIC",L"external-test",WS_OVERLAPPED,0,0,1200,800,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);int w{},h{};const auto view=graph.open_editor(node.id,parent,w,h);if(view){CHECK(w>0&&h>0);graph.close_editors();}DestroyWindow(parent);
     std::cout<<plugins.front().name<<": processing / gain automation / state roundtrip / editor="<<view<<" latency="<<graph.latency().output<<"\n";
-}else if(suite==L"probe"){CHECK(plugins.front().name=="MRS Test Gain");rejects([&]{probe_vst3(utf8(module)+".missing");});}else if(suite==L"processing")processing_test(node);else if(suite==L"realtime")realtime_test(node);else if(suite==L"state"){state(node);large_state_test(module,node);}else if(suite==L"editor")editor(node);else if(suite==L"scan")scan(module,argv[3]);else if(suite==L"desktop")desktop_test(node);else throw std::runtime_error("unknown suite");std::cout<<"VST3 passed\n";CoUninitialize();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';CoUninitialize();return 1;}}
+}else if(suite==L"probe"){CHECK(plugins.front().name=="MRS Test Gain");rejects([&]{probe_vst3(utf8(module)+".missing");});}else if(suite==L"processing")processing_test(node);else if(suite==L"realtime")realtime_test(node);else if(suite==L"state"){state(node);large_state_test(module,node);}else if(suite==L"restore_chain")restore_chain_test(node);else if(suite==L"editor")editor(node);else if(suite==L"scan")scan(module,argv[3]);else if(suite==L"desktop")desktop_test(node);else throw std::runtime_error("unknown suite");std::cout<<"VST3 passed\n";CoUninitialize();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';CoUninitialize();return 1;}}

@@ -1350,6 +1350,23 @@ void Desktop::reconcileLiveInputs(const juce::var& state) {
         validateLiveRole(row,profile);
         if(profile.instrument && profile.inserts.empty()) {channelTracks.erase(channel);changed=true;continue;}
         validateLiveHardware(*this,profile);
+        // #289 B: a sub-patch is the same chain with different parameter/plugin
+        // state. Publish state in place (no processor/editor rebuild) instead of a
+        // full update_live_channels graph reprepare. Structure changes keep the
+        // existing full republish path below.
+        try {
+            const auto prior=live::decodeLiveInputProfile(old["liveInput"]).inserts;
+            if(live::sameInsertStructure(prior,profile.inserts)) {
+                app.apply_insert_states(id,profile.inserts);
+                // Keep this channel in the candidate set: if another channel later
+                // needs a full republish, update_live_channels must still carry the
+                // complete live-channel set, not just the structural ones.
+                tracks.push_back(*at);
+                continue;
+            }
+        } catch(const std::exception&) {
+            // Missing opaque state or an unpublishable chain falls back to a full republish.
+        }
         auto track=liveTrack(state,channel,id);
         const auto monitoring=live::liveAutomaticMonitor(profile);
         track.input_monitor=monitoring.audio;track.midi_monitor=monitoring.midi;
