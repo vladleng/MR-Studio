@@ -86,7 +86,9 @@ jobs:
         shell: pwsh
         run: |
           ctest --test-dir build/windows -C Release --output-on-failure --no-tests=error -R '^(juce_live_(entry_smoke|application)|vst3_(state|editor))$'
-          if($LASTEXITCODE){throw 'Live runtime regression failed'}
+          $testExit=$LASTEXITCODE
+          if(Test-Path build/windows/live-entry-failure.txt){Get-Content build/windows/live-entry-failure.txt}
+          if($testExit){throw 'Live runtime regression failed'}
   compile:
     name: Compile JUCE GUI with MSVC (no link/package)
     runs-on: windows-2022
