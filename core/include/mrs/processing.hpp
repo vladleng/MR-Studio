@@ -229,6 +229,10 @@ public:
     void close_editor(const Id&) noexcept;
     void close_editors() noexcept;
     void restore_node(const NodeState&); // quiescent: retain processor/editor instance
+    // NON-RT, device stopped and workers quiesced. All-or-rollback settings;
+    // rollbackFailed means the caller MUST keep the device stopped.
+    void restore_settings(const GraphState&, bool& rollbackFailed);
+    std::uint64_t instance_identity() const noexcept;
     // NON-RT, every DSP owner stopped/joined. Serial insert chains only;
     // retain node indices, processors, editors and pending parameter queues.
     void reorder_serial(std::span<const Id>);

@@ -152,6 +152,7 @@ public:
     void loadStoppedLiveTimelinePatches(const juce::String& itemId,double atBar);
     struct LoadedLivePatch {
         juce::String itemId,patchId,subPatchId;
+        std::uint64_t runtimeIdentity{};
     };
     std::map<juce::String,LoadedLivePatch> liveLoadedPatches;
     bool livePatchLoadedForEditing(const juce::String& channel,const juce::String& patchId,
@@ -162,7 +163,11 @@ public:
     // #289 B - sub-patches: named parameter-override sets of the same captured
     // chain. Switching is stopped-only and uses the parameter-only Core path.
     void applyLiveChannelSubPatch(const juce::String&, const juce::String& patchId,
-                                  const juce::String& subPatchId);
+                                  const juce::String& subPatchId,
+                                   const juce::var& spans={},const juce::String& itemId={});
+    // Shared perform/Undo/Redo operation; validates the active parent/runtime.
+    void commitLiveSubPatchState(const juce::String&,const LoadedLivePatch&,
+                                 const juce::var&,const std::vector<mrs::NativeInsert>&);
     // Insert a saved variation inside an existing full-length Sub-patch.
     void insertExistingLiveSubPatch(const juce::String& channel,
                                     const juce::String& patchId,

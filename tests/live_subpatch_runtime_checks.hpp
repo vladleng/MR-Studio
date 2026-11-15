@@ -26,6 +26,8 @@ void subPatchRuntime(Host& host,const juce::String& channel,const juce::String& 
     mrs::NativeInsert first;first.id={"runtime-vst-a"};first.kind=mrs::InsertKind::vst3;
     first.plugin_path=path.toStdString();first.class_id=plugins.front().class_id;first.plugin_name=plugins.front().name;
     auto second=first;second.id={"runtime-vst-b"};
+    auto otherNative=native;otherNative.id={"runtime-other-native"};otherNative.gain=.35f;
+    host.setLiveInputEffects(other,{otherNative});
     host.setLiveInputEffects(channel,{native,first,second});
     host.captureLiveChannelPatch(channel,"Runtime settings","blue");
     const auto bank=live::find(host.liveDocument->interfaceState,"channels",channel)["patches"];
@@ -55,6 +57,19 @@ void subPatchRuntime(Host& host,const juce::String& channel,const juce::String& 
         snapshot[2].component_state={std::byte{0}};
         add(live::captureSubPatchVariant(state,base,snapshot,live::SubPatchCaptureMode::snapshot),"runtime-invalid");
     });
+    const auto itemId=host.liveDocument->interfaceState["currentItem"].toString();
+    host.editLiveInterface("Sub-patch Timeline fixture",[&](auto& state){
+        for(auto& t:live::array(live::require(state,"items",itemId),"tracks"))
+            if(t["channelId"].toString()==channel){live::put(t,"spans",live::object());live::put(t,"patchOrder",juce::var(juce::Array<juce::var>{}));}
+    });
+    host.addLivePatchBlock(channel,patchId,0.,itemId);
+    const auto timeline=live::channelItemTrack(host.liveDocument->interfaceState,itemId,channel)["spans"];
+    const auto segment=timeline[juce::Identifier(patchId)]["subs"].getDynamicObject()->getProperties().getName(0).toString();
+    const auto choose=[&](const juce::String& id){
+        const auto spans=live::channelItemTrack(host.liveDocument->interfaceState,itemId,channel)["spans"];
+        const auto changed=live::replaceSubPatchSegment(spans,patchId,segment,id);
+        host.applyLiveChannelSubPatch(channel,patchId,id,changed,itemId);
+    };
     const auto track=*host.liveInputTrack(channel);
     struct Window {
         HWND handle=CreateWindowW(L"STATIC",L"Sub-patch editor test",WS_OVERLAPPED,0,0,400,200,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
@@ -63,6 +78,7 @@ void subPatchRuntime(Host& host,const juce::String& channel,const juce::String& 
     int width{},height{};
     check(host.app.open_plugin_editor(track,first.id,window.handle,width,height),"#374 runtime: fixture editor opens");
     const auto child=GetWindow(window.handle,GW_CHILD);
+    check(child && IsWindow(child),"#374 runtime: editor HWND exists before switching");
     const auto generation=host.app.insert_generation();
     const auto instanceCount=creations();
     const auto otherBefore=host.captureLiveChannelInserts(other,false,true);
@@ -76,24 +92,24 @@ void subPatchRuntime(Host& host,const juce::String& channel,const juce::String& 
         check(host.captureLiveChannelInserts(other,false,true)==otherBefore,"#374 runtime: other channel unchanged");
     };
     for(const auto& id:juce::StringArray{"runtime-a","runtime-b",defaultId,"runtime-snapshot",defaultId}) {
-        host.loadLiveChannelPatch(channel,patchId,id);
+        choose(id);
         verify(id=="runtime-a"?.75f:id=="runtime-snapshot"?.625f:.5f,
                id=="runtime-b"?.25f:id=="runtime-snapshot"?.875f:.5f);
     }
-    host.loadLiveChannelPatch(channel,patchId,"runtime-a");
+    choose("runtime-a");
     host.app.set_plugin_parameter(track,first.id,100,.9f);
-    host.loadLiveChannelPatch(channel,patchId,"runtime-a");verify(.75f,.5f);
-    host.loadLiveChannelPatch(channel,patchId,"runtime-b");verify(.5f,.25f);
+    choose("runtime-a");verify(.75f,.5f);
+    choose("runtime-b");verify(.5f,.25f);
     host.undoLiveInterface(false);verify(.75f,.5f);
     host.undoLiveInterface(true);verify(.5f,.25f);
     const auto showBefore=live::canonical(host.liveDocument->interfaceState);
     bool rejected=false;
-    try{host.loadLiveChannelPatch(channel,patchId,"runtime-invalid");}catch(const std::exception&){rejected=true;}
+    try{choose("runtime-invalid");}catch(const std::exception&){rejected=true;}
     check(rejected && live::canonical(host.liveDocument->interfaceState)==showBefore,
           "#374 runtime: failed second VST3 state leaves show unchanged");
     verify(.5f,.25f);
     latencyChanges(1);rejected=false;
-    try{host.loadLiveChannelPatch(channel,patchId,"runtime-snapshot");}catch(const std::exception&){rejected=true;}
+    try{choose("runtime-snapshot");}catch(const std::exception&){rejected=true;}
     latencyChanges(0);
     check(rejected && live::canonical(host.liveDocument->interfaceState)==showBefore,
           "#374 runtime: changed VST3 latency rejects without committing show");
@@ -129,11 +145,16 @@ void subPatchRuntime(Host& host,const juce::String& channel,const juce::String& 
     try{host.applyLiveChannelSubPatch(channel,patchId,"runtime-a");}catch(const std::exception&){rejected=true;}
     check(rejected,"#374 runtime: recording refuses Sub-patch state restoration");
     host.app.stop_recording();host.app.stop();host.app.engine()->process(input.data(),output.data(),128);
-    rejectRestores(1);rejected=false;
-    try{host.loadLiveChannelPatch(channel,patchId,"runtime-snapshot");}catch(const std::exception&){rejected=true;}
+    rejectRestores(1);rejected=false;bool explicitRollbackFailure=false;
+    try{host.loadLiveChannelPatch(channel,patchId,"runtime-snapshot");}
+    catch(const std::exception& error){rejected=true;explicitRollbackFailure=std::string(error.what()).find("rollback failed")!=std::string::npos;}
     rejectRestores(0);
-    check(rejected && host.app.device_status().phase==mrs::audio::DevicePhase::stopped,
+    check(rejected && explicitRollbackFailure && host.app.device_status().phase==mrs::audio::DevicePhase::stopped,
           "#374 runtime: failed rollback keeps audio stopped with an explicit error");
+    (void)host.captureLiveChannelInserts(channel);
+    host.saveFile(saved);
+    check(host.app.device_status().phase==mrs::audio::DevicePhase::stopped,
+          "#374 runtime: Capture/Save cannot restart audio after failed rollback");
 }
 }
 #endif

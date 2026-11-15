@@ -80,12 +80,12 @@ jobs:
       - name: Build Live and hosted fixture tests
         shell: pwsh
         run: |
-          cmake --build build/windows --config Release --parallel 2 --target MRLiveJuce mrs_vst3_tests
+          cmake --build build/windows --config Release --parallel 2 --target MRLiveJuce mrs_vst3_tests mrs_subpatch_settings_tests
           if($LASTEXITCODE){throw 'Live regression build failed'}
       - name: Targeted Live runtime tests
         shell: pwsh
         run: |
-          ctest --test-dir build/windows -C Release --output-on-failure --no-tests=error -R '^(juce_live_(entry_smoke|application)|vst3_(state|editor))$'
+          ctest --test-dir build/windows -C Release --output-on-failure --no-tests=error -R '^(juce_live_(entry_smoke|application)|processing_subpatch_settings|vst3_(processing|state|editor|desktop|realtime))$'
           $testExit=$LASTEXITCODE
           if(Test-Path build/windows/live-entry-failure.txt){Get-Content build/windows/live-entry-failure.txt}
           if($testExit){throw 'Live runtime regression failed'}

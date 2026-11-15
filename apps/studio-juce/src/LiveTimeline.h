@@ -1416,15 +1416,10 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                         const auto source=track["spans"];
                         const auto changed=live::replaceSubPatchSegment(
                             source,patchId,instance,chosen);
-                        if(!live::sameShowValue(source,changed))
-                            safe->setLivePatchSpans(channelId,patchId,changed,
-                                                    "Select Sub-patch",itemId);
-                        // Selection at Stop also loads the chosen sound for
-                        // direct plugin editing; there is no channel Patch menu.
-                        if(safe->liveDocument->interfaceState["currentItem"].toString()==itemId &&
-                           !safe->app.recording() &&
-                           safe->displayState().playback!=mrs::PlaybackState::playing)
-                            safe->loadLiveChannelPatch(channelId,libraryPatch,chosen);
+                        if(safe->liveDocument->interfaceState["currentItem"].toString()==itemId)
+                            safe->applyLiveChannelSubPatch(channelId,libraryPatch,chosen,changed,itemId);
+                        else if(!live::sameShowValue(source,changed))
+                            safe->setLivePatchSpans(channelId,patchId,changed,"Select Sub-patch",itemId);
                     });
                 });
         }

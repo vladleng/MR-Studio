@@ -28,7 +28,9 @@ struct ParamBatch {std::array<ParamCommand,1024> changes{};std::size_t size{};};
 #pragma warning(push)
 #pragma warning(disable: 4324) // intentional SPSC alignment propagated into Impl
 #endif
+namespace { std::atomic<std::uint64_t> nextInstanceIdentity{1}; }
 struct PreparedGraph::Impl {
+    const std::uint64_t identity{nextInstanceIdentity.fetch_add(1)};
     struct Edge { std::optional<std::size_t> from; float gain; CompensationDelay delay; };
     struct Node {
         std::unique_ptr<IProcessor> processor;
@@ -429,6 +431,65 @@ GraphState PreparedGraph::capture() const {
 }
 std::uint32_t PreparedGraph::node_latency(const Id& id) const{auto it=impl_->index.find(id.value);return it==impl_->index.end()?0:impl_->nodes[it->second].processor->latency();}
 std::vector<ParameterInfo> PreparedGraph::parameter_infos(const Id& id) const{auto it=impl_->index.find(id.value);return it==impl_->index.end()?std::vector<ParameterInfo>{}:[&]{auto infos=impl_->nodes[it->second].infos;if(impl_->snapshot.graph->nodes[it->second].format==ProcessorFormat::vst3)for(auto& p:infos)if(auto v=impl_->nodes[it->second].processor->parameter_value(p.id))p.initial=*v;return infos;}();}
+std::uint64_t PreparedGraph::instance_identity() const noexcept {return impl_->identity;}
+void PreparedGraph::restore_settings(const GraphState& target,bool& rollbackFailed) {
+    rollbackFailed=false;
+    auto& p=*impl_;
+    target.validate();
+    const auto& original=*p.snapshot.graph;
+    if(target.nodes.size()!=original.nodes.size() || target.edges!=original.edges ||
+       target.outputs!=original.outputs || target.midi_routes!=original.midi_routes)
+        throw std::invalid_argument("Sub-patch changes graph structure");
+    for(std::size_t i=0;i<target.nodes.size();++i) {
+        const auto& a=target.nodes[i];const auto& b=original.nodes[i];
+        if(a.id!=b.id || a.format!=b.format || a.processor_id!=b.processor_id ||
+           (a.format==ProcessorFormat::vst3 && a.plugin.class_id!=b.plugin.class_id))
+            throw std::invalid_argument("Sub-patch changes insert slot, order, type or plugin class");
+    }
+    // Drain outstanding UI controls before backing up the actual sound.
+    const auto backup=capture();
+    auto next=std::make_shared<GraphState>(target);
+    auto nextParameters=p.last_parameters;
+    for(const auto& n:target.nodes)nextParameters[n.id.value]=n.parameters;
+    std::vector<std::uint32_t> latencies;
+    for(const auto& node:p.nodes)latencies.push_back(node.processor->latency());
+    const auto restore=[&](std::size_t i,const NodeState& state) {
+        auto& node=p.nodes[i];
+        if(state.format==ProcessorFormat::vst3)node.processor->restore(state.plugin);
+        // Native resources are unchanged (validated by the application); apply
+        // their complete control set without replacing/resetting the processor.
+        const auto infos=node.processor->parameters();
+        const bool legacyFull=state.format==ProcessorFormat::vst3 &&
+            !state.plugin.component.empty() && state.parameters.size()>1 &&
+            state.parameters.size()==static_cast<std::size_t>(std::count_if(infos.begin(),infos.end(),[](const auto& v){return v.automatable;})) &&
+            std::all_of(state.parameters.begin(),state.parameters.end(),[&](const auto& v){return std::any_of(infos.begin(),infos.end(),[&](const auto& info){return info.id==v.id&&info.automatable;});});
+        if(!legacyFull)for(const auto& v:state.parameters) {
+            const auto at=std::find_if(infos.begin(),infos.end(),[&](const auto& info){return info.id==v.id;});
+            if(at==infos.end() || !std::isfinite(v.value) || v.value<at->minimum || v.value>at->maximum ||
+               (state.format==ProcessorFormat::vst3 && !at->automatable))
+                throw std::invalid_argument("Sub-patch has an unsupported parameter");
+            if(node.processor->parameter_value(v.id)!=v.value) {
+                if(!node.processor->set_parameter(v.id,v.value))throw std::runtime_error("Sub-patch parameter rejected");
+                node.processor->sync_controller(v.id,v.value);
+            }
+        }
+        (void)node.processor->capture(); // flush VST3 sparse controls without rendering frames
+        if(node.processor->latency()!=latencies[i])
+            throw std::runtime_error("Sub-patch changes plugin latency; PDC requires a full Patch load");
+        node.bypass=state.bypass;
+    };
+    try {
+        for(std::size_t i=0;i<target.nodes.size();++i)restore(i,target.nodes[i]);
+    } catch(...) {
+        const auto failure=std::current_exception();
+        // Continue across failures so every other slot gets its previous sound.
+        for(std::size_t i=0;i<backup.nodes.size();++i)
+            try{restore(i,backup.nodes[i]);}catch(...){rollbackFailed=true;}
+        if(rollbackFailed)throw std::runtime_error("Sub-patch restore failed and rollback failed; audio remains stopped. Reload the parent Patch");
+        std::rethrow_exception(failure);
+    }
+    p.snapshot.graph=std::move(next);p.last_parameters.swap(nextParameters);++p.control_revision;
+}
 void PreparedGraph::restore_node(const NodeState& state) {
     auto& p=*impl_;const auto found=p.index.find(state.id.value);
     if(found==p.index.end())throw std::invalid_argument("unknown preset processor");

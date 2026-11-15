@@ -1008,6 +1008,57 @@ std::vector<processing::ParameterInfo> Application::plugin_parameters(std::optio
     // Metadata belongs to the prepared instance; no processing-thread calls.
     return it->second.graph->parameter_infos(slot);
 }
+std::uint64_t Application::insert_runtime_identity(std::optional<Id> track) const {
+    const auto at=insert_runtime_.find(track?track->value:std::string{});
+    return at==insert_runtime_.end()||!at->second.graph?0:at->second.graph->instance_identity();
+}
+void Application::apply_insert_settings(std::optional<Id> track,const std::vector<NativeInsert>& effects) {
+    require_not_recording();
+    require(engine_->state().playback==PlaybackState::stopped,"Stop playback before applying Sub-patch settings");
+    const auto project=services_.projects->state().project;
+    const auto& before=insert_chain(*project,track);
+    auto comparable=before;
+    require(before.size()==effects.size(),"Sub-patch insert count differs from the active Patch");
+    for(std::size_t i=0;i<before.size();++i) {
+        const auto& a=before[i];const auto& b=effects[i];
+        require(a.id==b.id&&a.kind==b.kind&&a.plugin_path==b.plugin_path&&a.class_id==b.class_id,
+                "Sub-patch insert slot, order, type or plugin class differs from the active Patch");
+        if(a.kind==InsertKind::vst3){comparable[i].component_state=b.component_state;comparable[i].controller_state=b.controller_state;}
+    }
+    require(parameter_only(comparable,effects),"Sub-patch changes native resources; load or update the parent Patch");
+    auto at=insert_runtime_.find(track?track->value:std::string{});
+    require(device_&&at!=insert_runtime_.end(),"Sub-patch has no prepared runtime");
+    require(!at->second.settings_failed,"Previous Sub-patch rollback failed; reload the parent Patch");
+    require(effects.empty()||at->second.graph,"Sub-patch has no prepared insert chain");
+    const auto desired=processing::insert_graph(effects);
+    SetInserts command{track,effects};
+    auto transaction=services_.projects->prepare_transaction(&command);
+    const bool restart=device_->status().phase==audio::DevicePhase::running;
+    device_->stop();engine_->quiesce();
+    std::optional<processing::GraphState> backup;
+    bool applied=false,rollbackFailed=false;
+    try {
+        if(at->second.graph){backup=at->second.graph->capture();at->second.graph->restore_settings(desired,rollbackFailed);applied=true;}
+        if(transaction)transaction->commit();
+        if(restart)device_->start();
+        if(transaction)transaction->finish();
+        at->second.pending.reset();unsaved_=true;++plugin_edit_revision_;
+    } catch(...) {
+        const auto failure=std::current_exception();
+        if(transaction)transaction->rollback();
+        if(applied) {
+            device_->stop();engine_->quiesce();
+            try{bool failed=false;at->second.graph->restore_settings(*backup,failed);}catch(...){rollbackFailed=true;}
+        }
+        if(rollbackFailed) {
+            at->second.settings_failed=true;
+            try{device_->stop();}catch(...){}engine_->quiesce();
+            throw std::runtime_error("Sub-patch failed; rollback failed. Audio remains stopped; reload the parent Patch");
+        }
+        if(restart)device_->start();
+        std::rethrow_exception(failure);
+    }
+}
 void Application::set_plugin_parameter(std::optional<Id> track,const Id& slot,std::uint32_t id,float value){auto chain=insert_chain(*services_.projects->state().project,track);auto it=std::find_if(chain.begin(),chain.end(),[&](const auto& fx){return fx.id==slot;});if(it!=chain.end()&&wav_core(it->kind)){require(id<(it->kind==InsertKind::rig?7u:5u),"unknown WAV core parameter");if(id==5)it->rig.input_gain=value;else if(id==6)it->rig.output_gain=value;else if(id==0)it->gain=value;else if(id==1)it->ir.mix=value;else if(id==2)it->ir.low_cut=value;else if(id==3)it->ir.high_cut=value;else {require(value==0||value==1,"invalid Cab polarity");it->ir.invert=value==1;}set_inserts(track,std::move(chain));return;}if(it!=chain.end()&&it->kind==InsertKind::reverb){require(id<5,"unknown MR Reverb parameter");if(id==0)it->reverb.pre_delay=value;else if(id==1)it->reverb.tone=value;else if(id==2)it->reverb.mix=value;else if(id==3){require(value==0||value==1,"invalid MR Reverb gate enable");it->reverb.gate_enabled=value==1;}else it->reverb.gate_threshold=value;set_inserts(track,std::move(chain));return;}require(it!=chain.end() && it->kind==InsertKind::vst3,"unknown VST3 insert");auto p=std::find_if(it->parameters.begin(),it->parameters.end(),[&](const auto& p){return p.id==id;});if(p==it->parameters.end())it->parameters.push_back({id,value});else p->value=value;set_inserts(track,std::move(chain));}
 NativeInsert Application::capture_insert(std::optional<Id> track,const Id& slot){
     poll_reverbs();
@@ -1017,7 +1068,8 @@ NativeInsert Application::capture_insert(std::optional<Id> track,const Id& slot)
 }
 void Application::capture_insert_state(Project& project,std::optional<Id> authoritative,bool callbacks_stopped){
     bool has_vst=false;for(const auto& [key,r]:insert_runtime_){(void)key;if(r.graph)for(const auto& n:r.graph->snapshot().graph->nodes)has_vst=has_vst||n.format==processing::ProcessorFormat::vst3;}if(!has_vst || !device_)return;
-    if(!callbacks_stopped){require_not_playing();device_->stop();}
+    const bool restart=!callbacks_stopped && device_->status().phase==audio::DevicePhase::running;
+    if(!callbacks_stopped){require_not_playing();device_->stop();engine_->quiesce();}
     try{const auto original=services_.projects->state().project;
         for(const auto& [key,r]:insert_runtime_)if(r.graph&&!retained_insert_keys_.contains(key)&&(!staged_insert_target_||key==*staged_insert_target_)){auto* chain=&project.master_inserts;if(!key.empty()){chain=nullptr;for(auto& t:project.tracks)if(t.id.value==key)chain=&t.inserts;}if(!chain)continue;
             const auto original_track=key.empty()?std::optional<Id>{}:std::optional<Id>{Id{key}};
@@ -1031,8 +1083,8 @@ void Application::capture_insert_state(Project& project,std::optional<Id> author
                 for(const auto& p:node.parameters)if(std::any_of(infos.begin(),infos.end(),[&](const auto& info){return info.id==p.id&&info.automatable;}))fx.parameters.push_back({p.id,p.value});
                 for(const auto& p:overrides)if(std::find(old->parameters.begin(),old->parameters.end(),p)==old->parameters.end()){auto at=std::find_if(fx.parameters.begin(),fx.parameters.end(),[&](const auto& v){return v.id==p.id;});if(at==fx.parameters.end())fx.parameters.push_back(p);else *at=p;}
             }
-        }if(!callbacks_stopped)device_->start();
-    }catch(...){if(!callbacks_stopped)device_->start();throw;}
+        }if(restart)device_->start();
+    }catch(...){if(restart)device_->start();throw;}
 }
 void Application::set_track_input(const Id& id, int input, bool stereo) {
     require_not_playing();
