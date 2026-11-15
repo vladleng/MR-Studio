@@ -1469,8 +1469,25 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
                   "#374 J: first Sub-patch splits default and preserves full coverage without Base");
         const float subY=static_cast<float>(laneRect.getY()+94);
         const float firstSubX=seamX-static_cast<float>(3.5*scale);
+        juce::PopupMenu::dismissAllActiveMenus();
+        livePump();
         body->mouseDown(event(firstSubX,subY));
         body->mouseUp(event(firstSubX,subY));
+        liveCheck(!juce::PopupMenu::dismissAllActiveMenus(),
+                  "#374: clicking the Sub-patch body selects without opening the sound chooser");
+        const float chooserX=seamX-static_cast<float>(4.*scale)+12.f;
+        const float chooserY=static_cast<float>(laneRect.getY()+84);
+        body->mouseMove(event(chooserX,chooserY));
+        liveCheck(body->getMouseCursor()==juce::MouseCursor::PointingHandCursor,
+                  "#374: the left Sub-patch arrow has its own chooser hit target");
+        const auto chooserRevision=editing.liveLocalPatchApplications;
+        body->mouseDown(event(chooserX,chooserY));
+        body->mouseUp(event(chooserX,chooserY));
+        liveCheck(juce::PopupMenu::dismissAllActiveMenus(),
+                  "#374: clicking the left Sub-patch arrow opens the sound chooser");
+        livePump();
+        liveCheck(editing.liveLocalPatchApplications==chooserRevision,
+                  "#374: dismissing the Sub-patch chooser does not edit the block");
         liveCheck(body->keyPressed(juce::KeyPress(juce::KeyPress::backspaceKey)),
                   "#374 J: Backspace handles selected Sub-patch strip");
         const auto removed=live::channelItemTrack(editing.liveDocument->interfaceState,

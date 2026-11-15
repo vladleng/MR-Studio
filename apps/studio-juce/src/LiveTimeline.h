@@ -776,6 +776,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         // dismiss the menu immediately, so right-click appeared to do nothing.
         bool popupPending{};
         juce::Point<int> popupPosition, popupScreen;
+        bool subChooserArmed{};
+        PatchGesture subChooserTarget;
         void paint(juce::Graphics &g) override {
             parent.paintItems(g);
             paintPatchSelection(g);
@@ -804,6 +806,13 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 }
             }
             if(patchGesture.mode==PatchGesture::Mode::none&&event.y>=lanesTop) {
+                PatchGesture chooser;
+                if(!scissors && subPatchChooserHit(event.getPosition(),chooser)) {
+                    setMouseCursor(juce::MouseCursor::PointingHandCursor);
+                    setTooltip("Choose Sub-patch sound");
+                    repaint();
+                    return;
+                }
                 PatchGesture updateTarget;
                 if(patchUpdateHit(event.getPosition(),updateTarget)) {
                     setMouseCursor(juce::MouseCursor::PointingHandCursor);
@@ -834,12 +843,11 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                             }
                     }
                     setMouseCursor(edge?juce::MouseCursor::LeftRightResizeCursor:
-                                   hover.subId.isNotEmpty()?juce::MouseCursor::PointingHandCursor:
                                    juce::MouseCursor::DraggingHandCursor);
                     setTooltip(shared?"Move shared Patch boundary (above Sub-patch rail)":
                                subShared?"Move shared Sub-patch boundary":
                                edge?"Resize Patch boundary":
-                               hover.subId.isNotEmpty()?"Choose Sub-patch sound":"Drag Patch block");
+                               hover.subId.isNotEmpty()?"Select or drag Sub-patch block":"Drag Patch block");
                     return;
                 }
             }
@@ -884,6 +892,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         }
         void mouseDown(const juce::MouseEvent &event) override {
             if(event.mods.isLeftButtonDown()) {
+                subChooserArmed=false;
                 // A musical-lane click transfers keyboard deletion ownership
                 // from Patch selections to Chords/Sections.
                 if(event.y<lanesTop && !selectedPatches.empty()) {
@@ -941,6 +950,10 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     if(!isSelected(chosen)) {
                         selectedPatches={chosen};
                         repaint();
+                    }
+                    if(subPatchChooserHit(event.getPosition(),hitBlock)) {
+                        subChooserArmed=true;subChooserTarget=hitBlock;
+                        repaint();return;
                     }
                 } else if(const auto* lane=parent.laneAt(event.y)) {
                     const auto channel=live::find(parent.state,"channels",lane->channel);
@@ -1049,6 +1062,18 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             if(editing)previewEdit(event);
         }
         void mouseUp(const juce::MouseEvent &event) override {
+            if(subChooserArmed) {
+                subChooserArmed=false;repaint();
+                PatchGesture released;
+                if(event.getDistanceFromDragStart()<=3 &&
+                   subPatchChooserHit(event.getPosition(),released) &&
+                   released.itemId==subChooserTarget.itemId &&
+                   released.channelId==subChooserTarget.channelId &&
+                   released.patchId==subChooserTarget.patchId &&
+                   released.subId==subChooserTarget.subId)
+                    chooseSubPatch(released,event.getScreenPosition());
+                return;
+            }
             if(marqueeArmed) {
                 marqueeArmed=false;marqueeActive=false;
                 marqueeBase.clear();repaint();return;
@@ -1063,9 +1088,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 if(patchGesture.mode==PatchGesture::Mode::subBody &&
                    !scissors && !event.mods.isShiftDown() &&
                    event.getDistanceFromDragStart()<=3) {
-                    const auto hit=patchGesture;
                     patchGesture=PatchGesture{};
-                    chooseSubPatch(hit,event.getScreenPosition());
+                    repaint();
                     return;
                 }
                 if(patchGesture.mode==PatchGesture::Mode::body && !scissors &&
@@ -1201,6 +1225,17 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 }
             }
             return false;
+        }
+        bool subPatchChooserHit(juce::Point<int> position,PatchGesture& out) const {
+            if(!patchHitTest(position,out) || out.subId.isEmpty() ||
+               out.mode!=PatchGesture::Mode::subBody)return false;
+            const auto item=std::find_if(parent.items.begin(),parent.items.end(),
+                [&](const auto& candidate){return candidate.value["id"].toString()==out.itemId;});
+            if(item==parent.items.end())return false;
+            const auto span=out.originSpans[juce::Identifier(out.patchId)];
+            const auto bounds=parent.extent(*item,span["subs"][juce::Identifier(out.subId)],
+                out.rowTop+subRailTop,subRailHeight,live::blockStart(span));
+            return parent.subPatchChooserBounds(bounds).contains(position);
         }
         bool patchUpdateHit(juce::Point<int> position,PatchGesture& out) const {
             if(!patchHitTest(position,out))return false;
@@ -1381,8 +1416,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     return;
                 }
         }
-        // A plain left click selects the Sub-patch variant from this Patch.
-        // Scissors, Shift and drag still use the existing editing gestures.
+        // Only the explicit left-side arrow opens the sound chooser. The block
+        // body retains selection/drag ownership and never switches sound.
         void chooseSubPatch(const PatchGesture& hit,juce::Point<int> screen) {
             if(hit.subId.isEmpty())return;
             const auto channel=live::find(parent.state,"channels",hit.channelId);
@@ -1393,12 +1428,14 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             std::vector<juce::String> ids;
             juce::PopupMenu menu;
             menu.setLookAndFeel(&parent.owner.theme);
+            const bool stopped=!parent.owner.app.recording() &&
+                parent.owner.displayState().playback==mrs::PlaybackState::stopped;
             for(const auto& variant:*variants) {
                 const auto id=variant["id"].toString();
                 if(id.isEmpty())continue;
                 ids.push_back(id);
                 menu.addItem(static_cast<int>(ids.size()),variant["name"].toString(),
-                             true,id==hit.librarySubId);
+                             stopped,id==hit.librarySubId);
             }
             juce::Component::SafePointer<Desktop> safe(&parent.owner);
             const auto channelId=hit.channelId,patchId=hit.patchId,libraryPatch=hit.libraryPatchId,
@@ -2248,6 +2285,11 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         return {item.bounds.getX() + 1 + juce::roundToInt((item.lead - item.start + start) * item.scale), y,
                 juce::jmax(1, juce::roundToInt(length * item.scale)), height};
     }
+    static juce::Rectangle<int> subPatchChooserBounds(juce::Rectangle<int> blockBounds) {
+        if(blockBounds.getWidth()<16)return {};
+        return {blockBounds.getX()+2,blockBounds.getY()+4,
+                juce::jmin(20,blockBounds.getWidth()-4),blockBounds.getHeight()-8};
+    }
     static juce::Rectangle<int> patchUpdateBounds(juce::Rectangle<int> blockBounds) {
         if(blockBounds.getWidth()<52)return {};
         const int top=blockBounds.getY()+
@@ -2630,7 +2672,26 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                             g.fillRoundedRectangle(area,4.f);
                             g.setColour(tint.withAlpha(.95f));
                             g.drawRoundedRectangle(area,4.f,1.3f);
-                            if(bounds.getWidth()>29) {
+                            const auto chooser=subPatchChooserBounds(bounds);
+                            if(!chooser.isEmpty()) {
+                                const bool pressed=body.subChooserArmed &&
+                                    body.subChooserTarget.itemId==item.value["id"].toString() &&
+                                    body.subChooserTarget.channelId==channel["id"].toString() &&
+                                    body.subChooserTarget.patchId==blockId &&
+                                    body.subChooserTarget.subId==child.name.toString();
+                                const bool enabled=!owner.app.recording() &&
+                                    owner.displayState().playback==mrs::PlaybackState::stopped;
+                                const bool hover=chooser.contains(body.getMouseXYRelative());
+                                g.setColour(liveReferenceTokens().colour(ColourRole::text)
+                                    .withAlpha(enabled?(pressed?1.f:hover?.95f:.75f):.35f));
+                                const auto centre=chooser.getCentre().toFloat();
+                                juce::Path arrow;
+                                arrow.startNewSubPath(centre.x-4.f,centre.y-2.f);
+                                arrow.lineTo(centre.x,centre.y+2.f);
+                                arrow.lineTo(centre.x+4.f,centre.y-2.f);
+                                g.strokePath(arrow,juce::PathStrokeType(1.6f));
+                            }
+                            if(bounds.getWidth()>48) {
                                 g.setColour(liveReferenceTokens().colour(ColourRole::text));
                                 g.setFont(owner.theme.font(13.f));
                                 auto title=sub["name"].toString();
@@ -2638,7 +2699,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                                    dirtySubPatches.contains(channel["id"].toString()+"|"+
                                                               patch["id"].toString()+"|"+subId))
                                     title+=" "+juce::String::charToString(0x2605);
-                                g.drawFittedText(title,bounds.reduced(6,0),
+                                g.drawFittedText(title,bounds.withTrimmedLeft(chooser.isEmpty()?6:28).withTrimmedRight(6),
                                     juce::Justification::centred,1);
                             }
                             // Update is exclusively in the Sub-patch context menu.
