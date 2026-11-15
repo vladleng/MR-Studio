@@ -1,5 +1,6 @@
 #pragma once
 #include <cstring>
+#include <iostream>
 #ifdef MRS_HAS_VST3
 
 namespace ui::live::test {
@@ -129,6 +130,7 @@ void subPatchRuntime(Host& host,const juce::String& channel,const juce::String& 
     check(rejected && live::canonical(host.liveDocument->interfaceState)==showBefore,
           "#374 runtime: a different active parent cannot apply this Sub-patch");
     host.liveLoadedPatches[channel]=loaded;verify(.5f,.25f);
+    std::cout<<"#374 runtime: in-place state, HWND, Undo and rollback checks PASS\n";
     std::array<float,256> input{},output{};
     host.app.play();host.app.engine()->process(input.data(),output.data(),128);
     rejected=false;
@@ -149,12 +151,19 @@ void subPatchRuntime(Host& host,const juce::String& channel,const juce::String& 
     check(reopened.size()==3 && std::abs(readGain(reopened[1])-.5f)<1.e-5f &&
           std::abs(readGain(reopened[2])-.25f)<1.e-5f,
           "#374 runtime: reopened show applies its saved Sub-patch sound");
+    std::cout<<"#374 runtime: Save/Reopen PASS\n";
     host.app.arm_track(*host.liveInputTrack(channel));
     host.app.start_recording(std::filesystem::path(folder.getChildFile("subpatch-guard.wav").getFullPathName().toStdString()));
-    host.app.engine()->process(input.data(),output.data(),128);rejected=false;
+    // Keep transport stopped while the real recording session is armed. This
+    // proves the independent recording guard (a rendered block would also make
+    // Play true), and avoids testing unrelated recorded-take publication here.
+    check(host.app.recording() && host.app.engine()->state().playback==mrs::PlaybackState::stopped,
+          "#374 runtime: recording guard is independent from Play");
+    rejected=false;
     try{host.applyLiveChannelSubPatch(channel,patchId,"runtime-a");}catch(const std::exception&){rejected=true;}
     check(rejected,"#374 runtime: recording refuses Sub-patch state restoration");
     host.app.stop_recording();host.app.stop();host.app.engine()->process(input.data(),output.data(),128);
+    std::cout<<"#374 runtime: recording guard PASS\n";
     // Ordinary Patch selection still owns structural changes; other channels
     // retain their saved controls while this channel changes its insert count.
     auto alternate=reopened;auto extra=native;extra.id={"runtime-extra"};alternate.push_back(extra);
@@ -170,6 +179,7 @@ void subPatchRuntime(Host& host,const juce::String& channel,const juce::String& 
           "#374 runtime: ordinary Patch may replace the chain");
     check(host.captureLiveChannelInserts(other,false,true)==otherBefore,"#374 runtime: ordinary Patch leaves the other channel unchanged");
     host.loadLiveChannelPatch(channel,patchId,"runtime-b");
+    std::cout<<"#374 runtime: ordinary Patch structure and other channel PASS\n";
     rejectRestores(1);rejected=false;bool explicitRollbackFailure=false;
     try{host.loadLiveChannelPatch(channel,patchId,"runtime-snapshot");}
     catch(const std::exception& error){rejected=true;explicitRollbackFailure=std::string(error.what()).find("rollback failed")!=std::string::npos;}
@@ -180,6 +190,7 @@ void subPatchRuntime(Host& host,const juce::String& channel,const juce::String& 
     host.saveFile(saved);
     check(host.app.device_status().phase==mrs::audio::DevicePhase::stopped,
           "#374 runtime: Capture/Save cannot restart audio after failed rollback");
+    std::cout<<"#374 runtime: failed rollback and stopped Capture/Save PASS\n";
 }
 }
 #endif
