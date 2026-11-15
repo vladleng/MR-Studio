@@ -11,6 +11,7 @@ on:
   pull_request:
     paths:
       - 'apps/studio-juce/**'
+      - 'tests/live_*.hpp'
       - 'core/**'
       - 'third_party/**'
       - 'sdk/**'
@@ -27,6 +28,7 @@ on:
     branches: [main]
     paths:
       - 'apps/studio-juce/**'
+      - 'tests/live_*.hpp'
       - 'core/**'
       - 'third_party/**'
       - 'sdk/**'

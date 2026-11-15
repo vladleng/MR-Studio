@@ -76,6 +76,13 @@ void editor(const NodeState& node){PreparedGraph graph{snapshot(node),{48000,2,6
     const auto gain=std::find_if(liveValues.begin(),liveValues.end(),
         [](const auto& info){return info.id==100;});
     CHECK(gain!=liveValues.end() && std::abs(gain->initial-.75f)<1.e-6f);
+    // #374: switching parameters must supersede an editor event still queued
+    // for the next callback, preserving the very same open VST3 window.
+    SendMessageW(child,WM_COMMAND,MAKEWPARAM(1,BN_CLICKED),0);
+    auto controls=*graph.snapshot().graph;controls.nodes.front().parameters={{100,.25f}};
+    CHECK(graph.enqueue_parameters(controls,true));
+    audio.fill(1);graph.process(audio.data(),64);CHECK(audio[0]==.25f);
+    CHECK(IsWindow(child)&&GetWindow(parent,GW_CHILD)==child);
     // A preset changes processor/controller state without performEdit for each parameter.
     SendMessageW(child,WM_COMMAND,MAKEWPARAM(2,BN_CLICKED),0);CHECK(graph.consume_edits());
     auto saved=graph.capture();CHECK(saved.nodes.front().parameters.empty());

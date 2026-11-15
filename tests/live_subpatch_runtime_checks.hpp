@@ -113,6 +113,9 @@ void subPatchRuntime(Host& host,const juce::String& channel,const juce::String& 
         verify(id=="runtime-a"?.75f:id=="runtime-snapshot"?.625f:.5f,
                id=="runtime-b"?.25f:id=="runtime-snapshot"?.875f:.5f);
     }
+    choose("runtime-b");
+    SendMessageW(child,WM_COMMAND,MAKEWPARAM(1,BN_CLICKED),0);
+    choose("runtime-b");verify(.5f,.25f);
     choose("runtime-a");
     host.app.set_plugin_parameter(track,first.id,100,.9f);
     choose("runtime-a");verify(.75f,.5f);
@@ -136,6 +139,27 @@ void subPatchRuntime(Host& host,const juce::String& channel,const juce::String& 
     check(rejected && live::canonical(host.liveDocument->interfaceState)==showBefore,
           "#374 runtime: changed Snapshot latency rejects without committing show");
     verify(.5f,.25f);
+    const auto originalSpans=live::channelItemTrack(host.liveDocument->interfaceState,itemId,channel)["spans"];
+    auto seekSpans=originalSpans.clone();auto seekParent=seekSpans[juce::Identifier(patchId)].clone();
+    const double half=live::blockLength(seekParent)/2.;auto seekChildren=live::object();
+    auto left=live::blockSpan(0.,half),right=live::blockSpan(half,half);
+    live::put(left,"subPatchId","runtime-a");live::put(right,"subPatchId","runtime-b");
+    live::put(seekChildren,juce::Identifier(segment),left);live::put(seekChildren,"fast-second-segment",right);
+    live::put(seekParent,"subs",seekChildren);live::put(seekSpans,juce::Identifier(patchId),seekParent);
+    const auto setSpans=[&](const juce::var& value){host.editLiveInterface("Fast seek fixture",[&](auto& state){
+        for(auto& t:live::array(live::require(state,"items",itemId),"tracks"))if(t["channelId"].toString()==channel)live::put(t,"spans",value);
+    });};
+    setSpans(seekSpans);
+    const auto crossingCaptures=captures(),crossingRestores=restores();const auto crossingControls=deviceControls();
+    const auto crossingUndo=host.liveUndo.getUndoDescription();
+    host.loadStoppedLiveTimelinePatch(channel,itemId,.01);
+    host.app.engine()->process(parameterInput.data(),parameterOutput.data(),128);verify(.75f,.5f);
+    host.loadStoppedLiveTimelinePatch(channel,itemId,half+.01);
+    host.app.engine()->process(parameterInput.data(),parameterOutput.data(),128);verify(.5f,.25f);
+    check(captures()==crossingCaptures&&restores()==crossingRestores&&deviceControls()==crossingControls&&
+          host.liveUndo.getUndoDescription()==crossingUndo,
+          "#374 fast: crossing Sub-patches changes parameters without state/device work or seek history");
+    setSpans(originalSpans);
     const auto seekCaptures=captures(),seekRestores=restores();const auto seekControls=deviceControls();
     const auto seekRevision=host.app.services().projects->state().revision;
     const auto seekUndo=host.liveUndo.getUndoDescription();
