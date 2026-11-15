@@ -715,8 +715,9 @@ void insert_switch() {
     rejects([&]{engine.prepare_insert_switch({});});
     rejects([&]{engine.prepare_insert_switch({{9,gainGraph(.5f)}});});
     // The same handoff republishes the PDC plan for the new chain.
+    auto delayedState=demo_graph();delayedState.nodes.front().parameters.clear();
     auto delayed=std::make_shared<PreparedGraph>(
-        GraphSnapshot{std::make_shared<const GraphState>(demo_graph()),0,false,false},
+        GraphSnapshot{std::make_shared<const GraphState>(delayedState),0,false,false},
         ProcessConfig{48000,2,8},[](const auto&){return std::make_unique<LatencyFixture>(7);});
     auto pdcTransition=engine.prepare_insert_switch({{0,delayed}});
     CHECK(engine.stage_insert_switch(pdcTransition));
