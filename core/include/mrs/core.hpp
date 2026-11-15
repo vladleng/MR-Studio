@@ -645,6 +645,7 @@ public:
     virtual ProjectState state() const = 0;
     virtual void execute(const ICommand&) = 0;
     virtual std::unique_ptr<IProjectTransaction> prepare_transaction(const ICommand*,std::optional<bool> = {}) {return {}; }
+    virtual std::unique_ptr<IProjectTransaction> prepare_projection(const ICommand* command){return prepare_transaction(command);}
     virtual bool undo() = 0;
     virtual bool redo() = 0;
     virtual std::shared_ptr<const Project> history_target(bool) const { return {}; }
@@ -657,6 +658,7 @@ public:
     ProjectState state() const override;
     void execute(const ICommand&) override;
     std::unique_ptr<IProjectTransaction> prepare_transaction(const ICommand*,std::optional<bool> = {}) override;
+    std::unique_ptr<IProjectTransaction> prepare_projection(const ICommand*) override;
     bool undo() override;
     bool redo() override;
     std::shared_ptr<const Project> history_target(bool redo) const override;

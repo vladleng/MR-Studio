@@ -163,10 +163,19 @@ public:
         const bool aiSmoke=args.contains("--rig-shell-smoke")||args.contains("--tone-library-smoke")||args.contains("--ai-permissions-smoke")||args.contains("--ai-assistant-smoke");
         const bool smoke=aiSmoke||(args.contains("--cab-editor-smoke")||args.contains("--native-editors-smoke"))||(args.contains("--reverb-browser-smoke")||args.contains("--reverb-editor-smoke"))||args.contains("--j3-smoke")||args.contains("--j1-smoke")||args.contains("--smoke-test")||args.contains("--plugin-smoke")||args.contains("--thu-diagnostic");
         if(!smoke||args.contains("--diagnostics-smoke")){
-            const auto logs=args.contains("--diagnostics-smoke")?juce::File::getCurrentWorkingDirectory().getChildFile("diagnostics-gui-smoke"):
+            const auto primary=args.contains("--diagnostics-smoke")?juce::File::getCurrentWorkingDirectory().getChildFile("diagnostics-gui-smoke"):
                 juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("MR Studio").getChildFile("Logs");
+            // A read-only or policy-protected Documents folder must not disable diagnostics or
+            // block project opening; fall back to the per-user application data directory.
+            const auto fallback=juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("MR Studio").getChildFile("Logs");
             const auto helper=juce::File::getSpecialLocation(juce::File::currentExecutableFile).getSiblingFile("mrs_crash_reporter.exe");
-            diagnostics=std::make_unique<mrs::diagnostics::Session>(std::filesystem::path(logs.getFullPathName().toWideCharPointer()),std::filesystem::path(helper.getFullPathName().toWideCharPointer()),mrs::desktop::application_version.data());
+            juce::File used;
+            for(const auto& candidate:{primary,fallback}){
+                diagnostics=std::make_unique<mrs::diagnostics::Session>(std::filesystem::path(candidate.getFullPathName().toWideCharPointer()),std::filesystem::path(helper.getFullPathName().toWideCharPointer()),mrs::desktop::application_version.data());
+                if(diagnostics->available()){used=candidate;break;}
+                diagnostics.reset();
+            }
+            diagnosticsFolder=used;
             mrs::diagnostics::event("application_initialise");
         }
         if((args.contains("--cab-editor-smoke")||args.contains("--native-editors-smoke")) || aiSmoke || (args.contains("--reverb-browser-smoke")||args.contains("--reverb-editor-smoke")) || args.contains("--thu-diagnostic") || args.contains("--j3-smoke") || args.contains("--smoke-test") || args.contains("--j1-smoke") || args.contains("--plugin-smoke")) {
@@ -206,7 +215,7 @@ public:
         const auto layoutFile=layoutArg>=0&&layoutArg+1<tokens.size() ? tokens[layoutArg+1].unquoted() : juce::String();
         window=std::make_unique<Window>(args.contains("--reverb-kit"),false,args.contains("--uds-shell")||!args.contains("--legacy-ui"),!args.contains("--legacy-ui"),layoutFile);
         if(diagnostics){
-            if(!diagnostics->available()||!diagnostics->crash_capture_available())juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,"Diagnostics",juce::String(mrs::diagnostics::status()),"OK");
+            if(!diagnostics||!diagnostics->available()||!diagnostics->crash_capture_available()){const auto detail=juce::String(mrs::diagnostics::status())+"\nLogs: "+(diagnosticsFolder.getFullPathName().isNotEmpty()?diagnosticsFolder.getFullPathName():juce::String("(no writable folder)"));juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,"Diagnostics",detail,"OK");}
             else if(const auto report=diagnostics->previous_report();!report.empty())juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,"Crash report available","A previous session ended unexpectedly. A local report is available.\nFile > Open diagnostics folder. Reports may contain project/plugin paths and private stack data. No automatic upload.","OK",nullptr,juce::ModalCallbackFunction::create([report](int){if(!mrs::diagnostics::acknowledge_report(report))mrs::diagnostics::event("crash_notice_acknowledge_failed");}));
         }
     }
@@ -215,6 +224,7 @@ private:
     std::unique_ptr<juce::DocumentWindow> gallery;
     std::unique_ptr<Window> window;
     std::unique_ptr<mrs::diagnostics::Session> diagnostics;
+    juce::File diagnosticsFolder;
 };
 }
 START_JUCE_APPLICATION(Studio)

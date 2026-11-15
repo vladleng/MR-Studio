@@ -75,6 +75,7 @@ struct ParameterValue {
 struct ParameterChange {
     std::uint32_t offset{}, id{};
     float value{};
+    bool controller_synced{}; // UI intent is newer than a possibly older audio block.
 };
 enum class ProcessorFormat { native, vst3 };
 struct PluginState {
@@ -154,6 +155,8 @@ public:
     virtual bool set_parameter(std::uint32_t,float) noexcept = 0;
     virtual std::optional<float> parameter_value(std::uint32_t) const noexcept = 0;
     virtual std::uint32_t latency() const noexcept = 0;
+    // NON-RT: query the processor after state/parameter restoration.
+    virtual std::uint32_t quiescent_latency() const noexcept {return latency();}
     virtual bool live_safe() const noexcept = 0;
     // Opt in only when reset_anticipation clears DSP history while retaining parameter
     // targets, device-sized packet rendering is valid, and all external edits are
@@ -195,14 +198,14 @@ struct ReverbImpulse;
 class ReverbKernel;
 class PreparedGraph {
 public:
-    PreparedGraph(GraphSnapshot, ProcessConfig, ProcessorFactory = native_factory);
+    PreparedGraph(GraphSnapshot, ProcessConfig, ProcessorFactory = native_factory, bool explicit_parameters=false);
     ~PreparedGraph();
     PreparedGraph(const PreparedGraph&) = delete;
     PreparedGraph& operator=(const PreparedGraph&) = delete;
     // Single application-thread producer; buffers refer to the next block.
     bool enqueue_midi(const Id& source_port, MidiEvent);
     bool enqueue_parameter(const Id& node, ParameterChange);
-    bool enqueue_parameters(const GraphState&); // atomic bounded parameter/bypass update
+    bool enqueue_parameters(const GraphState&,bool compare_current=false); // atomic bounded parameter/bypass update
     bool stage_reverb(const Id&,const ReverbImpulse&); // NON-RT preparation + bounded handoff
     bool stage_reverb_kernel(const Id&,ReverbKernel&); // NON-RT publication of complete kernel
     std::array<float,2> reverb_levels(const Id&) const;
@@ -229,6 +232,10 @@ public:
     void close_editor(const Id&) noexcept;
     void close_editors() noexcept;
     void restore_node(const NodeState&); // quiescent: retain processor/editor instance
+    // NON-RT, device stopped and workers quiesced. All-or-rollback settings;
+    // rollbackFailed means the caller MUST keep the device stopped.
+    void restore_settings(const GraphState&, bool& rollbackFailed);
+    std::uint64_t instance_identity() const noexcept;
     // NON-RT, every DSP owner stopped/joined. Serial insert chains only;
     // retain node indices, processors, editors and pending parameter queues.
     void reorder_serial(std::span<const Id>);

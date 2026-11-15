@@ -191,26 +191,72 @@ class LiveChannelMixEdit final : public juce::UndoableAction {
     LiveMixValues before,after;
     std::uint64_t generation{};
 };
+class LiveSubPatchParametersEdit final:public juce::UndoableAction {
+public:
+    LiveSubPatchParametersEdit(Desktop& host,juce::String id,Desktop::LoadedLivePatch oldLoaded,
+        Desktop::LoadedLivePatch newLoaded,std::vector<mrs::NativeInsert> oldValues,
+        std::vector<mrs::NativeInsert> newValues,std::vector<live::ValuePatch> edits)
+        :owner(&host),channel(std::move(id)),beforeLoaded(std::move(oldLoaded)),afterLoaded(std::move(newLoaded)),
+         before(std::move(oldValues)),after(std::move(newValues)),patches(std::move(edits)),generation(host.liveDocumentGeneration){}
+    bool perform()override{return apply(afterLoaded,after,true);}
+    bool undo()override{return apply(beforeLoaded,before,false);}
+    int getSizeInUnits()override{return 1024;}
+private:
+    bool apply(const Desktop::LoadedLivePatch& loaded,const std::vector<mrs::NativeInsert>& values,bool forward) {
+        if(!owner||!owner->liveDocument||generation!=owner->liveDocumentGeneration)return false;
+        owner->commitLiveSubPatchParameters(channel,loaded,values,patches,forward);return true;
+    }
+    juce::Component::SafePointer<Desktop> owner;
+    juce::String channel;
+    Desktop::LoadedLivePatch beforeLoaded,afterLoaded;
+    std::vector<mrs::NativeInsert> before,after;
+    std::vector<live::ValuePatch> patches;
+    std::uint64_t generation{};
+};
+class LiveSubPatchEdit final : public juce::UndoableAction {
+public:
+    LiveSubPatchEdit(Desktop& desktop,juce::String channelId,Desktop::LoadedLivePatch oldLoaded,
+                     Desktop::LoadedLivePatch newLoaded,juce::var oldState,juce::var newState,
+                     std::vector<mrs::NativeInsert> oldChain,std::vector<mrs::NativeInsert> newChain)
+        :owner(&desktop),channel(std::move(channelId)),beforeLoaded(std::move(oldLoaded)),
+         afterLoaded(std::move(newLoaded)),before(std::move(oldState)),after(std::move(newState)),
+         beforeChain(std::move(oldChain)),afterChain(std::move(newChain)),generation(desktop.liveDocumentGeneration){}
+    bool perform() override{return apply(afterLoaded,after,afterChain);}
+    bool undo() override{return apply(beforeLoaded,before,beforeChain);}
+    int getSizeInUnits() override{return 1024;}
+private:
+    bool apply(const Desktop::LoadedLivePatch& loaded,const juce::var& state,
+               const std::vector<mrs::NativeInsert>& chain) {
+        if(!owner||!owner->liveDocument||owner->liveDocumentGeneration!=generation)return false;
+        owner->commitLiveSubPatchState(channel,loaded,state,chain);return true;
+    }
+    juce::Component::SafePointer<Desktop> owner;
+    juce::String channel;
+    Desktop::LoadedLivePatch beforeLoaded,afterLoaded;
+    juce::var before,after;
+    std::vector<mrs::NativeInsert> beforeChain,afterChain;
+    std::uint64_t generation{};
+};
 class LiveInterfaceEdit final : public juce::UndoableAction {
   public:
-    LiveInterfaceEdit(Desktop &desktop, const juce::var &oldState, const juce::var &newState)
-        : owner(&desktop), before(oldState.clone()), after(newState.clone()),generation(desktop.liveDocumentGeneration) {}
+    LiveInterfaceEdit(Desktop &desktop, const juce::var &oldState, const juce::var &newState,bool authoritative=false)
+        : owner(&desktop), before(oldState.clone()), after(newState.clone()),generation(desktop.liveDocumentGeneration),explicitParameters(authoritative) {}
     bool perform() override {
         if (!owner || !owner->liveDocument || generation!=owner->liveDocumentGeneration)
             return false;
-        owner->applyLiveInterface(after);
+        owner->applyLiveInterface(after,explicitParameters);
         return true;
     }
     bool undo() override {
         if (!owner || !owner->liveDocument || generation!=owner->liveDocumentGeneration)
             return false;
-        owner->applyLiveInterface(before);
+        owner->applyLiveInterface(before,explicitParameters);
         return true;
     }
     juce::UndoableAction *createCoalescedAction(juce::UndoableAction *next) override {
         const auto *edit = dynamic_cast<LiveInterfaceEdit *>(next);
-        if (!edit || owner != edit->owner || generation!=edit->generation || !live::sameShowValue(after,edit->before)) return nullptr;
-        return owner ? new LiveInterfaceEdit(*owner, before, edit->after) : nullptr;
+        if (!edit || owner != edit->owner || generation!=edit->generation || explicitParameters!=edit->explicitParameters || !live::sameShowValue(after,edit->before)) return nullptr;
+        return owner ? new LiveInterfaceEdit(*owner, before, edit->after,explicitParameters) : nullptr;
     }
     // Undo snapshots share String backing storage for VST3 state. Avoid
     // encoding multi-megabyte blobs just to estimate UndoManager units.
@@ -220,6 +266,7 @@ class LiveInterfaceEdit final : public juce::UndoableAction {
     juce::Component::SafePointer<Desktop> owner;
     juce::var before, after;
     std::uint64_t generation{};
+    bool explicitParameters{};
 };
 
 // #31 P5: Playback / Stems levels are scalar audio controls. Do not clone,
@@ -751,6 +798,7 @@ void Desktop::prepareLiveInterface(bool saved) {
     livePendingEntry.clear();
     liveBrowserItem.clear();
     liveChannelTracks.clear(); // Previous Core project replaced.
+    liveLoadedPatches.clear(); // Authoring sound identity is not a saved Patch.
     liveAutoMonitorError.clear();
     app.stop_library_preview();
     livePlaybackStore.reset();
@@ -800,7 +848,7 @@ void Desktop::updateLiveDirty() {
         liveDocument->itemProjects!=saved.itemProjects ||
         !live::sameShowValue(liveDocument->interfaceState,saved.interfaceState);
 }
-void Desktop::applyLiveInterface(const juce::var &value) {
+void Desktop::applyLiveInterface(const juce::var &value,bool explicitParameters) {
     if (!liveDocument)
         throw std::runtime_error("Open a MR Live show first");
     auto copy = value.clone();
@@ -825,7 +873,7 @@ void Desktop::applyLiveInterface(const juce::var &value) {
     auto transaction = liveDocument->clone();
     transaction.interfaceState = copy;
     transaction.validate();
-    reconcileLiveInputs(copy);
+    reconcileLiveInputs(copy,explicitParameters);
     liveDocument->interfaceState = copy;
     // Undo/Redo and channel selection use the same show-wide scalar mix.
     for(const auto& [channel,id]:liveChannelTracks) {
@@ -837,7 +885,7 @@ void Desktop::applyLiveInterface(const juce::var &value) {
     updateLiveDirty();
     ++liveUiRevision;
 }
-void Desktop::editLiveInterface(const juce::String &label, std::function<void(juce::var &)> edit, bool coalesceTyping, bool captureInputs) {
+void Desktop::editLiveInterface(const juce::String &label, std::function<void(juce::var &)> edit, bool coalesceTyping, bool captureInputs,bool explicitParameters) {
     const auto started=juce::Time::getHighResolutionTicks();
     if (!liveDocument)
         throw std::runtime_error("Create or open a MR Live show first");
@@ -856,7 +904,7 @@ void Desktop::editLiveInterface(const juce::String &label, std::function<void(ju
     liveShowEditing = true;
     const auto now = juce::Time::getMillisecondCounter();
     if (!coalesceTyping || liveTypingLabel != label || now - liveTypingAt > 800) liveUndo.beginNewTransaction(label);
-    liveUndo.perform(new LiveInterfaceEdit(*this, before, draft));
+    liveUndo.perform(new LiveInterfaceEdit(*this, before, draft,explicitParameters));
     liveTypingLabel = coalesceTyping ? label : juce::String();
     liveTypingAt = now;
     if (!coalesceTyping) liveUndo.beginNewTransaction();
@@ -878,6 +926,8 @@ void Desktop::editLiveInterface(const juce::String &label, std::function<void(ju
 }
 void Desktop::undoLiveInterface(bool redoAction) {
     liveTypingLabel.clear();
+    // Settings history validates its active parent. Structural reconciliation
+    // below invalidates identities only when their actual runtime is replaced.
     liveShowEditing = true;
     if (redoAction)
         liveUndo.redo();
@@ -915,6 +965,10 @@ void Desktop::selectLiveItem(const juce::String &id, const juce::String &entry) 
         id != liveDocument->interfaceState["currentItem"].toString() &&
         app.engine()->state().playback==mrs::PlaybackState::playing)
         throw std::runtime_error("Stop Playback before changing items with Live Input; seamless switching awaits #301");
+    // Authoring loads are temporary to the current Item: changing Items
+    // invalidates the loaded-sound identity, never a saved library entry.
+    if(liveDocument && liveDocument->interfaceState["currentItem"].toString()!=id)
+        liveLoadedPatches.clear();
     // Explicit show selection exits Browser inspection and its independent audition.
     liveBrowserItem.clear();
     app.stop_library_preview();
@@ -1331,7 +1385,7 @@ void Desktop::captureLiveInputs(juce::var& state) {
         live::put(row,"liveInput",profile);
     }
 }
-void Desktop::reconcileLiveInputs(const juce::var& state) {
+void Desktop::reconcileLiveInputs(const juce::var& state,bool explicitParameters) {
     if(liveChannelTracks.empty())return;
     const auto snapshot=project();auto channelTracks=liveChannelTracks;
     std::vector<mrs::Track> tracks;
@@ -1357,7 +1411,11 @@ void Desktop::reconcileLiveInputs(const juce::var& state) {
     }
     if(changed) {
         if(livePendingItem.isNotEmpty() || livePlaybackLoading)throw std::runtime_error("Finish the item transition first");
-        closeEditors();app.update_live_channels(liveInputTracks(),std::move(tracks));liveChannelTracks=std::move(channelTracks);
+        closeEditors();app.update_live_channels(liveInputTracks(),std::move(tracks),explicitParameters);liveChannelTracks=std::move(channelTracks);
+        std::erase_if(liveLoadedPatches,[&](const auto& entry){
+            const auto track=liveInputTrack(entry.first);
+            return !track || app.insert_runtime_identity(track)!=entry.second.runtimeIdentity;
+        });
     }
 }
 void Desktop::convertLegacyLiveInstrument(const juce::String& requested) {
@@ -1482,6 +1540,7 @@ void Desktop::configureLiveInput(const juce::String& requested,int input,bool st
     editLiveInterface("Channel audio input / output",[&](auto& state){
         live::put(live::require(state,"channels",channel),"liveInput",profile);
     },false,true);
+    liveLoadedPatches.erase(channel);
     syncAutomaticLiveMonitoring();
 }
 void Desktop::configureLiveMidi(const juce::String& requested,const juce::String& port,int midiChannel,const std::vector<int>& outputs) {
@@ -1504,6 +1563,7 @@ void Desktop::configureLiveMidi(const juce::String& requested,const juce::String
     auto profile=live::liveInputProfile(track,name,juce::String::fromUTF8(app.audio_name().c_str()),track.inserts);
     stampLivePorts(*this,profile);
     editLiveInterface("Channel MIDI input / output",[&](auto& state){live::put(live::require(state,"channels",channel),"liveInput",profile);},false,true);
+    liveLoadedPatches.erase(channel);
     syncAutomaticLiveMonitoring();
 }
 void Desktop::setLiveInputEffects(const juce::String& requested,std::vector<mrs::NativeInsert> effects) {
@@ -1521,9 +1581,12 @@ void Desktop::setLiveInputEffects(const juce::String& requested,std::vector<mrs:
     auto profile=live::liveInputProfile(track,saved.name,saved.device,effects);
     for(const auto* key:{"inputRightName","outputNames"})if(!row["liveInput"][key].isVoid())live::put(profile,key,row["liveInput"][key].clone());
     editLiveInterface("Channel effect chain",[&](auto& state){live::put(live::require(state,"channels",channel),"liveInput",profile);},false,true);
+    liveLoadedPatches.erase(channel);
     syncAutomaticLiveMonitoring();
 }
-void Desktop::captureLiveChannelPatch(const juce::String& requested,const juce::String& name,const juce::String& colour) {
+void Desktop::captureLiveChannelPatch(const juce::String& requested,const juce::String& name,
+                                       const juce::String& colour,const juce::String& itemId,
+                                       double preferredBar) {
     const auto channel=inputChannel(*this,requested);
     if(!live::patchColour(colour))throw std::runtime_error("Invalid channel patch colour");
     if(app.recording() || app.engine()->state().playback==mrs::PlaybackState::playing)
@@ -1535,16 +1598,54 @@ void Desktop::captureLiveChannelPatch(const juce::String& requested,const juce::
     const auto row=live::find(liveDocument->interfaceState,"channels",channel);
     if(!row["liveInput"].isObject())
         throw std::runtime_error("Configure the channel input first");
+    // Baseline values are reference metadata, never inserted into the opaque
+    // component/controller state restoration path.
+    // Capture actual Core/host insert states, not a stale persisted Live Input.
+    const auto captured=captureLiveChannelInserts(channel);
+    const auto exposed=live::encodeLivePatchParameterBaseline(
+        captureLiveChannelInserts(channel,true));
     editLiveInterface("Capture channel patch",[&](auto& state){
         auto& target=live::require(state,"channels",channel);
         if(!target["liveInput"].isObject())
             throw std::runtime_error("Configure the channel input first");
-        const auto profile=live::decodeLiveInputProfile(target["liveInput"]);
-        live::addChannelPatch(state,target,profile.inserts,name,colour);
+        const auto id=live::addChannelPatch(state,target,captured,name,colour);
+        auto& patch=live::require(target,"patches",id);
+        live::put(patch,"parameterBaseline",exposed.clone());
+        const auto defaultId=live::createDefaultSubPatch(patch,colour);
+        if(itemId.isNotEmpty()) {
+            auto& item=live::require(state,"items",itemId);
+            auto& tracks=live::array(item,"tracks");
+            juce::var* track=nullptr;
+            for(auto& entry:tracks)
+                if(entry["channelId"].toString()==channel){track=&entry;break;}
+            if(track==nullptr) {
+                auto row=live::object();
+                live::put(row,"id",live::freshId());
+                live::put(row,"channelId",channel);
+                live::put(row,"spans",live::object());
+                live::put(row,"patchOrder",juce::var(juce::Array<juce::var>{}));
+                tracks.add(row);
+                track=&tracks.getReference(tracks.size()-1);
+            }
+            const auto original=(*track)["spans"];
+            const auto bars=static_cast<double>(item["bars"]);
+            auto next=preferredBar>=0.?
+                live::addedPatchSpanAt(original,bars,id,preferredBar,bars):
+                live::addedPatchSpan(original,bars,id,bars);
+            auto span=next[juce::Identifier(id)].clone();
+            if(!span.isObject())throw std::runtime_error("No free space for a new Patch");
+            span=live::fullDefaultSubPatchSpan(span,defaultId);
+            live::put(next,juce::Identifier(id),span);
+            live::put(*track,"spans",next);
+            auto order=(*track)["patchOrder"].isArray()?(*track)["patchOrder"].clone():
+                juce::var(juce::Array<juce::var>{});
+            order.getArray()->add(id);
+            live::put(*track,"patchOrder",order);
+        }
     },false,true);
 }
 void Desktop::applyLiveChannelPatch(const juce::String& requested,const juce::String& patchId,
-                                    const juce::String& subPatchId) {
+                                    const juce::String& subPatchId,bool assignItemDefault) {
     const auto channel=inputChannel(*this,requested);
     const auto row=live::find(liveDocument->interfaceState,"channels",channel);
     const auto patch=live::find(row,"patches",patchId);
@@ -1561,7 +1662,7 @@ void Desktop::applyLiveChannelPatch(const juce::String& requested,const juce::St
     // Decoding validates the captured state against the shared blob store; the
     // applied profile keeps the show-owned input, device, mix and outputs.
     // #289 B: a selected sub-patch contributes its same-chain state variant.
-    const auto inserts=live::patchInsertsWithSubPatch(liveDocument->interfaceState,patch,subPatch);
+    const auto inserts=live::completeLiveSubPatchInserts(liveDocument->interfaceState,patch,subPatch);
     auto draft=liveDocument->interfaceState.clone();captureLiveInputs(draft);
     auto draftChannel=live::find(draft,"channels",channel);
     if(!draftChannel["liveInput"].isObject())
@@ -1577,41 +1678,296 @@ void Desktop::applyLiveChannelPatch(const juce::String& requested,const juce::St
         if(!draftChannel["liveInput"][key].isVoid())
             live::put(updated,key,draftChannel["liveInput"][key].clone());
     const auto itemId=liveDocument->interfaceState["currentItem"].toString();
-    editLiveInterface("Apply channel patch",[&](auto& state){
-        auto& target=live::require(state,"channels",channel);
-        live::put(target,"liveInput",updated.clone());
-        // The applied patch becomes the item default in the same Undo step, so
-        // each song keeps its own sound. A song without a track for this channel
-        // still accepts the chain (the default is simply not recorded).
-        if(itemId.isNotEmpty() && live::find(state,"items",itemId).isObject())
-            for(auto& track2:live::array(live::require(state,"items",itemId),"tracks"))
-                if(track2["channelId"].toString()==channel) {
-                    live::put(track2,"patchId",patchId);
-                    if(subPatchId.isEmpty()) {
-                        if(auto* object=track2.getDynamicObject())object->removeProperty("subPatchId");
-                    } else {
-                        live::put(track2,"subPatchId",subPatchId);
-                    }
-                    break;
-                }
-    },false,true);
+    editLiveInterface(assignItemDefault?"Apply channel patch":"Load Patch for editing",
+        [&](auto& state){
+            live::commitLoadedPatchToShow(state,channel,updated,itemId,patchId,
+                                          subPatchId,assignItemDefault);
+        },false,true,subPatch["overrides"].isArray());
+    liveLoadedPatches[channel]={itemId,patchId,subPatchId,app.insert_runtime_identity(liveInputTrack(channel)),live::opaqueSubPatch(subPatch)};
     syncAutomaticLiveMonitoring();
 }
-std::vector<mrs::NativeInsert> Desktop::captureLiveChannelInserts(const juce::String& channel) {
-    auto draft=liveDocument->interfaceState.clone();captureLiveInputs(draft);
-    const auto row=live::find(draft,"channels",channel);
+void Desktop::loadLiveChannelPatch(const juce::String& requested,const juce::String& patchId,
+                                   const juce::String& subPatchId) {
+    const auto channel=inputChannel(*this,requested);
+    const auto loaded=liveLoadedPatches.find(channel);
+    if(subPatchId.isNotEmpty() && loaded!=liveLoadedPatches.end() &&
+       loaded->second.patchId==patchId &&
+       loaded->second.itemId==liveDocument->interfaceState["currentItem"].toString()) {
+        applyLiveChannelSubPatch(channel,patchId,subPatchId);return;
+    }
+    applyLiveChannelPatch(channel,patchId,subPatchId,false);
+}
+// At Stop an explicit Timeline selection can load its VST3 sound. Musical
+// scheduling while playing is strictly a separate #375 responsibility.
+void Desktop::loadStoppedLiveTimelinePatch(const juce::String& channel,
+                                           const juce::String& itemId,double atBar) {
+    if(!liveDocument ||
+       liveDocument->interfaceState["currentItem"].toString()!=itemId ||
+       app.recording() ||
+       app.engine()->state().playback!=mrs::PlaybackState::stopped)
+        return;
+    const auto selected=live::timelinePatchAtBar(
+        liveDocument->interfaceState,itemId,channel,atBar);
+    if(selected.patchId.isEmpty())return;
+    const auto loaded=liveLoadedPatches.find(channel);
+    if(loaded!=liveLoadedPatches.end()&&loaded->second.itemId==itemId&&
+       loaded->second.patchId==selected.patchId&&
+       app.insert_runtime_identity(liveInputTrack(channel))==loaded->second.runtimeIdentity) {
+        // Seeking within the same sound is a pure playhead operation, including
+        // after editing a knob. Only explicit reselection reapplies saved values.
+        if(loaded->second.subPatchId==selected.subPatchId)return;
+        const auto patch=live::find(live::find(liveDocument->interfaceState,"channels",channel),"patches",selected.patchId);
+        const auto sub=live::find(patch,"subPatches",selected.subPatchId);
+        if(loaded->second.opaqueState||live::opaqueSubPatch(sub)) {
+            livePreloadError="Patch: Snapshot requires explicit selection at Stop";return;
+        }
+        applyLiveChannelSubPatch(channel,selected.patchId,selected.subPatchId,{}, {},false);return;
+    }
+    loadLiveChannelPatch(channel,selected.patchId,selected.subPatchId);
+}
+void Desktop::loadStoppedLiveTimelinePatches(const juce::String& itemId,double atBar) {
+    if(!liveDocument || app.recording() ||
+       app.engine()->state().playback!=mrs::PlaybackState::stopped ||
+       liveDocument->interfaceState["currentItem"].toString()!=itemId)return;
+    if(livePreloadError.startsWith("Patch: "))livePreloadError.clear();
+    // UI/control thread only. Copy IDs because loading may reconcile runtime tracks.
+    std::vector<juce::String> channels;
+    for(const auto& entry:liveChannelTracks)channels.push_back(entry.first);
+    for(const auto& channel:channels) {
+        try { loadStoppedLiveTimelinePatch(channel,itemId,atBar); }
+        catch(const std::exception& error) {
+            livePreloadError="Patch: "+juce::String::fromUTF8(error.what());
+        }
+    }
+}
+bool Desktop::livePatchLoadedForEditing(const juce::String& channel,
+                                        const juce::String& patchId,
+                                        const juce::String& subPatchId) const {
+    if(!liveDocument)return false;
+    const auto at=liveLoadedPatches.find(channel);
+    return at!=liveLoadedPatches.end() &&
+           at->second.itemId==liveDocument->interfaceState["currentItem"].toString() &&
+           at->second.patchId==patchId && at->second.subPatchId==subPatchId;
+}
+bool Desktop::liveSubPatchParametersDirty(const juce::String& channel,
+                                          const juce::String& patchId,
+                                          const juce::String& subPatchId) const {
+    if(!livePatchLoadedForEditing(channel,patchId,subPatchId)||
+       !liveInputTrack(channel) || app.recording() ||
+       app.engine()->state().playback==mrs::PlaybackState::playing)
+        return false;
+    const auto& state=liveDocument->interfaceState;
+    const auto patch=live::find(live::find(state,"channels",channel),"patches",patchId);
+    const auto sub=live::find(patch,"subPatches",subPatchId);
+    if(!patch.isObject()||!sub.isObject())return false;
+    const auto* primary=patch["parameterBaseline"].getArray();
+    const auto* monitor=sub["parameterMonitor"].getArray();
+    if(!primary && !monitor)return false;
+    const auto track=*liveInputTrack(channel);
+    const auto inserts=live::decodeLivePatchInserts(state,patch);
+    for(const auto& fx:inserts) {
+        if(fx.kind!=mrs::InsertKind::vst3)continue;
+        const auto id=juce::String::fromUTF8(fx.id.value.c_str());
+        for(const auto& parameter:app.plugin_parameters(track,fx.id)) {
+            if(!parameter.automatable || parameter.hidden ||
+               !std::isfinite(parameter.initial))continue;
+            bool found=false;double expected=0.;
+            const auto scan=[&](const juce::Array<juce::var>* rows) {
+                if(!rows)return;
+                for(const auto& row:*rows)
+                    if(row["insertId"].toString()==id)
+                        if(const auto* values=row["parameters"].getArray())
+                            for(const auto& entry:*values)
+                                if(static_cast<juce::int64>(entry["id"])==
+                                   static_cast<juce::int64>(parameter.id)) {
+                                    expected=static_cast<double>(entry["value"]);
+                                    found=true;
+                                }
+            };
+            scan(primary);
+            scan(monitor); // Snapshot's captured current parameter values.
+            if(const auto* overrides=sub["overrides"].getArray())
+                for(const auto& value:*overrides)
+                    if(value["insertId"].toString()==id &&
+                       static_cast<juce::int64>(value["parameterId"])==
+                           static_cast<juce::int64>(parameter.id)) {
+                        expected=static_cast<double>(value["value"]);
+                        found=true;
+                    }
+            if(found && std::abs(expected-static_cast<double>(parameter.initial))>1.e-5)
+                return true;
+        }
+    }
+    return false;
+}
+std::vector<mrs::NativeInsert> Desktop::captureLiveChannelInserts(const juce::String& channel,
+                                                                   bool includeExposedParameters,
+                                                                   bool parametersOnly) {
+    const auto row=live::find(liveDocument->interfaceState,"channels",channel);
     if(!row["liveInput"].isObject())
         throw std::runtime_error("Configure the channel input first");
-    return live::decodeLiveInputProfile(row["liveInput"]).inserts;
+    const auto trackId=liveInputTrack(channel);
+    if(!trackId)throw std::runtime_error("Activate the channel input before capturing its chain");
+    const auto snapshot=project();
+    const auto current=std::find_if(snapshot->tracks.begin(),snapshot->tracks.end(),
+        [&](const auto& track){return track.id==*trackId;});
+    if(current==snapshot->tracks.end())throw std::runtime_error("Live channel Core track is missing");
+    auto inserts=current->inserts;
+    if(!parametersOnly)
+        for(auto& fx:inserts)fx=app.capture_insert(*trackId,fx.id);
+    if(includeExposedParameters) {
+        const auto track=liveInputTrack(channel);
+        if(!track)throw std::runtime_error("Activate the channel input before capturing VST3 parameters");
+        for(auto& fx:inserts) {
+            if(fx.kind!=mrs::InsertKind::vst3)continue;
+            const auto exposed=app.plugin_parameters(track,fx.id);
+            // Do not overwrite saved opaque state with a complete host
+            // parameter list. These values are exclusively for comparing
+            // Sub-patch overrides to the separately captured Base baseline.
+            fx.parameters.clear();
+            for(const auto& info:exposed)
+                if(info.automatable && !info.hidden && std::isfinite(info.initial) &&
+                   info.initial>=0.f && info.initial<=1.f)
+                    fx.parameters.push_back({info.id,info.initial});
+        }
+    }
+    return inserts;
+}
+void Desktop::commitLiveSubPatchParameters(const juce::String& channel,const LoadedLivePatch& loaded,
+    const std::vector<mrs::NativeInsert>& values,const std::vector<live::ValuePatch>& patches,bool forward) {
+    if(app.recording()||app.engine()->state().playback!=mrs::PlaybackState::stopped)
+        throw std::runtime_error("Stop playback and recording before applying Sub-patch parameters");
+    if(livePendingItem.isNotEmpty()||livePlaybackLoading)throw std::runtime_error("Finish the item transition first");
+    const auto track=liveInputTrack(channel);const auto active=liveLoadedPatches.find(channel);
+    if(!track||active==liveLoadedPatches.end()||active->second.patchId!=loaded.patchId||
+       active->second.itemId!=loaded.itemId||loaded.itemId!=liveDocument->interfaceState["currentItem"].toString()||
+       active->second.opaqueState||app.insert_runtime_identity(track)!=loaded.runtimeIdentity)
+        throw std::runtime_error("Sub-patch parent/runtime is not active");
+    const auto patch=live::find(live::find(liveDocument->interfaceState,"channels",channel),"patches",loaded.patchId);
+    live::requireLivePatchLayout(patch,values);
+    auto updated=liveDocument->interfaceState;
+    for(const auto& edit:patches)updated=edit.apply(updated,forward);
+    // Only a bounded parameter batch. No capture/setState, device lifecycle,
+    // full-show validation/clone or generic channel reconciliation on this path.
+    app.apply_insert_parameters(track,values);
+    liveDocument->interfaceState=std::move(updated);active->second=loaded;
+    if(!patches.empty()) {
+        liveShowEditing=true;liveDirty=true;liveMixCleanBaseRevision.reset();
+        liveEdits.publish(live::EditImpact::timeline|live::EditImpact::paint);++liveLocalPatchApplications;
+    }
+}
+void Desktop::commitLiveSubPatchState(const juce::String& channel,const LoadedLivePatch& loaded,
+                                       const juce::var& state,const std::vector<mrs::NativeInsert>& chain) {
+    if(app.recording() || app.engine()->state().playback!=mrs::PlaybackState::stopped)
+        throw std::runtime_error("Stop playback and recording before applying a Sub-patch");
+    if(livePendingItem.isNotEmpty() || livePlaybackLoading)
+        throw std::runtime_error("Finish the item transition before applying a Sub-patch");
+    const auto track=liveInputTrack(channel);
+    const auto active=liveLoadedPatches.find(channel);
+    if(!track || active==liveLoadedPatches.end() ||
+       active->second.patchId!=loaded.patchId || active->second.itemId!=loaded.itemId ||
+       loaded.itemId!=liveDocument->interfaceState["currentItem"].toString() ||
+       active->second.runtimeIdentity!=loaded.runtimeIdentity ||
+       app.insert_runtime_identity(track)!=loaded.runtimeIdentity)
+        throw std::runtime_error("Sub-patch parent Patch is not active on this channel; load the parent Patch first");
+    const auto patch=live::find(live::find(state,"channels",channel),"patches",loaded.patchId);
+    if(!patch.isObject() || !live::sameInsertStructure(live::decodeLivePatchInserts(state,patch),chain))
+        throw std::runtime_error("Sub-patch chain differs from its parent Patch");
+    live::validate(state);live::validatePlayback(state);
+    validateMusicalEdit(*this,state);validatePlaybackEdit(*this,state);
+    auto committed=state.clone(); // History must not alias mutable current-Item UI state.
+    app.apply_insert_settings(track,chain);
+    // All fallible work precedes publication of the chosen sound and segment.
+    liveDocument->interfaceState=std::move(committed);
+    active->second=loaded;
+    liveShowEditing=true;updateLiveDirty();++liveUiRevision;
 }
 void Desktop::applyLiveChannelSubPatch(const juce::String& requested,const juce::String& patchId,
-                                       const juce::String& subPatchId) {
-    // #289 B: a sub-patch is a same-chain state variant, so the stopped chain
-    // publication path applies it with one Undo transaction and item selection.
-    applyLiveChannelPatch(requested,patchId,subPatchId);
+                                       const juce::String& subPatchId,const juce::var& spans,
+                                       const juce::String& requestedItem,bool recordUndo) {
+    const auto channel=inputChannel(*this,requested);
+    if(app.recording() || app.engine()->state().playback!=mrs::PlaybackState::stopped)
+        throw std::runtime_error("Stop playback and recording before applying a Sub-patch");
+    if(livePendingItem.isNotEmpty() || livePlaybackLoading)
+        throw std::runtime_error("Finish the item transition before applying a Sub-patch");
+    const auto active=liveLoadedPatches.find(channel);
+    if(active==liveLoadedPatches.end() || active->second.patchId!=patchId ||
+       active->second.itemId!=liveDocument->interfaceState["currentItem"].toString() ||
+       !liveInputTrack(channel) ||
+       app.insert_runtime_identity(liveInputTrack(channel))!=active->second.runtimeIdentity)
+        throw std::runtime_error("Sub-patch parent Patch is not active; load the parent Patch first");
+    const auto oldLoaded=active->second;
+    const auto patch=live::find(live::find(liveDocument->interfaceState,"channels",channel),"patches",patchId);
+    const auto sub=live::find(patch,"subPatches",subPatchId);
+    if(!sub.isObject())throw std::runtime_error("Choose a Sub-patch of the active Patch");
+    if(!oldLoaded.opaqueState&&!live::opaqueSubPatch(sub)) {
+        auto before=app.insert_parameter_settings(liveInputTrack(channel));
+        auto target=live::liveSubPatchParameterTarget(patch,sub,before);
+        std::vector<live::ValuePatch> edits;
+        if(spans.isObject()) {
+            if(requestedItem!=oldLoaded.itemId)throw std::runtime_error("Sub-patch selection belongs to another Item");
+            const auto row=live::channelItemTrack(liveDocument->interfaceState,requestedItem,channel);
+            if(!row.isObject())throw std::runtime_error("Sub-patch Timeline track is missing");
+            const auto stable=row["id"].toString();
+            if(stable.isNotEmpty())edits.push_back(live::valuePatch(liveDocument->interfaceState,
+                {"items",live::EditStep::id(requestedItem),"tracks",live::EditStep::id(stable),"spans"},spans));
+            else {
+                const auto item=live::find(liveDocument->interfaceState,"items",requestedItem);
+                auto rows=live::shallowEditCopy(item["tracks"]);
+                for(auto& value:*rows.getArray())if(value["channelId"].toString()==channel){value=live::shallowEditCopy(value);live::put(value,"id",live::freshId());live::put(value,"spans",spans);break;}
+                edits.push_back(live::valuePatch(liveDocument->interfaceState,{"items",live::EditStep::id(requestedItem),"tracks"},rows));
+            }
+            std::erase_if(edits,[](const auto& edit){return !edit.changed();});
+        }
+        auto nextLoaded=oldLoaded;nextLoaded.subPatchId=subPatchId;nextLoaded.opaqueState=false;
+        if(!recordUndo){commitLiveSubPatchParameters(channel,nextLoaded,target,edits,true);return;}
+        liveTypingLabel.clear();liveUndo.beginNewTransaction("Select Sub-patch");
+        liveUndo.perform(new LiveSubPatchParametersEdit(*this,channel,oldLoaded,nextLoaded,std::move(before),std::move(target),std::move(edits)));
+        liveUndo.beginNewTransaction();return;
+    }
+    // Restore the complete parent state on every slot, then its sparse variant.
+    // This also handles default and repeated selection after editing a plugin.
+    auto target=live::completeLiveSubPatchInserts(liveDocument->interfaceState,patch,sub);
+    // Only old opaque snapshots carry the historical full parameter mirror.
+    // Modern overrides remain explicit even when they cover every parameter.
+    const bool legacyState=sub["inserts"].isArray() ||
+        (!patch["parameterBaseline"].isArray() && !sub["overrides"].isArray());
+    if(legacyState)for(auto& fx:target) {
+        if(fx.kind!=mrs::InsertKind::vst3 || fx.component_state.empty() || fx.parameters.size()<2)continue;
+        const auto infos=app.plugin_parameters(liveInputTrack(channel),fx.id);
+        if(fx.parameters.size()==static_cast<std::size_t>(std::count_if(infos.begin(),infos.end(),[](const auto& info){return info.automatable;})) &&
+           std::all_of(fx.parameters.begin(),fx.parameters.end(),[&](const auto& value){return std::any_of(infos.begin(),infos.end(),[&](const auto& info){return info.id==value.id&&info.automatable;});}))
+            fx.parameters.clear();
+    }
+    auto before=liveDocument->interfaceState.clone();captureLiveInputs(before);
+    auto after=before.clone();
+    auto row=live::find(after,"channels",channel);
+    const auto saved=live::decodeLiveInputProfile(row["liveInput"]);
+    if(!live::sameInsertStructure(saved.inserts,target))
+        throw std::runtime_error("Sub-patch slots, order or plugin classes differ from the active chain");
+    const auto track=liveTrack(after,channel,*liveInputTrack(channel));
+    const auto profile=live::liveInputProfile(track,saved.name,saved.device,target);
+    auto updated=row["liveInput"].clone();live::put(updated,"inserts",profile["inserts"].clone());
+    live::put(row,"liveInput",updated);
+    if(spans.isObject()) {
+        if(requestedItem!=oldLoaded.itemId)throw std::runtime_error("Sub-patch selection belongs to another Item");
+        bool found=false;
+        for(auto& itemTrack:live::array(live::require(after,"items",requestedItem),"tracks"))
+            if(itemTrack["channelId"].toString()==channel){live::put(itemTrack,"spans",spans.clone());found=true;break;}
+        if(!found)throw std::runtime_error("Sub-patch Timeline track is missing");
+    }
+    live::validate(after);live::validatePlayback(after);
+    const auto oldChain=live::decodeLiveInputProfile(live::find(before,"channels",channel)["liveInput"]).inserts;
+    auto nextLoaded=oldLoaded;nextLoaded.subPatchId=subPatchId;nextLoaded.opaqueState=live::opaqueSubPatch(sub);
+    liveTypingLabel.clear();liveUndo.beginNewTransaction("Select Sub-patch");
+    liveUndo.perform(new LiveSubPatchEdit(*this,channel,oldLoaded,nextLoaded,before,after,oldChain,target));
+    liveUndo.beginNewTransaction();
 }
 void Desktop::captureLiveChannelSubPatch(const juce::String& requested,const juce::String& patchId,
-                                         const juce::String& name,const juce::String& colour) {
+                                         const juce::String& name,const juce::String& colour,
+                                         live::SubPatchCaptureMode mode,
+                                         const juce::String& itemId,const juce::String& blockId,
+                                         double preferredStart,const juce::String& /*replaceSubBlockId*/) {
     const auto channel=inputChannel(*this,requested);
     if(!live::patchColour(colour))throw std::runtime_error("Invalid sub-patch colour");
     if(app.recording()||app.engine()->state().playback==mrs::PlaybackState::playing)
@@ -1626,8 +1982,13 @@ void Desktop::captureLiveChannelSubPatch(const juce::String& requested,const juc
         throw std::runtime_error("Choose a captured patch before capturing a sub-patch");
     const auto trimmed=name.trim();
     if(!live::named(trimmed))throw std::runtime_error("Invalid sub-patch name");
-    const auto base=live::decodeLivePatchInserts(liveDocument->interfaceState,patch);
-    const auto current=captureLiveChannelInserts(channel);
+    // User edits the current VST3 controls directly. There is no separate
+    // Patch Load or Apply command in the Timeline authoring workflow.
+    // Snapshot needs only opaque Base state; Parameters uses captured values
+    // from a new Patch.
+    const bool readParameters=mode!=live::SubPatchCaptureMode::snapshot &&
+                               patch["parameterBaseline"].isArray();
+    const auto current=captureLiveChannelInserts(channel,readParameters);
     editLiveInterface("Capture sub-patch",[&](auto& state){
         auto& target=live::require(live::require(state,"channels",channel),"patches",patchId);
         auto& subs=live::array(target,"subPatches");
@@ -1636,11 +1997,128 @@ void Desktop::captureLiveChannelSubPatch(const juce::String& requested,const juc
         for(const auto& existing:subs)
             if(existing["name"].toString().compareIgnoreCase(trimmed)==0)
                 throw std::runtime_error("A sub-patch with this name already exists");
-        auto sub=live::subPatchChain(state,base,current); // validates structure and a real change
-        live::put(sub,"id",live::freshId());
+        juce::var sub;
+        try {
+            sub=live::captureSubPatchFromBase(state,target,current,mode);
+        } catch(const std::runtime_error& error) {
+            // Creating an editable variation from unchanged current sound is
+            // meaningful: a named Sub-patch can be tweaked and Updated later.
+            const auto message=juce::String::fromUTF8(error.what());
+            if(message.startsWith("No exposed VST3 parameter changes") ||
+               message.startsWith("No VST3 state changes detected")) {
+                sub=live::object();
+                live::put(sub,"type","parameters");
+                live::put(sub,"formatVersion",2);
+                live::put(sub,"overrides",juce::var(juce::Array<juce::var>{}));
+            } else throw;
+        }
+        const auto variantId=live::freshId();
+        live::put(sub,"id",variantId);
         live::put(sub,"name",trimmed);
         live::put(sub,"color",colour);
+        live::put(sub,"parameterMonitor",
+                  live::encodeLivePatchParameterBaseline(current));
         subs.add(sub);
+        if(blockId.isNotEmpty()) {
+            if(itemId.isEmpty())
+                throw std::runtime_error("Missing target Item for captured Sub-patch");
+            auto& item=live::require(state,"items",itemId);
+            bool placed=false;
+            for(auto& track:live::array(item,"tracks")) {
+                if(track["channelId"].toString()!=channel)continue;
+                auto spans=track["spans"].clone();
+                auto parent=spans[juce::Identifier(blockId)].clone();
+                if(!parent.isObject()||live::patchLibraryId(blockId,parent)!=patchId)
+                    throw std::runtime_error("Captured Sub-patch target Patch is missing");
+                // Always splice at the click. The selected original segment
+                // survives on both sides; a new library variant never silently
+                // replaces the whole old region or creates a Base gap.
+                const auto children=live::addedSubPatchSpanAt(parent["subs"],
+                    live::blockLength(parent),variantId,preferredStart);
+                live::put(parent,"subs",children);
+                live::put(spans,juce::Identifier(blockId),parent);
+                live::put(track,"spans",spans);
+                placed=true;
+                break;
+            }
+            if(!placed)throw std::runtime_error("Target channel not found on Item");
+        }
+    });
+}
+// Patch/Sub-patch update is a deliberate library edit, not a DSP switch.
+// Capturing is performed only at Stop on the control thread. The block stays
+// bound to its existing library ID and every reference remains valid.
+void Desktop::updateLiveChannelPatch(const juce::String& requested,const juce::String& patchId) {
+    const auto channel=inputChannel(*this,requested);
+    if(app.recording() || app.engine()->state().playback==mrs::PlaybackState::playing ||
+       livePendingItem.isNotEmpty() || livePlaybackLoading)
+        throw std::runtime_error("Stop Live transport and finish item transition before Update");
+    if(!liveInputTrack(channel))
+        throw std::runtime_error("Activate the channel input before updating the Patch");
+    const auto state=liveDocument->interfaceState;
+    const auto patch=live::find(live::find(state,"channels",channel),"patches",patchId);
+    if(!patch.isObject() || live::legacyPatch(patch))
+        throw std::runtime_error("Patch no longer exists");
+    // Patch Update records the *current* insert chain. No additional Load
+    // action or prior Item-default assignment is required.
+    const auto captured=captureLiveChannelInserts(channel);
+    const auto exposed=live::encodeLivePatchParameterBaseline(
+        captureLiveChannelInserts(channel,true));
+    editLiveInterface("Update channel patch",[&](auto& model) {
+        live::replaceCapturedPatch(model,channel,patchId,captured,exposed);
+    });
+}
+void Desktop::updateLiveChannelSubPatch(const juce::String& requested,const juce::String& patchId,
+                                        const juce::String& subPatchId) {
+    const auto channel=inputChannel(*this,requested);
+    if(app.recording() || app.engine()->state().playback==mrs::PlaybackState::playing ||
+       livePendingItem.isNotEmpty() || livePlaybackLoading)
+        throw std::runtime_error("Stop Live transport and finish item transition before Update");
+    if(!liveInputTrack(channel))
+        throw std::runtime_error("Activate the channel input before updating a Sub-patch");
+    const auto state=liveDocument->interfaceState;
+    const auto patch=live::find(live::find(state,"channels",channel),"patches",patchId);
+    const auto sub=live::find(patch,"subPatches",subPatchId);
+    if(!sub.isObject() || live::legacyPatch(patch))
+        throw std::runtime_error("Sub-patch no longer exists");
+    const bool parametersOnly=sub["type"].toString()=="parameters" &&
+                              patch["parameterBaseline"].isArray();
+    auto captured=captureLiveChannelInserts(channel,patch["parameterBaseline"].isArray(),parametersOnly);
+    if(parametersOnly) {
+        // Do not serialize vendor state for a parameter-only edit. Preserve
+        // the Base bytes so Auto cannot mistake stale Core bytes for a preset change.
+        const auto base=live::decodeLivePatchInserts(state,patch);
+        if(!live::sameInsertStructure(base,captured))
+            throw std::runtime_error("Sub-patch cannot change the plugin chain; create a new Patch");
+        for(std::size_t i=0;i<captured.size();++i) {
+            captured[i].component_state=base[i].component_state;
+            captured[i].controller_state=base[i].controller_state;
+        }
+        auto reference=base;
+        live::applyLivePatchParameterBaseline(reference,patch["parameterBaseline"]);
+        juce::var fresh;
+        auto captureState=live::object();
+        try {
+            fresh=live::captureSubPatchVariant(captureState,reference,captured,
+                                               live::SubPatchCaptureMode::parameters);
+        } catch(const std::runtime_error& error) {
+            if(!juce::String::fromUTF8(error.what()).startsWith("No exposed VST3 parameter changes"))throw;
+            fresh=live::object();
+            live::put(fresh,"overrides",juce::var(juce::Array<juce::var>{}));
+        }
+        if(live::sameShowValue(sub["overrides"],fresh["overrides"]))
+            throw std::runtime_error("Sub-patch already contains these changes");
+        auto updated=sub.clone();
+        live::put(updated,"overrides",fresh["overrides"]);
+        live::put(updated,"parameterMonitor",live::encodeLivePatchParameterBaseline(captured));
+        performLiveValuePatch("Update sub-patch",
+            {"channels",live::EditStep::id(channel),"patches",live::EditStep::id(patchId),
+             "subPatches",live::EditStep::id(subPatchId)},updated,
+            live::EditImpact::timeline|live::EditImpact::cards);
+        return;
+    }
+    editLiveInterface("Update sub-patch",[&](auto& model) {
+        live::replaceCapturedSubPatch(model,channel,patchId,subPatchId,captured);
     });
 }
 void Desktop::renameLiveChannelSubPatch(const juce::String& requested,const juce::String& patchId,
@@ -1672,10 +2150,393 @@ void Desktop::deleteLiveChannelSubPatch(const juce::String& requested,const juce
         for(int i=0;i<subs.size();++i)
             if(subs[i]["id"].toString()==subPatchId) {index=i;break;}
         if(index<0)throw std::runtime_error("Sub-patch no longer exists");
-        live::clearSubPatchReferences(state,channel,patchId,subPatchId);
+        if(subs.size()<=1)
+            throw std::runtime_error("A Patch needs one Sub-patch. Delete the Patch instead");
+        const auto fallback=subs[index==0?1:0]["id"].toString();
+        // Do not leave Base holes: all existing Item strips of the removed
+        // shared library variant now refer to the surviving first variant.
+        for(auto& item:live::array(state,"items"))
+            for(auto& track:live::array(item,"tracks")) {
+                if(track["channelId"].toString()!=channel)continue;
+                if(track["subPatchId"].toString()==subPatchId)
+                    live::put(track,"subPatchId",fallback);
+                auto spans=track["spans"].isObject()?track["spans"].clone():live::object();
+                bool changed=false;
+                for(const auto& pair:live::orderedSpans(spans)) {
+                    if(live::patchLibraryId(pair.first,pair.second)!=patchId)continue;
+                    auto parent=pair.second.clone();
+                    auto children=parent["subs"].isObject()?parent["subs"].clone():live::object();
+                    for(const auto& child:live::orderedSpans(children))
+                        if(live::subPatchLibraryId(child.first,child.second)==subPatchId) {
+                            auto updated=child.second.clone();
+                            live::put(updated,"subPatchId",fallback);
+                            live::put(children,juce::Identifier(child.first),updated);
+                            changed=true;
+                        }
+                    if(changed) {
+                        live::put(parent,"subs",children);
+                        live::put(spans,juce::Identifier(pair.first),parent);
+                    }
+                }
+                if(changed)live::put(track,"spans",spans);
+            }
         live::clearLibrarySubPatchReferences(state,channel,patchId,subPatchId);
         subs.remove(index);
+        live::prunePatchStates(state);
     });
+}
+namespace {
+// Patch authoring is an offline show edit. The item under the pointer is NOT
+// necessarily the currently playing/selected item; never switch transport to
+// make an inactive item's geometry editable.
+juce::String livePatchTargetItem(const Desktop& owner,const juce::String& requested) {
+    if(!owner.liveDocument)throw std::runtime_error("Open a MR Live show first");
+    const auto itemId=requested.isNotEmpty()?requested:
+        owner.liveDocument->interfaceState["currentItem"].toString();
+    if(!live::find(owner.liveDocument->interfaceState,"items",itemId).isObject())
+        throw std::runtime_error("Patch target Item no longer exists");
+    return itemId;
+}
+double livePatchItemBars(const Desktop& owner,const juce::String& itemId) {
+    const auto item=live::find(owner.liveDocument->interfaceState,"items",itemId);
+    return live::number(item["bars"])?static_cast<double>(item["bars"]):0.;
+}
+// The accepted #31 local-edit protocol clones only the small Item-track
+// geometry/IDs. The channel-owned VST3 state and unrelated Items remain shared.
+// Order and geometry changes are one Undo transaction; absent legacy track IDs
+// are upgraded through a single Item-local tracks edit, never a whole-show clone.
+void commitLivePatchTrack(Desktop& owner,const juce::String& itemId,
+                          const juce::String& channel,const juce::var& spans,
+                          const juce::String& label,const juce::var& order={}) {
+    const auto& state=owner.liveDocument->interfaceState;
+    const auto track=live::channelItemTrack(state,itemId,channel);
+    const auto stableId=track["id"].toString();
+    if(track.isObject()&&stableId.isNotEmpty()) {
+        std::vector<live::ValuePatch> edits;
+        edits.push_back(live::valuePatch(state,
+            {"items",live::EditStep::id(itemId),"tracks",live::EditStep::id(stableId),"spans"},spans));
+        if(order.isArray())edits.push_back(live::valuePatch(state,
+            {"items",live::EditStep::id(itemId),"tracks",live::EditStep::id(stableId),"patchOrder"},order));
+        owner.performLiveValuePatches(label,std::move(edits),live::EditImpact::timeline);
+        return;
+    }
+    // Older imported shows can have a channel Item track without its stable
+    // row ID. Preserve it and the channel link, or create only the missing row.
+    const auto item=live::find(state,"items",itemId);
+    const auto existing=item["tracks"];
+    juce::var next=existing.isArray()?live::shallowEditCopy(existing):
+        juce::var(juce::Array<juce::var>{});
+    auto updated=track.isObject()?track.clone():live::object();
+    if(updated["id"].toString().isEmpty())live::put(updated,"id",live::freshId());
+    live::put(updated,"channelId",channel);
+    live::put(updated,"spans",spans);
+    if(order.isArray())live::put(updated,"patchOrder",order);
+    auto* rows=next.getArray();
+    bool replaced=false;
+    for(int i=0;i<rows->size();++i)
+        if((*rows)[i]["channelId"].toString()==channel) {
+            rows->set(i,updated);replaced=true;break;
+        }
+    if(!replaced)rows->add(updated);
+    owner.performLiveValuePatch(label,{"items",live::EditStep::id(itemId),"tracks"},
+                               next,live::EditImpact::timeline);
+}
+}
+// Sub-patch menu can reuse an existing library variation without capturing
+// the VST3 editor. This commits only the clicked Item's lightweight geometry.
+void Desktop::insertExistingLiveSubPatch(const juce::String& requested,
+                                          const juce::String& patchId,
+                                          const juce::String& subPatchId,
+                                          const juce::String& requestedItem,
+                                          const juce::String& patchBlockId,
+                                          double clickOffset) {
+    const auto channel=inputChannel(*this,requested);
+    if(app.recording() ||
+       app.engine()->state().playback!=mrs::PlaybackState::stopped)
+        throw std::runtime_error("Stop Live transport before inserting a Sub-patch");
+    const auto patch=live::find(live::find(liveDocument->interfaceState,
+                                         "channels",channel),"patches",patchId);
+    if(!patch.isObject() || !live::find(patch,"subPatches",subPatchId).isObject())
+        throw std::runtime_error("Choose an existing Sub-patch of this Patch");
+    const auto itemId=livePatchTargetItem(*this,requestedItem);
+    const auto track=live::channelItemTrack(liveDocument->interfaceState,itemId,channel);
+    auto spans=track["spans"].isObject()?track["spans"].clone():live::object();
+    auto parent=spans[juce::Identifier(patchBlockId)].clone();
+    if(!parent.isObject() ||
+       live::patchLibraryId(patchBlockId,parent)!=patchId)
+        throw std::runtime_error("Clicked Patch block no longer exists");
+    live::put(parent,"subs",live::addedSubPatchSpanAt(parent["subs"],
+        live::blockLength(parent),subPatchId,clickOffset));
+    live::put(spans,juce::Identifier(patchBlockId),parent);
+    if(liveDocument->interfaceState["currentItem"].toString()==itemId)
+        applyLiveChannelSubPatch(channel,patchId,subPatchId,spans,itemId);
+    else commitLivePatchTrack(*this,itemId,channel,spans,"Insert existing Sub-patch");
+}
+void Desktop::addLivePatchBlock(const juce::String& requested,const juce::String& patchId,
+                                double preferredStartBars,const juce::String& requestedItem) {
+    const auto channel=inputChannel(*this,requested);
+    const auto row=live::find(liveDocument->interfaceState,"channels",channel);
+    const auto patch=live::find(row,"patches",patchId);
+    if(!patch.isObject()||live::legacyPatch(patch))
+        throw std::runtime_error("Choose a captured patch before adding its block");
+    const auto itemId=livePatchTargetItem(*this,requestedItem);
+    const auto track=live::channelItemTrack(liveDocument->interfaceState,itemId,channel);
+    const auto spans=track.isObject()&&track["spans"].isObject()?track["spans"]:live::object();
+    if(spans[juce::Identifier(patchId)].isObject())
+        throw std::runtime_error("This patch block is already on the Item");
+    const auto itemBars=livePatchItemBars(*this,itemId);
+    auto nextSpans=preferredStartBars>=0.
+        ? live::addedPatchSpanAt(spans,itemBars,patchId,preferredStartBars,itemBars)
+        : live::addedPatchSpan(spans,itemBars,patchId,itemBars);
+    if(!nextSpans[juce::Identifier(patchId)].isObject())
+        throw std::runtime_error("No free space for the patch block on this Item");
+    if(const auto* variants=patch["subPatches"].getArray())
+        if(!variants->isEmpty()) {
+            const auto initial=(*variants)[0]["id"].toString();
+            const auto span=live::fullDefaultSubPatchSpan(
+                nextSpans[juce::Identifier(patchId)].clone(),initial);
+            live::put(nextSpans,juce::Identifier(patchId),span);
+        }
+    juce::var order=track["patchOrder"].isArray()?track["patchOrder"].clone():
+        juce::var(juce::Array<juce::var>{});
+    if(!order.getArray()->contains(juce::var(patchId)))order.getArray()->add(patchId);
+    commitLivePatchTrack(*this,itemId,channel,nextSpans,"Add patch block",order);
+}
+void Desktop::replaceLivePatchBlock(const juce::String& requested,const juce::String& patchId,
+                                    const juce::String& replacementId,const juce::String& requestedItem) {
+    const auto channel=inputChannel(*this,requested);
+    const auto row=live::find(liveDocument->interfaceState,"channels",channel);
+    const auto replacement=live::find(row,"patches",replacementId);
+    if(!replacement.isObject()||live::legacyPatch(replacement))
+        throw std::runtime_error("Choose a captured patch as the replacement");
+    const auto itemId=livePatchTargetItem(*this,requestedItem);
+    const auto track=live::channelItemTrack(liveDocument->interfaceState,itemId,channel);
+    const auto spans=track["spans"];
+    const auto geometry=spans[juce::Identifier(patchId)];
+    if(!geometry.isObject())throw std::runtime_error("This patch block is not on the target Item");
+    auto replacementSpans=spans.clone();
+    auto order=track["patchOrder"].clone();
+    const bool independentInstance=geometry["patchId"].isString()||
+        spans[juce::Identifier(replacementId)].isObject();
+    auto updated=geometry.clone();
+    // Old sub-strip library IDs belong to the previous sound, never reuse.
+    if(auto* object=updated.getDynamicObject())object->removeProperty("subs");
+    if(const auto* variants=replacement["subPatches"].getArray())
+        if(!variants->isEmpty())
+            updated=live::fullDefaultSubPatchSpan(updated,(*variants)[0]["id"].toString());
+    if(independentInstance) {
+        live::put(updated,"patchId",replacementId);
+        live::put(replacementSpans,juce::Identifier(patchId),updated);
+    } else {
+        replacementSpans=live::removedPatchSpan(spans,patchId);
+        live::put(replacementSpans,juce::Identifier(replacementId),updated);
+        bool changed=false;
+        if(auto* orderEntries=order.getArray())
+            for(auto& entry:*orderEntries)
+                if(entry.toString()==patchId){entry=juce::var(replacementId);changed=true;}
+        if(!changed)throw std::runtime_error("Patch order no longer contains the target block");
+    }
+    commitLivePatchTrack(*this,itemId,channel,replacementSpans,"Replace patch block",order);
+}
+void Desktop::replaceSelectedLivePatchBlocks(
+    const juce::String& requested,const juce::String& replacementId,
+    const std::vector<std::pair<juce::String,juce::String>>& itemBlockIds) {
+    if(!liveDocument || itemBlockIds.empty() || itemBlockIds.size()>256)
+        throw std::runtime_error("Select 1..256 Patch blocks for group assignment");
+    const auto channel=inputChannel(*this,requested);
+    const auto& state=liveDocument->interfaceState;
+    const auto patch=live::find(live::find(state,"channels",channel),"patches",replacementId);
+    if(!patch.isObject() || live::legacyPatch(patch))
+        throw std::runtime_error("Selected replacement Patch is not captured in this channel");
+    struct Draft {
+        juce::String itemId,trackId;
+        juce::var originSpans;
+        std::vector<juce::String> blocks;
+    };
+    std::vector<Draft> drafts;
+    drafts.reserve(itemBlockIds.size());
+    for(const auto& entry:itemBlockIds) {
+        const auto& itemId=entry.first;
+        const auto& blockId=entry.second;
+        if(!live::find(state,"items",itemId).isObject())
+            throw std::runtime_error("Selected Patch Item no longer exists");
+        auto found=std::find_if(drafts.begin(),drafts.end(),
+            [&](const Draft& draft){return draft.itemId==itemId;});
+        if(found==drafts.end()) {
+            const auto track=live::channelItemTrack(state,itemId,channel);
+            if(!track.isObject() || track["id"].toString().isEmpty())
+                throw std::runtime_error("Selected Item has no stable track ID for group Undo");
+            drafts.push_back({itemId,track["id"].toString(),track["spans"],{}});
+            found=std::prev(drafts.end());
+        }
+        if(std::find(found->blocks.begin(),found->blocks.end(),blockId)!=found->blocks.end())
+            continue;
+        if(!found->originSpans[juce::Identifier(blockId)].isObject())
+            throw std::runtime_error("Selected Patch block belongs to another channel or no longer exists");
+        found->blocks.push_back(blockId);
+    }
+    std::vector<live::ValuePatch> edits;
+    edits.reserve(drafts.size());
+    for(const auto& draft:drafts) {
+        const auto updated=live::assignedPatchBlocks(draft.originSpans,draft.blocks,replacementId);
+        edits.push_back(live::valuePatch(state,
+            {"items",live::EditStep::id(draft.itemId),"tracks",
+             live::EditStep::id(draft.trackId),"spans"},updated));
+    }
+    // All references are prevalidated before the first mutation. One Undo
+    // covers multiple Items but never touches their musical time or Core DSP.
+    performLiveValuePatches("Apply Patch to selected blocks",std::move(edits),
+                            live::EditImpact::timeline);
+}
+void Desktop::addLiveSubPatchBlock(const juce::String& requested,const juce::String& patchId,
+                                   const juce::String& subPatchId,const juce::String& requestedItem,
+                                   double preferredStart) {
+    const auto channel=inputChannel(*this,requested);
+    const auto row=live::find(liveDocument->interfaceState,"channels",channel);
+    const auto itemId=livePatchTargetItem(*this,requestedItem);
+    const auto track=live::channelItemTrack(liveDocument->interfaceState,itemId,channel);
+    const auto spans=track["spans"];
+    const auto span=spans[juce::Identifier(patchId)];
+    if(!span.isObject())
+        throw std::runtime_error("Add the patch block before its sub-patch strip");
+    const auto patch=live::find(row,"patches",live::patchLibraryId(patchId,span));
+    if(!patch.isObject()||live::legacyPatch(patch))
+        throw std::runtime_error("Choose a captured Patch first");
+    if(!live::find(patch,"subPatches",subPatchId).isObject())
+        throw std::runtime_error("Choose a Sub-patch from this Patch library");
+    const double parentLength=live::blockLength(span);
+    const auto subs=live::addedSubPatchSpanAt(span["subs"],parentLength,subPatchId,preferredStart);
+    if(live::sameShowValue(subs,span["subs"]))
+        throw std::runtime_error("No free space for a sub-patch strip");
+    auto nextSpans=spans.clone();
+    auto updated=nextSpans[juce::Identifier(patchId)];
+    live::put(updated,"subs",subs);
+    live::put(nextSpans,juce::Identifier(patchId),updated);
+    commitLivePatchTrack(*this,itemId,channel,nextSpans,"Add sub-patch strip");
+}
+void Desktop::removeLivePatchBlock(const juce::String& requested,const juce::String& patchId,
+                                   const juce::String& requestedItem) {
+    const auto channel=inputChannel(*this,requested);
+    const auto itemId=livePatchTargetItem(*this,requestedItem);
+    const auto track=live::channelItemTrack(liveDocument->interfaceState,itemId,channel);
+    const auto spans=track["spans"];
+    if(!spans[juce::Identifier(patchId)].isObject())
+        throw std::runtime_error("This patch block is not on the target Item");
+    const auto nextSpans=live::removedPatchSpan(spans,patchId);
+    auto order=track["patchOrder"].clone();
+    if(auto* orderEntries=order.getArray())
+        for(int i=orderEntries->size();--i>=0;)
+            if((*orderEntries)[i].toString()==patchId)orderEntries->remove(i);
+    commitLivePatchTrack(*this,itemId,channel,nextSpans,"Remove patch block",order);
+}
+void Desktop::removeLiveSubPatchBlock(const juce::String& requested,const juce::String& patchId,
+                                      const juce::String& subPatchId,const juce::String& requestedItem) {
+    const auto channel=inputChannel(*this,requested);
+    const auto itemId=livePatchTargetItem(*this,requestedItem);
+    const auto track=live::channelItemTrack(liveDocument->interfaceState,itemId,channel);
+    const auto spans=track["spans"];
+    const auto span=spans[juce::Identifier(patchId)];
+    if(!span.isObject()||!span["subs"][juce::Identifier(subPatchId)].isObject())
+        throw std::runtime_error("Sub-patch strip is not on the target Item");
+    auto nextSpans=spans.clone();
+    auto updated=nextSpans[juce::Identifier(patchId)];
+    live::put(updated,"subs",live::removedPatchSpan(updated["subs"],subPatchId));
+    live::put(nextSpans,juce::Identifier(patchId),updated);
+    commitLivePatchTrack(*this,itemId,channel,nextSpans,"Remove sub-patch strip");
+}
+void Desktop::removeSelectedLivePatchBlocks(const std::vector<LivePatchBlockSelection>& selected) {
+    if(!liveDocument || selected.empty() || selected.size()>256)
+        throw std::runtime_error("Select 1..256 Patch/Sub-patch blocks to delete");
+    const auto& state=liveDocument->interfaceState;
+    struct Target {
+        juce::String itemId,channelId,trackId;
+        juce::var spans,order;
+        std::vector<LivePatchBlockSelection> blocks;
+    };
+    std::vector<Target> targets;
+    for(const auto& choice:selected) {
+        if(!live::find(state,"items",choice.itemId).isObject() ||
+           !live::find(state,"channels",choice.channelId).isObject())
+            throw std::runtime_error("Selected Patch Item/channel no longer exists");
+        auto at=std::find_if(targets.begin(),targets.end(),[&](const Target& t) {
+            return t.itemId==choice.itemId && t.channelId==choice.channelId;});
+        if(at==targets.end()) {
+            const auto track=live::channelItemTrack(state,choice.itemId,choice.channelId);
+            if(!track.isObject() || track["id"].toString().isEmpty() ||
+               !track["spans"].isObject()||!track["patchOrder"].isArray())
+                throw std::runtime_error("Selected Patch track no longer supports local Undo");
+            targets.push_back({choice.itemId,choice.channelId,track["id"].toString(),
+                               track["spans"].clone(),track["patchOrder"].clone(),{}});
+            at=std::prev(targets.end());
+        }
+        if(!at->spans[juce::Identifier(choice.blockId)].isObject())
+            throw std::runtime_error("Selected Patch block no longer exists");
+        if(choice.subId.isNotEmpty() &&
+           !at->spans[juce::Identifier(choice.blockId)]["subs"]
+               [juce::Identifier(choice.subId)].isObject())
+            throw std::runtime_error("Selected Sub-patch strip no longer exists");
+        if(std::none_of(at->blocks.begin(),at->blocks.end(),[&](const auto& earlier) {
+            return earlier.blockId==choice.blockId && earlier.subId==choice.subId;}))
+            at->blocks.push_back(choice);
+    }
+    std::vector<live::ValuePatch> edits;
+    for(auto& target:targets) {
+        for(const auto& choice:target.blocks) {
+            if(choice.subId.isNotEmpty()) {
+                // Selecting a parent explicitly wins over its children, but
+                // selecting a Base/child alone never removes the parent.
+                if(std::any_of(target.blocks.begin(),target.blocks.end(),[&](const auto& other) {
+                    return other.blockId==choice.blockId && other.subId.isEmpty();}))
+                    continue;
+                auto parent=target.spans[juce::Identifier(choice.blockId)].clone();
+                const auto remainingSubs=live::removedSubPatchSpan(parent["subs"],
+                                    live::blockLength(parent),choice.subId);
+                live::put(parent,"subs",remainingSubs);
+                live::put(target.spans,juce::Identifier(choice.blockId),parent);
+            } else {
+                target.spans=live::removedPatchSpan(target.spans,choice.blockId);
+                if(auto* orderEntries=target.order.getArray())
+                    for(int i=orderEntries->size();--i>=0;)
+                        if((*orderEntries)[i].toString()==choice.blockId)orderEntries->remove(i);
+            }
+        }
+        edits.push_back(live::valuePatch(state,
+            {"items",live::EditStep::id(target.itemId),"tracks",
+             live::EditStep::id(target.trackId),"spans"},target.spans));
+        edits.push_back(live::valuePatch(state,
+            {"items",live::EditStep::id(target.itemId),"tracks",
+             live::EditStep::id(target.trackId),"patchOrder"},target.order));
+    }
+    performLiveValuePatches("Remove selected Patch blocks",std::move(edits),live::EditImpact::timeline);
+}
+void Desktop::setLivePatchSpans(const juce::String& requested,const juce::String& patchId,
+                                juce::var spans,const juce::String& label,
+                                const juce::String& requestedItem) {
+    const auto channel=inputChannel(*this,requested);
+    const auto itemId=livePatchTargetItem(*this,requestedItem);
+    const auto track=live::channelItemTrack(liveDocument->interfaceState,itemId,channel);
+    if(!track.isObject() || !track["spans"][juce::Identifier(patchId)].isObject())
+        throw std::runtime_error("Patch block is no longer on the target Item");
+    commitLivePatchTrack(*this,itemId,channel,spans,label);
+}
+void Desktop::splitLivePatchBlock(const juce::String& requested,const juce::String& blockId,
+                                  double atBar,const juce::String& requestedItem) {
+    const auto channel=inputChannel(*this,requested);
+    const auto itemId=livePatchTargetItem(*this,requestedItem);
+    const auto track=live::channelItemTrack(liveDocument->interfaceState,itemId,channel);
+    if(!track.isObject())throw std::runtime_error("Patch track no longer exists");
+    const auto splitResult=live::splitPatchBlock(track["spans"],track["patchOrder"],blockId,atBar);
+    commitLivePatchTrack(*this,itemId,channel,splitResult.spans,"Split patch block",splitResult.order);
+}
+void Desktop::splitLiveSubPatchBlock(const juce::String& requested,const juce::String& blockId,
+                                     const juce::String& subBlockId,double atBar,
+                                     const juce::String& requestedItem) {
+    const auto channel=inputChannel(*this,requested);
+    const auto itemId=livePatchTargetItem(*this,requestedItem);
+    const auto track=live::channelItemTrack(liveDocument->interfaceState,itemId,channel);
+    if(!track.isObject())throw std::runtime_error("Patch track no longer exists");
+    const auto splitResult=live::splitSubPatchBlock(track["spans"],blockId,subBlockId,atBar);
+    commitLivePatchTrack(*this,itemId,channel,splitResult.spans,"Split sub-patch strip");
 }
 void Desktop::applyLiveItemDefaultPatches() {
     // #289 A-Upd1: switching a song while stopped adopts that song's default
@@ -1694,6 +2555,11 @@ void Desktop::applyLiveItemDefaultPatches() {
         return;
     for(const auto& target:live::itemDefaultPatches(liveDocument->interfaceState,itemId)) {
         const auto& channel=target.first;
+        if(const auto it=liveLoadedPatches.find(channel);it!=liveLoadedPatches.end()) {
+            if(it->second.itemId==itemId)
+                continue; // An explicit authoring load must not be undone.
+            liveLoadedPatches.erase(it);
+        }
         const auto& patchId=target.second;
         if(liveChannelTracks.find(channel)==liveChannelTracks.end())
             continue;
@@ -1704,19 +2570,22 @@ void Desktop::applyLiveItemDefaultPatches() {
         if(!patch.isObject())
             continue;
         // #289 B: an item may also remember a sub-patch of the same chain.
-        const auto subPatchId=live::channelItemTrack(liveDocument->interfaceState,itemId,channel)["subPatchId"].toString();
+        const auto subPatchId=live::timelinePatchAtBar(
+            liveDocument->interfaceState,itemId,channel,0.).subPatchId;
         const auto subPatch=subPatchId.isEmpty()?juce::var{}:live::find(patch,"subPatches",subPatchId);
         bool differs=false;
         try {
             differs=live::decodeLiveInputProfile(row["liveInput"]).inserts!=
                     live::patchInsertsWithSubPatch(liveDocument->interfaceState,patch,subPatch);
-        } catch(const std::exception&) {
-            continue; // Missing opaque state: report only when applied manually.
+        } catch(const std::exception& error) {
+            if(livePreloadError.isEmpty())
+                livePreloadError="Patch: "+juce::String::fromUTF8(error.what());
+            continue;
         }
         if(!differs)
             continue;
         try {
-            applyLiveChannelPatch(channel,patchId,subPatch.isObject()?subPatchId:juce::String());
+            loadLiveChannelPatch(channel,patchId,subPatch.isObject()?subPatchId:juce::String());
         } catch(const std::exception& error) {
             if(livePreloadError.isEmpty())
                 livePreloadError="Patch: "+juce::String::fromUTF8(error.what());
@@ -1730,10 +2599,13 @@ void Desktop::assignLiveItemPatch(const juce::String& requested,const juce::Stri
         throw std::runtime_error("Choose a patch from the channel library");
     const auto itemId=liveDocument->interfaceState["currentItem"].toString();
     if(itemId.isEmpty())throw std::runtime_error("Select a song item first");
+    liveLoadedPatches.erase(channel);
     editLiveInterface("Item default patch",[&](auto& state){
         auto& item=live::require(state,"items",itemId);
         for(auto& track:live::array(item,"tracks"))
             if(track["channelId"].toString()==channel) {
+                if(patchId.isEmpty() || track["patchId"].toString()!=patchId)
+                    if(auto* object=track.getDynamicObject())object->removeProperty("subPatchId");
                 if(patchId.isEmpty()) {
                     if(auto* object=track.getDynamicObject())object->removeProperty("patchId");
                 } else live::put(track,"patchId",patchId);
@@ -1859,6 +2731,7 @@ void Desktop::releaseLiveInput(const juce::String& requested) {
     for(const auto& [other,id]:liveChannelTracks)if(other!=channel)
         for(const auto& track:snapshot->tracks)if(track.id==id)tracks.push_back(track);
     closeEditors();app.update_live_channels(liveInputTracks(),std::move(tracks));liveChannelTracks.erase(channel);
+    liveLoadedPatches.erase(channel);
     liveDocument->interfaceState=state;updateLiveDirty();++liveUiRevision;
 }
 void Desktop::setLiveChannelMix(const juce::String &id, double gain, double pan, bool mute, bool solo) {
@@ -2072,7 +2945,9 @@ void Desktop::syncLivePreload() {
         // Keep the current shared Engine and input graph alive, never stage the next WAV.
         app.cancel_staged_playback();
         liveAutoKey.clear(); liveAutoToken = 0;
-        liveNextStatus = "Live Input active: Stop before manual item switch; automatic next is not ready";
+        // This is a next-Item scheduling status, not an error from
+        // Patch/Sub-patch Capture or VST3 authoring.
+        liveNextStatus = "Next Item: automatic transition unavailable with active Live Input; stop before changing Items";
         return;
     }
     const auto &state = liveDocument->interfaceState;
@@ -2095,7 +2970,7 @@ void Desktop::syncLivePreload() {
             return;
         const auto status = app.playback_preparation(found->media);
         const auto name = live::find(state, "items", id)["name"].toString();
-        liveNextStatus = "Next: " + name + " — " +
+        liveNextStatus = "Next: " + name + " вЂ” " +
                          (status.busy ? "preparing " + juce::String(static_cast<int>(status.progress * 100)) + "%"
                           : status.message.empty() ? "media ready"
                                                    : "unavailable: " + juce::String::fromUTF8(status.message.c_str()));
@@ -2108,14 +2983,14 @@ void Desktop::syncLivePreload() {
             app.stage_playback(found->media,performanceLayout(state,id,project()->sample_rate,token),liveRuntimeToken);
             liveAutoToken=token;liveAutoItem=id;liveAutoEntry=nextEntry["id"].toString();liveAutoKey=stageKey;
         }
-        if(app.staged_playback_token())liveNextStatus="Next: "+name+" — audio ready; graph prepared";
+        if(app.staged_playback_token())liveNextStatus="Next: "+name+" вЂ” audio ready; graph prepared";
         const auto boundary=app.engine()->performance_status();
         if((boundary.action==mrs::PerformanceAction::next||boundary.action==mrs::PerformanceAction::next_stopped)&&
            app.engine()->state().playback==mrs::PlaybackState::stopped)
             liveNextStatus+="; waiting at item end";
 
     } catch (const std::exception &error) {
-        liveNextStatus = "Next: unavailable — " + juce::String::fromUTF8(error.what());
+        liveNextStatus = "Next: unavailable вЂ” " + juce::String::fromUTF8(error.what());
     }
 }
 void Desktop::cancelLiveSwitch() {

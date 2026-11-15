@@ -157,8 +157,12 @@ void Desktop::showProjectHome(bool visible){if(!home||(standaloneLive&&visible))
 void Desktop::saveSettings(){if(testing)return;
     prefs.workspace=app.workspace();view.sidebar=sidebar;view.browserWidth=browserWidth;view.snap=snap;
     if(arrangement){view.trackHeight=arrangement->trackHeight;view.pixelsPerSecond=arrangement->pixelsPerSecond;}
-    publishSettings(juce::File(juce::String(prefsFile.wstring().c_str())),label(mrs::desktop::encode_preferences(prefs)));
-    publishSettings(juce::File(juce::String(viewFile.wstring().c_str())),view.encode());
+    // Preference persistence must never abort the action that triggered it: a protected or
+    // read-only Documents folder used to make project opening look broken.
+    try{
+        publishSettings(juce::File(juce::String(prefsFile.wstring().c_str())),label(mrs::desktop::encode_preferences(prefs)));
+        publishSettings(juce::File(juce::String(viewFile.wstring().c_str())),view.encode());
+    }catch(const std::exception& e){mrs::diagnostics::event(std::string("settings_write_failed ")+e.what());}
 }
 void Desktop::remember(){if(standaloneLive&&liveFile.existsAsFile())view.lastLiveShow=liveFile.getFullPathName();if(testing)return;mrs::desktop::remember_project(prefs,path(documentFile()));saveSettings();}
 void Desktop::reconnectDevice(bool session){if(testing||(!session&&!prefs.reconnect_audio)||prefs.device_name.empty())return;
@@ -282,6 +286,45 @@ void Desktop::textDialog(juce::String title,juce::String initial,std::function<v
     alert->addTextEditor("value",initial);alert->addButton("OK",1,juce::KeyPress(juce::KeyPress::returnKey));alert->addButton("Cancel",0,juce::KeyPress(juce::KeyPress::escapeKey));
     juce::Component::SafePointer<Desktop> safe(this);
     alert->enterModalState(true,juce::ModalCallbackFunction::create([safe,alert,callback](int r){if(safe && r==1)safe->run([&]{callback(alert->getTextEditorContents("value"));});}),true);
+}
+void Desktop::confirmLivePatchUpdate(const juce::String& channelId,const juce::String& patchId,
+                                     const juce::String& subPatchId,const juce::String& itemId) {
+    if(!liveDocument)return;
+    const auto generation=liveDocumentGeneration;
+    const auto state=liveDocument->interfaceState;
+    const auto currentItem=state["currentItem"].toString();
+    if(itemId!=currentItem)
+        throw std::runtime_error("Activate this Item before updating its sound. Other Items stay editable offline.");
+    if(!livePatchLoadedForEditing(channelId,patchId,subPatchId))
+        throw std::runtime_error(
+            "Load this Patch/Sub-patch into Live Input before updating. "
+            "Selection on the Timeline does not load its sound");
+    if(app.recording() || app.engine()->state().playback==mrs::PlaybackState::playing)
+        throw std::runtime_error("Stop playback before updating a Patch");
+    const auto patch=live::find(live::find(state,"channels",channelId),"patches",patchId);
+    const auto sub=subPatchId.isEmpty()?juce::var{}:live::find(patch,"subPatches",subPatchId);
+    if(!patch.isObject() || (subPatchId.isNotEmpty()&&!sub.isObject()))
+        throw std::runtime_error("Patch/Sub-patch no longer exists");
+    const juce::String label=subPatchId.isEmpty()?"Patch":"Sub-patch";
+    const auto name=subPatchId.isEmpty()?patch["name"].toString():sub["name"].toString();
+    const auto confirmationText=juce::String("Capture the current sound into ")+name+
+        "? All blocks using this library entry will change. "+
+        juce::String("Choose Save as new Patch for an independent sound.");
+    auto* alert=new StudioAlertWindow(*this,juce::String("Update ")+label,
+                                      confirmationText,juce::MessageBoxIconType::QuestionIcon);
+    alert->addButton("Update",1);
+    alert->addButton("Cancel",0,juce::KeyPress(juce::KeyPress::escapeKey));
+    juce::Component::SafePointer<Desktop> safe(this);
+    alert->enterModalState(true,juce::ModalCallbackFunction::create(
+        [safe,generation,channelId,patchId,subPatchId,itemId](int result) {
+            if(result!=1||!safe||!safe->liveDocument||safe->liveDocumentGeneration!=generation)return;
+            safe->run([&]{
+                if(safe->liveDocument->interfaceState["currentItem"].toString()!=itemId)
+                    throw std::runtime_error("Item changed while confirming Update");
+                if(subPatchId.isEmpty())safe->updateLiveChannelPatch(channelId,patchId);
+                else safe->updateLiveChannelSubPatch(channelId,patchId,subPatchId);
+            });
+        }),true);
 }
 void Desktop::renameClips(std::vector<mrs::Id> clipIds){
     if(clipIds.empty())return;const auto store=app.services().projects;const auto revisionAtDialog=store->state().revision;const auto p=project();const auto first=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==clipIds.front();});if(first==p->clips.end())return;
