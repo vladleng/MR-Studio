@@ -38,6 +38,9 @@ public:
     tresult PLUGIN_API setParamNormalized(ParamID id,ParamValue value) override{if(id==200)gain_=0.5f;return SingleComponentEffect::setParamNormalized(id,value);}
     tresult PLUGIN_API getState(IBStream* s) override{++fixtureCaptures;if(largeState_){std::vector<char> payload(2u*1024u*1024u,0x5a);std::memcpy(payload.data(),&gain_,sizeof(gain_));return s->write(payload.data(),static_cast<int32>(payload.size()),nullptr);}return s->write(&gain_,sizeof(gain_),nullptr);}
     tresult PLUGIN_API setState(IBStream* s) override{if(fixtureRejectRestores)return kInternalError;float v{};int32 n{};if(s->read(&v,sizeof(v),&n)!=kResultOk||n!=sizeof(v)||v<0||v>1)return kInvalidArgument;gain_=v;setParamNormalized(100,v);return kResultOk;}
+    // SingleComponentEffect exposes controller state through distinct methods.
+    tresult PLUGIN_API getEditorState(IBStream* s) override{return getState(s);}
+    tresult PLUGIN_API setEditorState(IBStream* s) override{return setState(s);}
     tresult PLUGIN_API setComponentState(IBStream* s) override{return setState(s);}
     tresult PLUGIN_API setActive(TBool active) override{if(active&&activationReset_)gain_=0.5f;return SingleComponentEffect::setActive(active);}
     uint32 PLUGIN_API getLatencySamples() override{return fixtureLatencyChanges&&gain_>.8f?15u:7u;}
