@@ -1503,7 +1503,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                         return;
                     }
                     safe->run([&] {
-                        if(action==3)safe->deleteLiveChannelSubPatch(channelId,patchId,subId);
+                        if(action==3)safe->removeSelectedLivePatchBlocks({{itemId,channelId,patchBlock,subBlock}});
                         else if(action==4)safe->updateLiveChannelSubPatch(channelId,patchId,subId);
                     });
                 });
@@ -1576,7 +1576,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                         return;
                     }
                     safe->run([&] {
-                        if(action==3)safe->deleteLiveChannelPatch(channelId,patchId);
+                        if(action==3)safe->removeSelectedLivePatchBlocks({{itemId,channelId,patchBlock,{}}});
                         else if(action==4)safe->updateLiveChannelPatch(channelId,patchId);
                         else if(action>=100 && action-100<static_cast<int>(patchIds.size())) {
                             safe->replaceLivePatchBlock(channelId,patchBlock,
