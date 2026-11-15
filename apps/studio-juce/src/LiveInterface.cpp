@@ -1919,10 +1919,10 @@ void Desktop::applyLiveChannelSubPatch(const juce::String& requested,const juce:
             }
             std::erase_if(edits,[](const auto& edit){return !edit.changed();});
         }
-        auto next=oldLoaded;next.subPatchId=subPatchId;next.opaqueState=false;
-        if(!recordUndo){commitLiveSubPatchParameters(channel,next,target,edits,true);return;}
+        auto nextLoaded=oldLoaded;nextLoaded.subPatchId=subPatchId;nextLoaded.opaqueState=false;
+        if(!recordUndo){commitLiveSubPatchParameters(channel,nextLoaded,target,edits,true);return;}
         liveTypingLabel.clear();liveUndo.beginNewTransaction("Select Sub-patch");
-        liveUndo.perform(new LiveSubPatchParametersEdit(*this,channel,oldLoaded,next,std::move(before),std::move(target),std::move(edits)));
+        liveUndo.perform(new LiveSubPatchParametersEdit(*this,channel,oldLoaded,nextLoaded,std::move(before),std::move(target),std::move(edits)));
         liveUndo.beginNewTransaction();return;
     }
     // Restore the complete parent state on every slot, then its sparse variant.
