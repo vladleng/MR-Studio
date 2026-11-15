@@ -240,6 +240,26 @@ public:
     void deleteLiveChannelPatch(const juce::String&, const juce::String& patchId);
     void setLivePlaybackTrim(double startSeconds, double endSeconds);
     void syncLivePlayback();
+    // #375: while Play runs, follow the Timeline's Patch/Sub-patch blocks.
+    // Parameters switch bounded controls in the existing instance; Patch and
+    // Snapshot prepare a complete graph off the audio thread and hand it over
+    // at a block boundary. Show data and Undo are not edited during Play.
+    void syncLivePatchSchedule();
+    void resetLivePatchSchedule();
+    struct LiveScheduledPatch {
+        juce::String itemId,channelId,patchId,subPatchId;
+        bool snapshot{};
+    };
+    struct LivePendingGraphChange {
+        LiveScheduledPatch choice;
+        std::shared_ptr<mrs::processing::PreparedGraph> graph;
+    };
+    std::map<juce::String,LiveScheduledPatch> liveScheduledPatches;
+    std::vector<LivePendingGraphChange> livePendingGraphChanges;
+    struct LivePreparedPatchGraph {juce::String key;std::shared_ptr<mrs::processing::PreparedGraph> graph;};
+    std::map<juce::String,LivePreparedPatchGraph> livePreparedPatchGraphs;
+    std::map<juce::String,LivePreparedPatchGraph> liveLookaheadPatchGraphs;
+    juce::String livePatchScheduleItem;
     bool livePlaybackReady() const;
     bool liveTransportReady() const;
     juce::String livePlaybackItem, livePlaybackFile, livePlaybackMixKey, livePlaybackRegionsKey, livePlaybackError, liveMusicalKey;

@@ -230,6 +230,17 @@ struct AudioEngine::ControlInfo {
     explicit ControlInfo(const AudioEngine& engine):graph(engine.graph_),compensation(engine.compensation_),domains(engine.domains_),
         workers(engine.workers_?engine.workers_->count()+1:1),scheduled(engine.workers_?engine.workers_->audio_scheduled():0),overhead(engine.scheduler_overhead_ns_){}
 };
+struct AudioEngine::PreparedInsertSwitch {
+    std::vector<InsertGraphChange> changes; // new graphs; adopt the previous ones on swap
+    std::vector<std::shared_ptr<processing::PreparedGraph>> previous; // expected current graphs
+    CompensationReport compensation;
+    std::vector<CompensationDelay> route_delays;
+    std::vector<std::vector<CompensationDelay>> send_delays;
+    CompensationDelay legacy_delay;
+    ProcessingDomains domains;
+    std::shared_ptr<const ControlInfo> info;
+    std::atomic<TransitionPhase> phase{TransitionPhase::prepared};
+};
 struct AudioEngine::PreparedTransition {
     std::unique_ptr<PreparedState> next;
     bool voices_only{};
@@ -254,6 +265,81 @@ std::shared_ptr<AudioEngine::PreparedTransition> AudioEngine::prepare_transition
         throw std::invalid_argument("Automatic handoff requires prepared Playback/Cue graph with stable device routes");
     auto result=std::make_shared<PreparedTransition>();result->expected=expected_token;result->mix=last_mix_sent_.load(std::memory_order_acquire);
     result->next=prepare_state(config_,std::move(graph),{});result->info=std::make_shared<ControlInfo>(*result->next);return result;
+}
+std::shared_ptr<AudioEngine::PreparedInsertSwitch> AudioEngine::prepare_insert_switch(
+    std::vector<InsertGraphChange> changes) {
+    const auto& current=control_graph();
+    if(changes.empty())throw std::invalid_argument("insert switch requires at least one channel");
+    auto next=current;
+    auto result=std::make_shared<PreparedInsertSwitch>();
+    for(auto& change:changes) {
+        if(change.track>=current.inserts.size())
+            throw std::invalid_argument("insert switch track is outside the mixer");
+        if(!change.graph)throw std::invalid_argument("insert switch requires a prepared graph");
+        const auto chain=change.graph->config();
+        if(chain.sample_rate!=config_.sample_rate||chain.channels!=config_.output_channels)
+            throw std::invalid_argument("insert switch config differs from the device");
+        if(config_.processing_block&&chain.max_block<config_.processing_block)
+            throw std::invalid_argument("insert switch block size is below the device block");
+        for(const auto& earlier:result->changes)
+            if(earlier.track==change.track)
+                throw std::invalid_argument("insert switch repeats a channel");
+        result->previous.push_back(current.inserts[change.track]);
+        result->changes.push_back(std::move(change));
+    }
+    for(auto& change:result->changes)next.inserts[change.track]=change.graph;
+    auto routing=build_routing(next,config_);
+    if(routing.insert_block_size!=insert_block_size_)
+        throw std::invalid_argument("insert switch changes the prepared block size; use a stopped load");
+    result->compensation=std::move(routing.compensation);
+    result->route_delays=std::move(routing.route_delays);
+    result->send_delays=std::move(routing.send_delays);
+    result->legacy_delay=std::move(routing.legacy_delay);
+    result->domains=std::move(routing.domains);
+    auto info=control_info_?std::make_shared<ControlInfo>(*control_info_):std::make_shared<ControlInfo>(*this);
+    info->graph=std::move(next);info->compensation=result->compensation;info->domains=result->domains;
+    result->info=std::move(info);
+    if(profile_)for(const auto& change:result->changes)
+        change.graph->set_profiling(profile_->enabled.load(std::memory_order_relaxed));
+    return result;
+}
+bool AudioEngine::stage_insert_switch(const std::shared_ptr<PreparedInsertSwitch>& next) {
+    if(!next||next->phase.load(std::memory_order_acquire)!=TransitionPhase::prepared)return false;
+    const auto& current=control_graph();
+    if(next->changes.size()!=next->previous.size())return false;
+    for(std::size_t i=0;i<next->changes.size();++i)
+        if(next->changes[i].track>=current.inserts.size()||
+           current.inserts[next->changes[i].track]!=next->previous[i])return false;
+    if(pending_transition_.load(std::memory_order_acquire)!=nullptr)return false;
+    auto phase=TransitionPhase::prepared;
+    if(!next->phase.compare_exchange_strong(phase,TransitionPhase::pending))return false;
+    PreparedInsertSwitch* empty{};
+    if(!pending_insert_switch_.compare_exchange_strong(empty,next.get(),std::memory_order_release)) {
+        next->phase.store(TransitionPhase::prepared,std::memory_order_release);
+        return false;
+    }
+    return true;
+}
+bool AudioEngine::cancel_insert_switch(const std::shared_ptr<PreparedInsertSwitch>& next) noexcept {
+    if(!next)return true;
+    auto* pointer=next.get();
+    if(pending_insert_switch_.compare_exchange_strong(pointer,nullptr,std::memory_order_acq_rel)) {
+        next->phase.store(TransitionPhase::cancelled,std::memory_order_release);
+        return true;
+    }
+    auto phase=TransitionPhase::prepared;
+    if(next->phase.compare_exchange_strong(phase,TransitionPhase::cancelled))return true;
+    phase=next->phase.load(std::memory_order_acquire);
+    return phase==TransitionPhase::cancelled||phase==TransitionPhase::acknowledged;
+}
+AudioEngine::TransitionPhase AudioEngine::insert_switch_phase(const std::shared_ptr<PreparedInsertSwitch>& next) const noexcept {
+    return next?next->phase.load(std::memory_order_acquire):TransitionPhase::cancelled;
+}
+bool AudioEngine::acknowledge_insert_switch(const std::shared_ptr<PreparedInsertSwitch>& next) {
+    if(!next||next->phase.load(std::memory_order_acquire)!=TransitionPhase::adopted)return false;
+    control_info_=next->info;
+    next->phase.store(TransitionPhase::acknowledged,std::memory_order_release);
+    return true;
 }
 bool AudioEngine::async_voice_transition_available() const noexcept {
     RealtimeState head;
@@ -320,6 +406,30 @@ void AudioEngine::adopt_voice_transition() noexcept {
     graph_.voices.swap(next->voices);
     next->phase.store(TransitionPhase::adopted,std::memory_order_release);
 }
+void AudioEngine::adopt_insert_switch() noexcept {
+    auto* next=pending_insert_switch_.exchange(nullptr,std::memory_order_acq_rel);
+    if(!next)return;
+    next->phase.store(TransitionPhase::acquired,std::memory_order_release);
+    if(next->changes.size()!=next->previous.size()) {
+        next->phase.store(TransitionPhase::cancelled,std::memory_order_release);
+        return;
+    }
+    for(std::size_t i=0;i<next->changes.size();++i)
+        if(next->changes[i].track>=graph_.inserts.size()||
+           graph_.inserts[next->changes[i].track]!=next->previous[i]) {
+            next->phase.store(TransitionPhase::cancelled,std::memory_order_release);
+            return;
+        }
+    // Swap prepared storage only: no allocation/free, locks, I/O or transport reset.
+    for(auto& change:next->changes)
+        std::swap(graph_.inserts[change.track],change.graph);
+    std::swap(compensation_,next->compensation);
+    std::swap(route_delays_,next->route_delays);
+    std::swap(send_delays_,next->send_delays);
+    std::swap(legacy_delay_,next->legacy_delay);
+    std::swap(domains_,next->domains);
+    next->phase.store(TransitionPhase::adopted,std::memory_order_release);
+}
 bool AudioEngine::stage_transition(const std::shared_ptr<PreparedTransition>& next){
     if(!next || next->expected!=control_graph().performance_token || next->phase.load()!=TransitionPhase::prepared)return false;
     if(next->voices_only&&(!async_voice_transition_available()||!control_info_||next->previous_info->generation!=control_info_->generation))return false;
@@ -344,6 +454,96 @@ bool AudioEngine::acknowledge_transition(const std::shared_ptr<PreparedTransitio
 AudioEngine::PerformanceStatus AudioEngine::performance_status() const noexcept {
     return {published_performance_token_.load(std::memory_order_acquire),published_manual_revision_.load(std::memory_order_acquire),
         published_end_serial_.load(std::memory_order_acquire),static_cast<PerformanceAction>(published_performance_action_.load()),published_performance_stalled_.load()};
+}
+struct AudioEngine::RoutingPlan {
+    std::vector<std::size_t> order, levels;
+    std::vector<std::vector<std::size_t>> channel_levels;
+    CompensationReport compensation;
+    std::vector<CompensationDelay> route_delays;
+    std::vector<std::vector<CompensationDelay>> send_delays;
+    CompensationDelay legacy_delay;
+    ProcessingDomains domains;
+    std::uint32_t insert_block_size{};
+};
+// Shared by a full quiescent prepare and a #375 live insert switch. Reads only
+// prepared/control data, never DSP instances or the device callback.
+AudioEngine::RoutingPlan AudioEngine::build_routing(const RenderGraph& graph,
+    const RenderConfig& config) const {
+    RoutingPlan plan;
+    std::vector<std::size_t> incoming(graph.mixer.size());
+    const auto edge = [&](std::size_t destination) {
+        if (destination == no_mixer_track) return;
+        if (destination >= graph.mixer.size() || !graph.buses[destination]) throw std::invalid_argument("invalid output/send bus");
+        ++incoming[destination];
+    };
+    for (std::size_t i=0; i<graph.mixer.size(); ++i) {
+        edge(graph.outputs[i]);
+        if (graph.sends[i].size() > 8) throw std::invalid_argument("send limit exceeded");
+        for (std::size_t j=0; j<graph.sends[i].size(); ++j) {
+            const auto& send = graph.sends[i][j];
+            if (send.destination == no_mixer_track || !std::isfinite(send.gain) || send.gain < 0 || send.gain > 16) throw std::invalid_argument("invalid send");
+            for (std::size_t k=0; k<j; ++k) if (graph.sends[i][k].destination == send.destination) throw std::invalid_argument("duplicate send destination");
+            edge(send.destination);
+        }
+    }
+    for (std::size_t i=0; i<incoming.size(); ++i) if (!incoming[i]) plan.order.push_back(i);
+    const auto release = [&](std::size_t destination) {
+        if (destination != no_mixer_track && --incoming[destination] == 0) plan.order.push_back(destination);
+    };
+    for (std::size_t i=0; i<plan.order.size(); ++i) {
+        release(graph.outputs[plan.order[i]]);
+        for (const auto& send : graph.sends[plan.order[i]]) release(send.destination);
+    }
+    if (plan.order.size() != graph.mixer.size()) throw std::invalid_argument("audio routing cycle");
+    plan.levels.resize(graph.mixer.size());
+    if(graph.processors && graph.master_inserts && graph.processors==graph.master_inserts)
+        throw std::invalid_argument("processor graph must have a single channel owner");
+    for(std::size_t t=0;t<graph.inserts.size();++t) {
+        if(!graph.inserts[t])continue;
+        if(graph.inserts[t]==graph.processors||graph.inserts[t]==graph.master_inserts)
+            throw std::invalid_argument("processor graph must have a single channel owner");
+        for(std::size_t earlier=0;earlier<t;++earlier)
+            if(graph.inserts[t]==graph.inserts[earlier])
+                throw std::invalid_argument("processor graph must have a single channel owner");
+    }
+    for(const auto t:plan.order) {
+        if(plan.channel_levels.size()<=plan.levels[t])plan.channel_levels.resize(plan.levels[t]+1);
+        plan.channel_levels[plan.levels[t]].push_back(t);
+        const auto advance=[&](std::size_t dest){if(dest!=no_mixer_track)plan.levels[dest]=std::max(plan.levels[dest],plan.levels[t]+1);};
+        advance(graph.outputs[t]);for(const auto& send:graph.sends[t])advance(send.destination);
+    }
+    // Keep muted paths in the plan: gates must never change prepared latency.
+    std::vector<std::uint64_t> arrivals(graph.mixer.size());
+    plan.compensation.track_paths.resize(graph.mixer.size());
+    for(const auto t:plan.order){const auto own=graph.inserts.empty()||!graph.inserts[t]?0:graph.inserts[t]->latency().output;
+        const auto path=arrivals[t]+own;if(path>262144)throw std::invalid_argument("PDC mixer path exceeds 262144 samples");
+        plan.compensation.track_paths[t]=path;
+        if(graph.outputs[t]!=no_mixer_track)arrivals[graph.outputs[t]]=std::max(arrivals[graph.outputs[t]],path);
+        for(const auto& send:graph.sends[t])arrivals[send.destination]=std::max(arrivals[send.destination],path);
+        plan.compensation.output=std::max(plan.compensation.output,path);
+    }
+    const auto master_input=plan.compensation.output;
+    plan.compensation.master=(graph.processors?graph.processors->latency().output:0)+(graph.master_inserts?graph.master_inserts->latency().output:0);
+    plan.compensation.output+=plan.compensation.master;
+    if(plan.compensation.output>262144)throw std::invalid_argument("PDC output path exceeds 262144 samples");
+    std::size_t delay_budget=128*1024*1024;
+    std::vector<CompensationDelay> routes(graph.mixer.size());
+    std::vector<std::vector<CompensationDelay>> sends(graph.mixer.size());
+    for(std::size_t t=0;t<graph.mixer.size();++t){const auto destination=graph.outputs[t];
+        const auto target=!graph.hardware_outputs[t].empty()?plan.compensation.output:destination==no_mixer_track?master_input:arrivals[destination];
+        routes[t].prepare(target-plan.compensation.track_paths[t],config.output_channels,delay_budget);
+        sends[t].resize(graph.sends[t].size());
+        for(std::size_t j=0;j<sends[t].size();++j)sends[t][j].prepare(arrivals[graph.sends[t][j].destination]-plan.compensation.track_paths[t],config.output_channels,delay_budget);
+    }
+    CompensationDelay legacy;legacy.prepare(master_input,config.output_channels,delay_budget);
+    plan.compensation.memory_bytes=128*1024*1024-delay_budget;
+    plan.domains = compile_domains(graph, plan.order, plan.compensation, arrivals);
+    plan.insert_block_size=config.processing_block?config.processing_block:config.max_block;
+    for(const auto& chain:graph.inserts)if(chain)plan.insert_block_size=std::min(plan.insert_block_size,chain->config().max_block);
+    plan.route_delays=std::move(routes);
+    plan.send_delays=std::move(sends);
+    plan.legacy_delay=std::move(legacy);
+    return plan;
 }
 std::unique_ptr<AudioEngine::PreparedState> AudioEngine::prepare_state(RenderConfig config, RenderGraph graph, RealtimeState initial) const {
     auto next=std::make_unique<PreparedState>();
@@ -415,48 +615,7 @@ std::unique_ptr<AudioEngine::PreparedState> AudioEngine::prepare_state(RenderCon
         physical(graph.hardware_outputs[i]);
         if (!graph.hardware_outputs[i].empty() && graph.outputs[i] != no_mixer_track) throw std::invalid_argument("bus/hardware route conflict");
     }
-    std::vector<std::size_t> order, incoming(graph.mixer.size());
-    const auto edge = [&](std::size_t destination) {
-        if (destination == no_mixer_track) return;
-        if (destination >= graph.mixer.size() || !graph.buses[destination]) throw std::invalid_argument("invalid output/send bus");
-        ++incoming[destination];
-    };
-    for (std::size_t i=0; i<graph.mixer.size(); ++i) {
-        edge(graph.outputs[i]);
-        if (graph.sends[i].size() > 8) throw std::invalid_argument("send limit exceeded");
-        for (std::size_t j=0; j<graph.sends[i].size(); ++j) {
-            const auto& send = graph.sends[i][j];
-            if (send.destination == no_mixer_track || !std::isfinite(send.gain) || send.gain < 0 || send.gain > 16) throw std::invalid_argument("invalid send");
-            for (std::size_t k=0; k<j; ++k) if (graph.sends[i][k].destination == send.destination) throw std::invalid_argument("duplicate send destination");
-            edge(send.destination);
-        }
-    }
-    for (std::size_t i=0; i<incoming.size(); ++i) if (!incoming[i]) order.push_back(i);
-    const auto release = [&](std::size_t destination) {
-        if (destination != no_mixer_track && --incoming[destination] == 0) order.push_back(destination);
-    };
-    for (std::size_t i=0; i<order.size(); ++i) {
-        release(graph.outputs[order[i]]);
-        for (const auto& send : graph.sends[order[i]]) release(send.destination);
-    }
-    if (order.size() != graph.mixer.size()) throw std::invalid_argument("audio routing cycle");
-    std::vector<std::size_t> levels(graph.mixer.size());
-    std::vector<std::vector<std::size_t>> channel_levels;
-    std::vector<const processing::PreparedGraph*> owners;
-    const auto register_owner=[&](const std::shared_ptr<processing::PreparedGraph>& chain) {
-        if(!chain)return;
-        if(std::find(owners.begin(),owners.end(),chain.get())!=owners.end())
-            throw std::invalid_argument("processor graph must have a single channel owner");
-        owners.push_back(chain.get());
-    };
-    register_owner(graph.processors);register_owner(graph.master_inserts);
-    for(const auto& chain:graph.inserts)register_owner(chain);
-    for(const auto t:order) {
-        if(channel_levels.size()<=levels[t])channel_levels.resize(levels[t]+1);
-        channel_levels[levels[t]].push_back(t);
-        const auto advance=[&](std::size_t dest){if(dest!=no_mixer_track)levels[dest]=std::max(levels[dest],levels[t]+1);};
-        advance(graph.outputs[t]);for(const auto& send:graph.sends[t])advance(send.destination);
-    }
+    auto routing=build_routing(graph,config);
     if (graph.monitor_track != no_mixer_track && graph.buses[graph.monitor_track]) throw std::invalid_argument("input requires an audio track");
     for (const auto& voice : graph.voices) {
         if (voice.mixer_track != no_mixer_track && voice.mixer_track >= graph.mixer.size()) throw std::invalid_argument("invalid voice mixer track");
@@ -507,33 +666,6 @@ std::unique_ptr<AudioEngine::PreparedState> AudioEngine::prepare_state(RenderCon
         const auto c=chain->config(); if (c.sample_rate != config.sample_rate || c.channels != config.output_channels || c.max_block < 1) throw std::invalid_argument("insert render config mismatch");
     }
     if (graph.master_inserts) { const auto c=graph.master_inserts->config(); if (c.sample_rate != config.sample_rate || c.channels != config.output_channels || c.max_block < config.max_block) throw std::invalid_argument("master insert config mismatch"); }
-    // Keep muted paths in the plan: gates must never change prepared latency.
-    CompensationReport compensation;
-    std::vector<std::uint64_t> arrivals(graph.mixer.size());
-    compensation.track_paths.resize(graph.mixer.size());
-    for(const auto t:order){const auto own=graph.inserts.empty()||!graph.inserts[t]?0:graph.inserts[t]->latency().output;
-        const auto path=arrivals[t]+own;if(path>262144)throw std::invalid_argument("PDC mixer path exceeds 262144 samples");
-        compensation.track_paths[t]=path;
-        if(graph.outputs[t]!=no_mixer_track)arrivals[graph.outputs[t]]=std::max(arrivals[graph.outputs[t]],path);
-        for(const auto& send:graph.sends[t])arrivals[send.destination]=std::max(arrivals[send.destination],path);
-        compensation.output=std::max(compensation.output,path);
-    }
-    const auto master_input=compensation.output;
-    compensation.master=(graph.processors?graph.processors->latency().output:0)+(graph.master_inserts?graph.master_inserts->latency().output:0);
-    compensation.output+=compensation.master;
-    if(compensation.output>262144)throw std::invalid_argument("PDC output path exceeds 262144 samples");
-    std::size_t delay_budget=128*1024*1024;
-    std::vector<CompensationDelay> routes(graph.mixer.size());
-    std::vector<std::vector<CompensationDelay>> sends(graph.mixer.size());
-    for(std::size_t t=0;t<graph.mixer.size();++t){const auto destination=graph.outputs[t];
-        const auto target=!graph.hardware_outputs[t].empty()?compensation.output:destination==no_mixer_track?master_input:arrivals[destination];
-        routes[t].prepare(target-compensation.track_paths[t],config.output_channels,delay_budget);
-        sends[t].resize(graph.sends[t].size());
-        for(std::size_t j=0;j<sends[t].size();++j)sends[t][j].prepare(arrivals[graph.sends[t][j].destination]-compensation.track_paths[t],config.output_channels,delay_budget);
-    }
-    CompensationDelay legacy;legacy.prepare(master_input,config.output_channels,delay_budget);
-    compensation.memory_bytes=128*1024*1024-delay_budget;
-    auto domains = compile_domains(graph, order, compensation, arrivals);
     const auto jump_targets=graph.performance?1+static_cast<std::size_t>(std::count_if(graph.performance->sections.begin(),graph.performance->sections.end(),
         [](const auto& section){return section.mode==PerformanceMode::skip||section.mode==PerformanceMode::loop;})):0;
     std::size_t stream_bytes{}, stream_count{};
@@ -558,17 +690,16 @@ std::unique_ptr<AudioEngine::PreparedState> AudioEngine::prepare_state(RenderCon
         }
     }
     for(std::size_t i=0;i<graph.tempos.size();++i){const auto& t=graph.tempos[i];if(t.sample<0 || !std::isfinite(t.bpm) || t.bpm<1 || t.bpm>1000 || !std::isfinite(t.quarter) || (i && t.sample<=graph.tempos[i-1].sample))throw std::invalid_argument("invalid prepared tempo map");}
-    auto block_size=config.processing_block?config.processing_block:config.max_block;
-    for(const auto& chain:graph.inserts)if(chain)block_size=std::min(block_size,chain->config().max_block);
+    const auto block_size=routing.insert_block_size;
     std::size_t scratch_blocks=graph.mixer.size()*2;
     for(const auto& sends_for_track:graph.sends)scratch_blocks+=sends_for_track.size();
     if(static_cast<std::uint64_t>(block_size)*config.output_channels*scratch_blocks*sizeof(float)>128ULL*1024*1024)
         throw std::invalid_argument("mixer scratch budget exceeded");
     const bool profiling=profile_&&profile_->enabled.load(std::memory_order_relaxed);
     next->config_ = config;
-    next->mix_levels_=std::move(levels);next->channel_levels_=std::move(channel_levels);
-    next->compensation_=std::move(compensation);next->route_delays_=std::move(routes);next->send_delays_=std::move(sends);next->legacy_delay_=std::move(legacy);
-    next->domains_=std::move(domains);
+    next->mix_levels_=std::move(routing.levels);next->channel_levels_=std::move(routing.channel_levels);
+    next->compensation_=std::move(routing.compensation);next->route_delays_=std::move(routing.route_delays);next->send_delays_=std::move(routing.send_delays);next->legacy_delay_=std::move(routing.legacy_delay);
+    next->domains_=std::move(routing.domains);
     next->master_envelope_.resize(config.max_block);
     next->direct_output_.resize(static_cast<std::size_t>(config.max_block)*config.output_channels);
     next->graph_ = std::move(graph);
@@ -579,7 +710,7 @@ std::unique_ptr<AudioEngine::PreparedState> AudioEngine::prepare_state(RenderCon
     next->track_block_.assign(next->graph_.mixer.size(),std::vector<float>(static_cast<std::size_t>(next->insert_block_size_)*config.output_channels));
     next->route_contributions_=next->track_block_;next->send_contributions_.clear();next->send_contributions_.resize(next->graph_.mixer.size());
     for(std::size_t t=0;t<next->graph_.mixer.size();++t)next->send_contributions_[t].assign(next->graph_.sends[t].size(),std::vector<float>(static_cast<std::size_t>(next->insert_block_size_)*config.output_channels));
-    next->mix_order_ = std::move(order);
+    next->mix_order_ = std::move(routing.order);
     std::size_t width{};for(const auto& level:next->channel_levels_)width=std::max(width,level.size());
     if(config.processing_workers>1&&width>1)
         next->workers_=std::make_unique<ChannelWorkers>(static_cast<std::uint32_t>(std::min<std::size_t>(config.processing_workers-1,width-1)),config.worker_mmcss);
@@ -624,6 +755,7 @@ void AudioEngine::swap_state(PreparedState& next,bool keep_device_buffers) noexc
 void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState initial) {
     if(speculative_||mixed_owner_)throw std::logic_error("stop the process producer before preparing audio");
     if(auto* pending=pending_transition_.exchange(nullptr))pending->phase.store(TransitionPhase::cancelled,std::memory_order_release);
+    if(auto* pending=pending_insert_switch_.exchange(nullptr))pending->phase.store(TransitionPhase::cancelled,std::memory_order_release);
     stop_library_preview();
     auto next=prepare_state(config,std::move(graph),initial);
     const bool profiling=profile_&&profile_->enabled.load(std::memory_order_relaxed);
@@ -984,6 +1116,9 @@ void AudioEngine::resolve_performance() noexcept {
     performance_stalled_=true;performance_action_=PerformanceAction::stop;++performance_end_serial_;rt_.playback=PlaybackState::stopped;
 }
 void AudioEngine::process_block(const float* input, float* output, std::uint32_t frames, std::uint32_t input_flags) noexcept {
+    // The device callback owns adoption. A same-engine ahead producer never
+    // consumes a live channel switch.
+    if(!speculative_)adopt_insert_switch();
     const auto external_now=graph_.external_midi?midi_clock_ns():0;
     const ScopedNoDenormals no_denormals;
     profile_block_=profile_->enabled.load(std::memory_order_relaxed);

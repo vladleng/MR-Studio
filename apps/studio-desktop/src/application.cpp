@@ -1102,6 +1102,112 @@ void Application::apply_insert_parameters(std::optional<Id> track,const std::vec
     if(transaction){transaction->commit();transaction->finish();}
     runtime->second.pending.reset();unsaved_=true;++plugin_edit_revision_;
 }
+bool Application::apply_insert_parameters_live(std::optional<Id> track,const std::vector<NativeInsert>& settings) {
+    require_not_recording();
+    const auto& old=insert_chain(*services_.projects->state().project,track);
+    require(old.size()==settings.size(),"Sub-patch insert count differs from the active chain");
+    const auto runtime=insert_runtime_.find(track?track->value:std::string{});
+    require(runtime!=insert_runtime_.end()&&runtime->second.graph&&!runtime->second.settings_failed,
+            "Sub-patch runtime is unavailable");
+    for(std::size_t i=0;i<old.size();++i) {
+        const auto& a=old[i];const auto& b=settings[i];
+        require(a.id==b.id&&a.kind==b.kind&&a.plugin_path==b.plugin_path&&a.class_id==b.class_id,
+                "Sub-patch slot, order or plugin class differs from the active chain");
+        require(b.kind==InsertKind::gain||b.kind==InsertKind::vst3,"Unsupported Live parameter insert");
+    }
+    const auto desired=processing::insert_graph(settings);
+    const auto& nodes=runtime->second.graph->snapshot().graph->nodes;
+    require(nodes.size()==desired.nodes.size(),"Prepared Sub-patch chain differs from its model");
+    for(std::size_t i=0;i<nodes.size();++i)
+        require(nodes[i].id==desired.nodes[i].id&&nodes[i].format==desired.nodes[i].format&&
+                nodes[i].processor_id==desired.nodes[i].processor_id&&
+                (nodes[i].format!=processing::ProcessorFormat::vst3||nodes[i].plugin.class_id==desired.nodes[i].plugin.class_id),
+                "Prepared Sub-patch slot/order/class differs from its model");
+    return runtime->second.graph->enqueue_parameters(desired,true);
+}
+std::shared_ptr<processing::PreparedGraph> Application::prepare_insert_graph(
+    std::optional<Id> track,const std::vector<NativeInsert>& inserts) {
+    require(device_&&device_config_,"Connect audio before preparing a Live Patch");
+    const auto project=services_.projects->state().project;
+    const auto channels=static_cast<std::uint32_t>(device_config_->outputs.size());
+    const auto block=device_config_->buffer_frames;
+    const bool instrument=track&&std::any_of(project->tracks.begin(),project->tracks.end(),
+        [&](const auto& row){return row.id==*track&&row.kind==TrackKind::instrument;});
+    if(inserts.empty())return {};
+    auto saved=std::make_shared<const processing::GraphState>(processing::insert_graph(inserts));
+    return std::make_shared<processing::PreparedGraph>(
+        processing::GraphSnapshot{saved,0,false,false},
+        processing::ProcessConfig{project->sample_rate,channels,block,block,instrument}
+#ifdef MRS_HAS_VST3
+        ,processing::hosted_factory
+#endif
+    );
+}
+bool Application::stage_insert_graphs_live(
+    const std::vector<std::pair<std::optional<Id>,std::shared_ptr<processing::PreparedGraph>>>& requests) {
+    require(!recording(),"Stop recording before changing a Live channel chain");
+    require(engine_->state().playback==PlaybackState::playing,
+            "Live channel graph switching requires Play");
+    require(requests.size()<=8,"Too many channel graphs in one Live switch");
+    if(pending_live_insert_switch_.transition)return false;
+    live_insert_switch_failed_=false;
+    live_insert_switch_applied_=false;
+    PendingLiveInsertSwitch pending;
+    std::vector<audio::AudioEngine::InsertGraphChange> changes;
+    for(const auto& [track,graph]:requests) {
+        require(track&&graph,"Live channel graph switch requires a channel and a prepared graph");
+        const auto mixer=std::find(mixer_tracks_.begin(),mixer_tracks_.end(),*track);
+        require(mixer!=mixer_tracks_.end(),"Live channel is not prepared in the mixer");
+        require(pending.graphs.emplace(track->value,graph).second,"Duplicate Live channel in one switch");
+        changes.push_back({static_cast<std::size_t>(mixer-mixer_tracks_.begin()),graph});
+    }
+    auto transition=engine_->prepare_insert_switch(std::move(changes));
+    if(!engine_->stage_insert_switch(transition))return false;
+    pending.transition=std::move(transition);
+    pending_live_insert_switch_=std::move(pending);
+    live_insert_switch_failed_=false;
+    live_insert_switch_applied_=false;
+    return true;
+}
+Application::LiveInsertSwitchState Application::live_insert_switch_state() const {
+    if(pending_live_insert_switch_.transition) {
+        if(engine_->insert_switch_phase(pending_live_insert_switch_.transition)==audio::AudioEngine::TransitionPhase::cancelled)
+            return LiveInsertSwitchState::failed;
+        return LiveInsertSwitchState::pending;
+    }
+    if(live_insert_switch_failed_)return LiveInsertSwitchState::failed;
+    if(live_insert_switch_applied_)return LiveInsertSwitchState::applied;
+    return LiveInsertSwitchState::none;
+}
+void Application::cancel_live_insert_switch() {
+    if(pending_live_insert_switch_.transition)
+        (void)engine_->cancel_insert_switch(pending_live_insert_switch_.transition);
+    pending_live_insert_switch_={};
+    live_insert_switch_failed_=false;
+    live_insert_switch_applied_=false;
+}
+void Application::poll_live_insert_switch() {
+    if(!pending_live_insert_switch_.transition)return;
+    const auto phase=engine_->insert_switch_phase(pending_live_insert_switch_.transition);
+    if(phase==audio::AudioEngine::TransitionPhase::cancelled) {
+        pending_live_insert_switch_={};
+        live_insert_switch_failed_=true;
+        return;
+    }
+    if(phase!=audio::AudioEngine::TransitionPhase::adopted)return;
+    if(!engine_->acknowledge_insert_switch(pending_live_insert_switch_.transition)) {
+        pending_live_insert_switch_={};
+        live_insert_switch_failed_=true;
+        return;
+    }
+    for(auto& [key,graph]:pending_live_insert_switch_.graphs) {
+        if(auto runtime=insert_runtime_.find(key);runtime!=insert_runtime_.end())
+            runtime->second.graph=std::move(graph);
+    }
+    pending_live_insert_switch_={};
+    live_insert_switch_failed_=false;
+    live_insert_switch_applied_=true;
+}
 void Application::apply_insert_settings(std::optional<Id> track,const std::vector<NativeInsert>& effects) {
     require_not_recording();
     require(engine_->state().playback==PlaybackState::stopped,"Stop playback before applying Sub-patch settings");
@@ -2539,6 +2645,7 @@ void Application::disconnect() {
     if (device_) { device_->close(); device_.reset(); }
     external_midi_->panic();if(midi_outputs_)midi_outputs_->routes({});
     stop_reverb_loaders();++insert_generation_;insert_runtime_.clear(); prepared_.reset(); device_config_.reset(); device_info_.reset(); audio_name_ = "Disconnected";
+    pending_live_insert_switch_={};live_insert_switch_failed_=false;live_insert_switch_applied_=false;
     if (transport_) { engine_->prepare({engine_->config().sample_rate,0,2,8192},{}); transport_->poll(); }
     clip_updates_.clear();
     staged_playback_.reset();
@@ -2558,6 +2665,7 @@ void Application::poll() {
         engine_->quiesce();
     }
     poll_staged_playback();
+    poll_live_insert_switch();
     poll_reverbs();
     publish_midi_routes();
     publish_inserts();

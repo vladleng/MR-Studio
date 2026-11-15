@@ -303,6 +303,19 @@ public:
     void apply_insert_settings(std::optional<Id>,const std::vector<NativeInsert>&);
     std::vector<NativeInsert> insert_parameter_settings(std::optional<Id>) const;
     void apply_insert_parameters(std::optional<Id>,const std::vector<NativeInsert>&);
+    // #375: parameter-only changes are bounded updates of the live instance.
+    // Returns false when the prepared graph rejects the batch (retry safely).
+    bool apply_insert_parameters_live(std::optional<Id>,const std::vector<NativeInsert>&);
+    // #375: instantiate/warm a complete chain on the control thread, then hand
+    // it to the device callback at the next block boundary.
+    std::shared_ptr<processing::PreparedGraph> prepare_insert_graph(
+        std::optional<Id>,const std::vector<NativeInsert>&);
+    bool stage_insert_graphs_live(
+        const std::vector<std::pair<std::optional<Id>,std::shared_ptr<processing::PreparedGraph>>>&);
+    enum class LiveInsertSwitchState {none,pending,applied,failed};
+    LiveInsertSwitchState live_insert_switch_state() const;
+    void poll_live_insert_switch();
+    void cancel_live_insert_switch();
     std::uint64_t insert_runtime_identity(std::optional<Id>) const;
     std::uint64_t insert_generation() const {return insert_generation_;}
     std::uint64_t plugin_edit_revision() const {return plugin_edit_revision_;}
@@ -412,6 +425,14 @@ private:
     std::optional<std::pair<Id,std::uint64_t>> live_processing_recovery_attempt_;
     std::uint64_t processing_recovery_count_{};
     std::map<std::string,std::shared_ptr<processing::PreparedGraph>> staged_insert_graphs_;
+    // #375: one prepared channel-graph handoff in flight; audio adopts it at a block boundary.
+    struct PendingLiveInsertSwitch {
+        std::map<std::string,std::shared_ptr<processing::PreparedGraph>> graphs;
+        std::shared_ptr<audio::AudioEngine::PreparedInsertSwitch> transition;
+    };
+    PendingLiveInsertSwitch pending_live_insert_switch_;
+    bool live_insert_switch_failed_{};
+    bool live_insert_switch_applied_{};
     void publish_inserts();
     void capture_insert_state(Project&,std::optional<Id> authoritative={},bool callbacks_stopped=false);
     Workspace workspace_{Workspace::arrange};

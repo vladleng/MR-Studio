@@ -286,6 +286,21 @@ public:
     bool async_voice_transition_available() const noexcept;
     void swap_voice_transition_stopped(const std::shared_ptr<PreparedTransition>&); // device/producers joined
     void rollback_voice_transition_stopped(const std::shared_ptr<PreparedTransition>&); // failed restart
+    // #375: one channel's complete insert chain is replaced at the next device
+    // block boundary. Preparation (plugin instantiation, state restore, warm)
+    // is control-thread only; the callback swaps prepared storage without
+    // allocation, locks, I/O or transport reset. The previous graph stays owned
+    // by the caller until acknowledge.
+    struct PreparedInsertSwitch;
+    struct InsertGraphChange {
+        std::size_t track{};
+        std::shared_ptr<processing::PreparedGraph> graph;
+    };
+    std::shared_ptr<PreparedInsertSwitch> prepare_insert_switch(std::vector<InsertGraphChange> changes);
+    bool stage_insert_switch(const std::shared_ptr<PreparedInsertSwitch>&);
+    bool cancel_insert_switch(const std::shared_ptr<PreparedInsertSwitch>&) noexcept;
+    TransitionPhase insert_switch_phase(const std::shared_ptr<PreparedInsertSwitch>&) const noexcept;
+    bool acknowledge_insert_switch(const std::shared_ptr<PreparedInsertSwitch>&);
     bool stage_transition(const std::shared_ptr<PreparedTransition>&);
     bool cancel_transition(const std::shared_ptr<PreparedTransition>&) noexcept;
     TransitionPhase transition_phase(const std::shared_ptr<PreparedTransition>&) const noexcept;
@@ -380,6 +395,8 @@ private:
     void refresh_control_info();
     const RenderGraph& control_graph() const noexcept;
     std::atomic<PreparedTransition*> pending_transition_{};
+    std::atomic<PreparedInsertSwitch*> pending_insert_switch_{};
+    void adopt_insert_switch() noexcept;
     void adopt_voice_transition() noexcept;
     std::atomic<std::uint64_t> published_performance_token_{},published_manual_revision_{},published_end_serial_{};
     std::atomic<int> published_performance_action_{};
@@ -452,6 +469,8 @@ private:
     std::atomic<std::uint64_t> parallel_batches_{}, worker_timeouts_{};
     CompensationReport compensation_;
     ProcessingDomains domains_;
+    struct RoutingPlan;
+    RoutingPlan build_routing(const RenderGraph&, const RenderConfig&) const;
     ProcessingDomains compile_domains(const RenderGraph&, const std::vector<std::size_t>&,
         const CompensationReport&, const std::vector<std::uint64_t>&) const;
     std::vector<CompensationDelay> route_delays_;
