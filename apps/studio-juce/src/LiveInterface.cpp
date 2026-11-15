@@ -3309,7 +3309,6 @@ void Desktop::syncLivePatchSchedule() {
     } else if(switchState==mrs::desktop::Application::LiveInsertSwitchState::pending) {
         return;
     }
-    if(!livePendingGraphChanges.empty()) {stagePending();return;}
     const auto clock=mrs::Timeline(project()->time,project()->sample_rate);
     const auto& meter=project()->time.meters.front();
     const double ticksPerBar=4.*mrs::ppq*meter.numerator/meter.denominator;
@@ -3338,7 +3337,9 @@ void Desktop::syncLivePatchSchedule() {
             livePreloadError="Patch: "+juce::String::fromUTF8(error.what());
         }
     };
-    for(const auto& [channel,trackId]:liveChannelTracks) {
+    if(!livePendingGraphChanges.empty()) {stagePending();return;}
+    for(const auto& entry:liveChannelTracks) {
+        const auto& channel=entry.first;
         const auto track=liveInputTrack(channel);
         if(!track)continue;
         live::TimelinePatchChoice choice;
