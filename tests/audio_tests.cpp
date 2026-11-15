@@ -687,6 +687,9 @@ void insert_switch() {
     CHECK(engine.enqueue({ControlKind::play}));
     std::array<float,16> out{};
     engine.process(nullptr,out.data(),4);
+    if(std::abs(out[0]-.05f)>=1e-6f)
+        std::cerr<<"insert_switch diagnostic out0="<<out[0]<<" out1="<<out[1]
+                 <<" sample="<<engine.state().sample<<" playback="<<static_cast<int>(engine.state().playback)<<'\n';
     CHECK(std::abs(out[0]-.05f)<1e-6f);
     auto head=engine.state();CHECK(head.sample==4&&head.playback==PlaybackState::playing);
     // #375: a prepared chain is adopted at the next block boundary. The
