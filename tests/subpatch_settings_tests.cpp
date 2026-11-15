@@ -1,5 +1,6 @@
 #include <mrs/processing.hpp>
 #include <array>
+#include <cstring>
 #include <iostream>
 #include <stdexcept>
 using namespace mrs::processing;
@@ -8,6 +9,22 @@ void check(bool value,const char* message){if(!value)throw std::runtime_error(me
 #define CHECK(...) check((__VA_ARGS__),#__VA_ARGS__)
 template<class F> void rejects(F action){bool rejected=false;try{action();}catch(const std::exception&){rejected=true;}CHECK(rejected);}
 GraphSnapshot snapshot(GraphState state){return {std::make_shared<const GraphState>(std::move(state)),0,false,false};}
+class TwoControls final:public IProcessor {
+    std::array<float,2> values{.5f,.5f};
+public:
+    std::vector<ParameterInfo> parameters() const override{return {{100,0,1,.5f,true},{101,0,1,.5f,true}};}
+    void prepare(ProcessConfig) override{}
+    void restore(const PluginState& state) override{if(state.component.size()!=sizeof(values))throw std::runtime_error("bad two-control state");std::memcpy(values.data(),state.component.data(),sizeof(values));}
+    PluginState capture() const override{PluginState state;state.class_id="0123456789ABCDEF0123456789ABCDEF";state.component.resize(sizeof(values));std::memcpy(state.component.data(),values.data(),sizeof(values));return state;}
+    bool set_parameter(std::uint32_t id,float value) noexcept override{if(id<100||id>101||value<0||value>1)return false;values[id-100]=value;return true;}
+    std::optional<float> parameter_value(std::uint32_t id) const noexcept override{return id>=100&&id<=101?std::optional<float>{values[id-100]}:std::nullopt;}
+    std::uint32_t latency() const noexcept override{return 0;}
+    bool live_safe() const noexcept override{return true;}
+    void warm() override{}
+    void reset() noexcept override{}
+    void process(ProcessBlock block) noexcept override{for(auto& value:block.audio)value*=values[0]*values[1];}
+};
+
 }
 int main(){try {
     std::array<float,16> audio{};
@@ -30,6 +47,15 @@ int main(){try {
     auto wrongSlot=desired;wrongSlot.nodes[0].processor_id="mrs.lowpass";
     rejects([&]{settings.restore_settings(wrongSlot,rollbackFailed);});
     audio.fill(1);settings.process(audio.data(),8);CHECK(audio[0]==.1875f);
+    // A modern variant may legitimately override EVERY exposed parameter.
+    // It must not be mistaken for a legacy stale full-parameter snapshot.
+    auto twoState=desired;twoState.nodes.resize(1);twoState.edges={{std::nullopt,first.id,1}};twoState.outputs={first.id};
+    twoState.nodes[0].format=ProcessorFormat::vst3;twoState.nodes[0].processor_id="test.two-controls";
+    twoState.nodes[0].plugin=TwoControls{}.capture();twoState.nodes[0].parameters.clear();
+    PreparedGraph two{snapshot(twoState),{48000,2,8},[](const NodeState&){return std::make_unique<TwoControls>();}};
+    twoState.nodes[0].parameters={{100,.75f},{101,.25f}};
+    two.restore_settings(twoState,rollbackFailed);
+    audio.fill(1);two.process(audio.data(),8);CHECK(audio[0]==.1875f);
     std::cout<<"Sub-patch settings: complete sound, processor identity, atomic rollback and slot guard PASS\n";
     return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}
