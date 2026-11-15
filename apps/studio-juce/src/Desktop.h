@@ -124,7 +124,7 @@ public:
     std::map<juce::String,mrs::Id> liveChannelTracks;
     std::uint64_t liveSavedPluginEdits{};
     void captureLiveInputs(juce::var& state);
-    void reconcileLiveInputs(const juce::var& state);
+    void reconcileLiveInputs(const juce::var& state,bool explicitParameters=false);
     void convertLegacyLiveInstrument(const juce::String&);
     void configureLiveInput(const juce::String&, int input, bool stereo, const std::vector<int>& outputs);
     void configureLiveMidi(const juce::String&, const juce::String& port, int channel, const std::vector<int>& outputs);
@@ -153,6 +153,7 @@ public:
     struct LoadedLivePatch {
         juce::String itemId,patchId,subPatchId;
         std::uint64_t runtimeIdentity{};
+        bool opaqueState{};
     };
     std::map<juce::String,LoadedLivePatch> liveLoadedPatches;
     bool livePatchLoadedForEditing(const juce::String& channel,const juce::String& patchId,
@@ -164,7 +165,9 @@ public:
     // chain. Switching is stopped-only and uses the parameter-only Core path.
     void applyLiveChannelSubPatch(const juce::String&, const juce::String& patchId,
                                   const juce::String& subPatchId,
-                                   const juce::var& spans={},const juce::String& itemId={});
+                                   const juce::var& spans={},const juce::String& itemId={},bool recordUndo=true);
+    void commitLiveSubPatchParameters(const juce::String&,const LoadedLivePatch&,
+        const std::vector<mrs::NativeInsert>&,const std::vector<live::ValuePatch>&,bool forward);
     // Shared perform/Undo/Redo operation; validates the active parent/runtime.
     void commitLiveSubPatchState(const juce::String&,const LoadedLivePatch&,
                                  const juce::var&,const std::vector<mrs::NativeInsert>&);
@@ -261,7 +264,7 @@ public:
     void bindLiveItem(const juce::String&,const juce::File&);
     void prepareLiveInterface(bool saved);
     void updateLiveDirty();
-    void editLiveInterface(const juce::String&,std::function<void(juce::var&)>,bool coalesceTyping=false,bool captureInputs=false);
+    void editLiveInterface(const juce::String&,std::function<void(juce::var&)>,bool coalesceTyping=false,bool captureInputs=false,bool explicitParameters=false);
     void editLiveItemView(const juce::String& itemId, const juce::Identifier& key, double value);
     void setLiveMusicalRows(const juce::String&,bool section,const juce::var&);
     void setLivePerformanceMode(const juce::String& item,const juce::String& target,mrs::PerformanceMode);
@@ -295,7 +298,7 @@ public:
     void saveLiveItemForAll(const juce::String& itemId);
     juce::String liveTypingLabel;
     juce::uint32 liveTypingAt{};
-    void applyLiveInterface(const juce::var&);
+    void applyLiveInterface(const juce::var&,bool explicitParameters=false);
     void undoLiveInterface(bool redo=false);
     juce::UndoManager liveUndo{32*1024*1024,1};
     std::optional<LiveDocument> liveSavedSnapshot;

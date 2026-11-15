@@ -5,9 +5,9 @@
 
 namespace ui::live::test {
 // Real Live command path, two hosted VST3 instances and a native insert.
-template<class Host,class Reconnect>
+template<class Host,class Reconnect,class DeviceControls>
 void subPatchRuntime(Host& host,const juce::String& channel,const juce::String& other,
-                     const juce::File& folder,Reconnect reconnect) {
+                     const juce::File& folder,Reconnect reconnect,DeviceControls deviceControls) {
     const auto path=juce::SystemStats::getEnvironmentVariable("MRS_LIVE_TEST_VST3",{});
     if(path.isEmpty())return; // Fixture is supplied by CTest in VST3-enabled builds.
     const auto check=[](bool value,const char* message){if(!value)throw std::runtime_error(message);};
@@ -20,9 +20,11 @@ void subPatchRuntime(Host& host,const juce::String& channel,const juce::String& 
     } module{LoadLibraryW(path.toWideCharPointer())};
     using Counter=unsigned(*)();using Toggle=void(*)(unsigned);
     const auto creations=reinterpret_cast<Counter>(GetProcAddress(module.handle,"mrsFixtureCreations"));
+    const auto captures=reinterpret_cast<Counter>(GetProcAddress(module.handle,"mrsFixtureCaptures"));
+    const auto restores=reinterpret_cast<Counter>(GetProcAddress(module.handle,"mrsFixtureRestores"));
     const auto latencyChanges=reinterpret_cast<Toggle>(GetProcAddress(module.handle,"mrsFixtureLatencyChanges"));
     const auto rejectRestores=reinterpret_cast<Toggle>(GetProcAddress(module.handle,"mrsFixtureRejectRestores"));
-    check(creations && latencyChanges && rejectRestores,"#374 runtime: fixture instrumentation is available");
+    check(creations && captures && restores && latencyChanges && rejectRestores,"#374 runtime: fixture instrumentation is available");
     mrs::NativeInsert native;native.id={"runtime-native"};native.kind=mrs::InsertKind::gain;native.gain=.8f;
     mrs::NativeInsert first;first.id={"runtime-vst-a"};first.kind=mrs::InsertKind::vst3;
     first.plugin_path=path.toStdString();first.class_id=plugins.front().class_id;first.plugin_name=plugins.front().name;
@@ -68,10 +70,22 @@ void subPatchRuntime(Host& host,const juce::String& channel,const juce::String& 
     host.addLivePatchBlock(channel,patchId,0.,itemId);
     const auto timeline=live::channelItemTrack(host.liveDocument->interfaceState,itemId,channel)["spans"];
     const auto segment=timeline[juce::Identifier(patchId)]["subs"].getDynamicObject()->getProperties().getName(0).toString();
+    std::array<float,256> parameterInput{},parameterOutput{};
     const auto choose=[&](const juce::String& id){
+        const auto current=host.liveLoadedPatches.at(channel);
+        const auto library=live::find(live::find(host.liveDocument->interfaceState,"channels",channel),"patches",patchId);
+        const bool fast=!current.opaqueState&&!live::opaqueSubPatch(live::find(library,"subPatches",id));
+        const auto capturesBefore=captures(),restoresBefore=restores();const auto controlsBefore=deviceControls();
+        const auto started=juce::Time::getHighResolutionTicks();
         const auto spans=live::channelItemTrack(host.liveDocument->interfaceState,itemId,channel)["spans"];
         const auto changed=live::replaceSubPatchSegment(spans,patchId,segment,id);
         host.applyLiveChannelSubPatch(channel,patchId,id,changed,itemId);
+        if(fast)check(captures()==capturesBefore&&restores()==restoresBefore&&deviceControls()==controlsBefore,
+            "#374 fast: Parameters must not capture/restore vendor state or stop/start the device");
+        if(fast)std::cout<<"#374 fast: parameter selection ms="<<juce::Time::highResolutionTicksToSeconds(juce::Time::getHighResolutionTicks()-started)*1000.
+                        <<" state captures/restores=0 device restarts=0\n";
+        // The real device consumes the bounded batch at its next callback.
+        host.app.engine()->process(parameterInput.data(),parameterOutput.data(),128);
     };
     const auto track=*host.liveInputTrack(channel);
     struct Window {
@@ -103,23 +117,34 @@ void subPatchRuntime(Host& host,const juce::String& channel,const juce::String& 
     host.app.set_plugin_parameter(track,first.id,100,.9f);
     choose("runtime-a");verify(.75f,.5f);
     choose("runtime-b");verify(.5f,.25f);
-    host.undoLiveInterface(false);verify(.75f,.5f);
-    host.undoLiveInterface(true);verify(.5f,.25f);
+    const auto undoCaptures=captures(),undoRestores=restores();const auto undoControls=deviceControls();
+    host.undoLiveInterface(false);host.app.engine()->process(parameterInput.data(),parameterOutput.data(),128);verify(.75f,.5f);
+    host.undoLiveInterface(true);host.app.engine()->process(parameterInput.data(),parameterOutput.data(),128);verify(.5f,.25f);
+    check(captures()==undoCaptures&&restores()==undoRestores&&deviceControls()==undoControls,
+          "#374 fast: parameter Undo/Redo never capture/restore state or restart the device");
     const auto showBefore=live::canonical(host.liveDocument->interfaceState);
     bool rejected=false;
     try{choose("runtime-invalid");}catch(const std::exception&){rejected=true;}
     check(rejected && live::canonical(host.liveDocument->interfaceState)==showBefore,
           "#374 runtime: failed second VST3 state leaves show unchanged");
     verify(.5f,.25f);
-    latencyChanges(1);
-    for(const auto& id:juce::StringArray{"runtime-latency-parameters","runtime-snapshot"}) {
-        rejected=false;
-        try{choose(id);}catch(const std::exception&){rejected=true;}
-        check(rejected && live::canonical(host.liveDocument->interfaceState)==showBefore,
-              "#374 runtime: changed parameter/Snapshot latency rejects without committing show");
-        verify(.5f,.25f);
-    }
+    // Snapshot is the separate stopped-state path; only that path restores
+    // opaque data and rejects a latency-changing preset before resuming audio.
+    latencyChanges(1);rejected=false;
+    try{choose("runtime-snapshot");}catch(const std::exception&){rejected=true;}
     latencyChanges(0);
+    check(rejected && live::canonical(host.liveDocument->interfaceState)==showBefore,
+          "#374 runtime: changed Snapshot latency rejects without committing show");
+    verify(.5f,.25f);
+    const auto seekCaptures=captures(),seekRestores=restores();const auto seekControls=deviceControls();
+    const auto seekRevision=host.app.services().projects->state().revision;
+    const auto seekUndo=host.liveUndo.getUndoDescription();
+    const auto seekStarted=juce::Time::getHighResolutionTicks();
+    for(int seek=0;seek<500;++seek)host.loadStoppedLiveTimelinePatches(itemId,.01+(seek%100)*.001);
+    check(captures()==seekCaptures&&restores()==seekRestores&&deviceControls()==seekControls&&
+          host.app.services().projects->state().revision==seekRevision&&host.liveUndo.getUndoDescription()==seekUndo,
+          "#374 fast: 500 seeks within one Sub-patch do not reload sound or add history");
+    std::cout<<"#374 fast: 500 same-Sub-patch seeks ms="<<juce::Time::highResolutionTicksToSeconds(juce::Time::getHighResolutionTicks()-seekStarted)*1000.<<"\n";
     const auto loaded=host.liveLoadedPatches.at(channel);
     host.liveLoadedPatches.erase(channel);rejected=false;
     try{host.applyLiveChannelSubPatch(channel,patchId,"runtime-a");}catch(const std::exception&){rejected=true;}

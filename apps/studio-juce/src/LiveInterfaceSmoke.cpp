@@ -24,6 +24,7 @@ namespace {
 // A manually driven test device: no second engine and no concurrent audio clock.
 class LivePlaybackTestDevice final : public mrs::audio::IAudioDevice {
   public:
+    inline static unsigned starts{},stops{};
     explicit LivePlaybackTestDevice(int count = 2) : outputs(count) {}
     std::vector<mrs::audio::DeviceInfo> enumerate() override {
         std::vector<std::string> names;
@@ -35,8 +36,8 @@ class LivePlaybackTestDevice final : public mrs::audio::IAudioDevice {
     void open(const mrs::audio::DeviceConfig &, std::shared_ptr<mrs::audio::AudioEngine>) override {
         phase = mrs::audio::DevicePhase::open;
     }
-    void start() override { phase = mrs::audio::DevicePhase::running; }
-    void stop() override { phase = mrs::audio::DevicePhase::stopped; }
+    void start() override { ++starts;phase = mrs::audio::DevicePhase::running; }
+    void stop() override { ++stops;phase = mrs::audio::DevicePhase::stopped; }
     void close() noexcept override { phase = mrs::audio::DevicePhase::closed; }
     mrs::audio::DeviceStatus status() override { return {phase, 48000, 0, 0, 0, {}}; }
 
@@ -2580,7 +2581,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         live::test::subPatchRuntime(runtimePilot,runtimeChannel,runtimeOther,folder,[](auto& host){
             host.app.connect(std::make_unique<LivePlaybackTestDevice>(),{0,48000,128,{0,1},{0,1}});
             host.syncAutomaticLiveMonitoring();
-        });
+        },[]{return std::pair{LivePlaybackTestDevice::starts,LivePlaybackTestDevice::stops};});
     }
 #endif
     Desktop desktop(true, true);

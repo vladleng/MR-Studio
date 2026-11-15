@@ -92,7 +92,7 @@ public:
     void set_midi_input(const Id&,std::string port,int channel=-1,bool monitor=true);
     // Control-thread projection of show-owned channels. Unchanged hosted
     // processors retain their identity; the entire graph/model edit rolls back.
-    void update_live_channels(const std::vector<Id>& owned, std::vector<Track> channels);
+    void update_live_channels(const std::vector<Id>& owned, std::vector<Track> channels,bool explicit_parameters=false);
     void set_midi_output(const Id&,std::string port,int channel=-1);
     std::string midi_output_status(const Id&) const;
     void reconnect_midi();
@@ -301,6 +301,8 @@ public:
     void cancel_insert_preview();
     // Stopped settings transaction; never rebuilds the insert graph.
     void apply_insert_settings(std::optional<Id>,const std::vector<NativeInsert>&);
+    std::vector<NativeInsert> insert_parameter_settings(std::optional<Id>) const;
+    void apply_insert_parameters(std::optional<Id>,const std::vector<NativeInsert>&);
     std::uint64_t insert_runtime_identity(std::optional<Id>) const;
     std::uint64_t insert_generation() const {return insert_generation_;}
     std::uint64_t plugin_edit_revision() const {return plugin_edit_revision_;}

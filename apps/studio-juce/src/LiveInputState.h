@@ -537,6 +537,80 @@ inline void applyLivePatchParameterBaseline(std::vector<mrs::NativeInsert>& inse
         if(!found)throw std::runtime_error("Patch VST3 parameter baseline is missing an insert");
     }
 }
+// Metadata/control-only resolution. Never decode patchStates or vendor blobs.
+inline bool opaqueSubPatch(const juce::var& sub) {
+    if(const auto* states=sub["states"].getArray())return !states->isEmpty();
+    if(const auto* inserts=sub["inserts"].getArray())
+        for(const auto& fx:*inserts)if(fx["kind"].toString()=="vst3")return true;
+    return false;
+}
+inline void requireLivePatchLayout(const juce::var& patch,const std::vector<mrs::NativeInsert>& actual) {
+    const auto* rows=patch["inserts"].getArray();
+    if(!rows||rows->size()!=static_cast<int>(actual.size()))throw std::runtime_error("Sub-patch insert count differs from its active parent");
+    for(std::size_t i=0;i<actual.size();++i) {
+        const auto& row=(*rows)[static_cast<int>(i)];const auto& fx=actual[i];
+        if(row["id"].toString().toStdString()!=fx.id.value ||
+           row["kind"].toString()!=(fx.kind==mrs::InsertKind::vst3?"vst3":"gain") ||
+           (fx.kind==mrs::InsertKind::vst3 && (row["path"].toString().toStdString()!=fx.plugin_path || row["classId"].toString().toStdString()!=fx.class_id)))
+            throw std::runtime_error("Sub-patch slot/order/plugin class differs from its active parent");
+    }
+}
+inline std::vector<mrs::NativeInsert> liveSubPatchParameterTarget(const juce::var& patch,
+    const juce::var& sub,std::vector<mrs::NativeInsert> current) {
+    requireLivePatchLayout(patch,current);
+    if(opaqueSubPatch(sub))throw std::runtime_error("Snapshot requires explicit stopped state restoration");
+    const auto& rows=*patch["inserts"].getArray();
+    const bool vst=std::any_of(current.begin(),current.end(),[](const auto& fx){return fx.kind==mrs::InsertKind::vst3;});
+    if(vst&&!patch["parameterBaseline"].isArray())
+        throw std::runtime_error("This Patch has no complete parameter baseline; use an explicit Snapshot or capture the Patch");
+    if(vst)applyLivePatchParameterBaseline(current,patch["parameterBaseline"]);
+    for(std::size_t i=0;i<current.size();++i) {
+        auto& fx=current[i];const auto& row=rows[static_cast<int>(i)];
+        fx.bypass=static_cast<bool>(row["bypass"]);
+        if(fx.kind==mrs::InsertKind::gain)fx.gain=static_cast<float>(static_cast<double>(row["gain"]));
+    }
+    if(const auto* overrides=sub["overrides"].getArray())for(const auto& value:*overrides) {
+        const auto id=value["insertId"].toString().toStdString();
+        const auto at=std::find_if(current.begin(),current.end(),[&](const auto& fx){return fx.id.value==id&&fx.kind==mrs::InsertKind::vst3;});
+        if(at==current.end())throw std::runtime_error("Sub-patch parameter slot is missing");
+        const auto parameter=static_cast<std::uint32_t>(static_cast<juce::int64>(value["parameterId"]));
+        const auto p=std::find_if(at->parameters.begin(),at->parameters.end(),[&](const auto& v){return v.id==parameter;});
+        if(p==at->parameters.end())throw std::runtime_error("Sub-patch parameter is absent from the captured baseline");
+        p->value=static_cast<float>(static_cast<double>(value["value"]));
+    }
+    // Older native-only variations contain their scalar gain/bypass directly.
+    if(const auto* legacy=sub["inserts"].getArray()) {
+        if(legacy->size()!=static_cast<int>(current.size()))throw std::runtime_error("Legacy Sub-patch chain differs");
+        for(std::size_t i=0;i<current.size();++i) {
+            const auto& row=(*legacy)[static_cast<int>(i)];auto& fx=current[i];
+            if(row["id"].toString().toStdString()!=fx.id.value||row["kind"].toString()!="gain")throw std::runtime_error("Legacy Sub-patch changes its native chain");
+            fx.gain=static_cast<float>(static_cast<double>(row["gain"]));fx.bypass=static_cast<bool>(row["bypass"]);
+        }
+    }
+    return current;
+}
+inline std::vector<mrs::NativeInsert> completeLiveSubPatchInserts(
+    const juce::var& state,const juce::var& patch,const juce::var& sub) {
+    auto target=patchInsertsWithSubPatch(state,patch,sub);
+    // A parameter-only parent without opaque state needs its complete captured
+    // baseline. Never inherit omitted controls from the previously active sound.
+    if(std::any_of(target.begin(),target.end(),[](const auto& fx){return fx.kind==mrs::InsertKind::vst3 && fx.component_state.empty() && fx.controller_state.empty();})) {
+        if(!patch["parameterBaseline"].isArray())
+            throw std::runtime_error("Parent Patch has neither complete VST3 state nor a parameter baseline; capture the parent Patch first");
+        auto baseline=decodeLivePatchInserts(state,patch);
+        applyLivePatchParameterBaseline(baseline,patch["parameterBaseline"]);
+        for(std::size_t i=0;i<target.size();++i) {
+            auto& fx=target[i];
+            if(fx.kind!=mrs::InsertKind::vst3 || !fx.component_state.empty() || !fx.controller_state.empty())continue;
+            const auto overrides=fx.parameters;fx.parameters=baseline[i].parameters;
+            for(const auto& value:overrides) {
+                auto at=std::find_if(fx.parameters.begin(),fx.parameters.end(),[&](const auto& p){return p.id==value.id;});
+                if(at==fx.parameters.end())fx.parameters.push_back(value);else *at=value;
+            }
+        }
+    }
+    return target;
+}
 // Only explicit, normalized VST3 parameter differences are eligible.
 // Non-exposed preset changes require a separate full Patch, never an opaque
 // Sub-patch clone. Capture/validation happens on the control thread at Stop.

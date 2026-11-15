@@ -170,7 +170,7 @@ jobs:
         id: test
         shell: pwsh
         run: |
-          $args=@('--test-dir','build/windows','-C','Release','--output-on-failure','--no-tests=error','--output-junit',(Join-Path (Get-Location) 'build/windows/tests.xml'))
+          $args=@('--test-dir','build/windows','-C','Release','--verbose','--output-on-failure','--no-tests=error','--output-junit',(Join-Path (Get-Location) 'build/windows/tests.xml'))
           if($env:CHECK_SCOPE -eq 'separation'){$args+=@('-R','^separation_(host|models)$')}
           elseif($env:CHECK_SCOPE -eq 'separation-ui'){$args+=@('-R','^juce_separation_(models|project)$')}
           elseif($env:CHECK_SCOPE -eq 'studio'){$args+=@('-R','^(separation_(host|models)|midi_import|juce_(transcription|separation_(models|project)|track_folders|wav_drop)|core_(ace_midi_protocol|audio_to_midi|model|commands|serialization|remove_tracks)|desktop_(python_transcription|transcription_controller|audio_to_midi_worker|separation_assets|remove_tracks|wav_import)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}

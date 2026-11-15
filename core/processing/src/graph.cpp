@@ -65,7 +65,7 @@ struct PreparedGraph::Impl {
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
-PreparedGraph::PreparedGraph(GraphSnapshot snapshot, ProcessConfig config, ProcessorFactory factory)
+PreparedGraph::PreparedGraph(GraphSnapshot snapshot, ProcessConfig config, ProcessorFactory factory,bool explicit_parameters)
     : impl_(std::make_unique<Impl>()) {
     if (!snapshot.graph || !factory || config.sample_rate < 8000 || config.sample_rate > 768000 ||
         !config.channels || config.channels > 64 || !config.max_block || config.max_block > 65536)
@@ -101,7 +101,7 @@ PreparedGraph::PreparedGraph(GraphSnapshot snapshot, ProcessConfig config, Proce
         // Older hosts appended a complete parameter snapshot to opaque state.
         // Complete lists are legacy snapshots, not sparse host overrides;
         // replaying them (notably TH-U) can reset a restored preset over many blocks.
-        const bool legacy_full_state=saved.format==ProcessorFormat::vst3&&!saved.plugin.component.empty()&&saved.parameters.size()>1&&
+        const bool legacy_full_state=!explicit_parameters&&saved.format==ProcessorFormat::vst3&&!saved.plugin.component.empty()&&saved.parameters.size()>1&&
             static_cast<std::size_t>(std::count_if(node.infos.begin(),node.infos.end(),[](const auto& p){return p.automatable;}))==saved.parameters.size()&&
             std::all_of(saved.parameters.begin(),saved.parameters.end(),[&](const auto& value){return std::any_of(node.infos.begin(),node.infos.end(),[&](const auto& p){return p.id==value.id&&p.automatable;});});
         for (const auto& value : saved.parameters) {
@@ -112,6 +112,13 @@ PreparedGraph::PreparedGraph(GraphSnapshot snapshot, ProcessConfig config, Proce
         }
         node.audio.resize(samples);
         node.processor->warm();
+        if(explicit_parameters && saved.format==ProcessorFormat::vst3) {
+            // Materialize explicit controls before preparing PDC. A subsequent
+            // ordinary rebuild can then use authoritative opaque state alone.
+            const auto actual=node.processor->capture();
+            node.processor->restore(actual);
+            p.last_parameters[saved.id.value].clear();
+        }
     }
     std::vector<std::size_t> degrees(state.nodes.size());
     for (const auto& edge : state.edges) {
@@ -234,7 +241,7 @@ bool PreparedGraph::enqueue_parameter(const Id& node, ParameterChange change) {
     }
     ++impl_->control_revision;return true;
 }
-bool PreparedGraph::enqueue_parameters(const GraphState& state) {
+bool PreparedGraph::enqueue_parameters(const GraphState& state,bool compare_current) {
     ParamBatch batch;
     for(const auto& saved:state.nodes){const auto at=impl_->index.find(saved.id.value);if(at==impl_->index.end())throw std::invalid_argument("unknown insert node");
         if(batch.size>=batch.changes.size())throw std::invalid_argument("parameter transaction too large");
@@ -242,25 +249,37 @@ bool PreparedGraph::enqueue_parameters(const GraphState& state) {
         for(const auto& v:saved.parameters){
             // The preprepared Rig rack uses hidden coherent state fields. Avoid
             // repeatedly queueing its unchanged private fields on every utility drag.
-            if(saved.format==ProcessorFormat::vst3||(saved.processor_id=="mrs.rig"&&v.id>=32)){const auto& old=impl_->last_parameters.at(saved.id.value);if(std::find(old.begin(),old.end(),v)!=old.end())continue;}
+            if(saved.format==ProcessorFormat::vst3||(saved.processor_id=="mrs.rig"&&v.id>=32)) {
+                const auto& old=impl_->last_parameters.at(saved.id.value);
+                const auto cached=std::find_if(old.begin(),old.end(),[&](const auto& p){return p.id==v.id;});
+                if(compare_current && saved.format==ProcessorFormat::vst3) {
+                    // Include a reset even if DSP still has the baseline when
+                    // an earlier, different batch is waiting for its callback.
+                    if((cached==old.end()||*cached==v) && impl_->nodes[at->second].processor->parameter_value(v.id)==v.value)continue;
+                } else if(cached!=old.end()&&*cached==v)continue;
+            }
             const auto& infos=impl_->nodes[at->second].infos;const auto it=std::find_if(infos.begin(),infos.end(),[&](const auto& p){return p.id==v.id;});
             if(it==infos.end() || !std::isfinite(v.value) || v.value<it->minimum || v.value>it->maximum)throw std::invalid_argument("invalid insert parameter update");
             if (batch.size >= batch.changes.size())
               throw std::invalid_argument("parameter transaction too large");
-            batch.changes[batch.size++] = {static_cast<std::uint16_t>(at->second), {0, v.id, v.value}};
+            batch.changes[batch.size++] = {static_cast<std::uint16_t>(at->second), {0, v.id, v.value,saved.format==ProcessorFormat::vst3}};
         }
         if(saved.format==ProcessorFormat::vst3)for(const auto& old:impl_->last_parameters.at(saved.id.value)){
             if(std::none_of(saved.parameters.begin(),saved.parameters.end(),[&](const auto& p){return p.id==old.id;})){
                 const auto& infos=impl_->nodes[at->second].infos;const auto it=std::find_if(infos.begin(),infos.end(),[&](const auto& p){return p.id==old.id;});
-                if(it!=infos.end()){if(batch.size>=batch.changes.size())throw std::invalid_argument("parameter transaction too large");batch.changes[batch.size++]={static_cast<std::uint16_t>(at->second),{0,old.id,it->initial}};}
+                if(it!=infos.end()){if(batch.size>=batch.changes.size())throw std::invalid_argument("parameter transaction too large");batch.changes[batch.size++]={static_cast<std::uint16_t>(at->second),{0,old.id,it->initial,true}};}
             }
         }
     }
+    // Allocate/cache before publication; a full queue leaves every control and
+    // model untouched. Publication and the final cache swap cannot allocate.
+    auto nextParameters=impl_->last_parameters;
+    for(const auto& n:state.nodes)nextParameters[n.id.value]=n.parameters;
     ++impl_->control_revision;
     if(!impl_->batch_queue.push(batch)){++impl_->control_revision;++impl_->dropped_parameters;return false;}
     ++impl_->control_revision;
     for(std::size_t i=0;i<batch.size;++i){const auto& c=batch.changes[i];if(c.event.id!=UINT32_MAX && impl_->snapshot.graph->nodes[c.node].format==ProcessorFormat::vst3)impl_->nodes[c.node].processor->sync_controller(c.event.id,c.event.value);}
-    for(const auto& n:state.nodes)impl_->last_parameters[n.id.value]=n.parameters;
+    impl_->last_parameters.swap(nextParameters);
     return true;
 }
 bool PreparedGraph::stage_reverb(const Id& id,const ReverbImpulse& ir){
@@ -450,7 +469,10 @@ void PreparedGraph::restore_settings(const GraphState& target,bool& rollbackFail
     const auto backup=capture();
     auto next=std::make_shared<GraphState>(target);
     auto nextParameters=p.last_parameters;
-    for(const auto& n:target.nodes)nextParameters[n.id.value]=n.parameters;
+    for(const auto& n:target.nodes) {
+        nextParameters[n.id.value]=n.parameters;
+        if(n.format==ProcessorFormat::vst3)nextParameters[n.id.value].clear();
+    }
     std::vector<std::uint32_t> latencies;
     for(const auto& node:p.nodes)latencies.push_back(node.processor->latency());
     const auto restore=[&](std::size_t i,const NodeState& state) {

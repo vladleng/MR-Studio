@@ -75,6 +75,7 @@ struct ParameterValue {
 struct ParameterChange {
     std::uint32_t offset{}, id{};
     float value{};
+    bool controller_synced{}; // UI intent is newer than a possibly older audio block.
 };
 enum class ProcessorFormat { native, vst3 };
 struct PluginState {
@@ -197,14 +198,14 @@ struct ReverbImpulse;
 class ReverbKernel;
 class PreparedGraph {
 public:
-    PreparedGraph(GraphSnapshot, ProcessConfig, ProcessorFactory = native_factory);
+    PreparedGraph(GraphSnapshot, ProcessConfig, ProcessorFactory = native_factory, bool explicit_parameters=false);
     ~PreparedGraph();
     PreparedGraph(const PreparedGraph&) = delete;
     PreparedGraph& operator=(const PreparedGraph&) = delete;
     // Single application-thread producer; buffers refer to the next block.
     bool enqueue_midi(const Id& source_port, MidiEvent);
     bool enqueue_parameter(const Id& node, ParameterChange);
-    bool enqueue_parameters(const GraphState&); // atomic bounded parameter/bypass update
+    bool enqueue_parameters(const GraphState&,bool compare_current=false); // atomic bounded parameter/bypass update
     bool stage_reverb(const Id&,const ReverbImpulse&); // NON-RT preparation + bounded handoff
     bool stage_reverb_kernel(const Id&,ReverbKernel&); // NON-RT publication of complete kernel
     std::array<float,2> reverb_levels(const Id&) const;

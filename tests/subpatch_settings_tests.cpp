@@ -12,17 +12,18 @@ GraphSnapshot snapshot(GraphState state){return {std::make_shared<const GraphSta
 class TwoControls final:public IProcessor {
     std::array<float,2> values{.5f,.5f};
 public:
+    inline static unsigned captures{},restores{};
     std::vector<ParameterInfo> parameters() const override{return {{100,0,1,.5f,true},{101,0,1,.5f,true}};}
     void prepare(ProcessConfig) override{}
-    void restore(const PluginState& state) override{if(state.component.size()!=sizeof(values))throw std::runtime_error("bad two-control state");std::memcpy(values.data(),state.component.data(),sizeof(values));}
-    PluginState capture() const override{PluginState state;state.class_id="0123456789ABCDEF0123456789ABCDEF";state.component.resize(sizeof(values));std::memcpy(state.component.data(),values.data(),sizeof(values));return state;}
+    void restore(const PluginState& state) override{++restores;if(state.component.size()!=sizeof(values))throw std::runtime_error("bad two-control state");std::memcpy(values.data(),state.component.data(),sizeof(values));}
+    PluginState capture() const override{++captures;PluginState state;state.class_id="0123456789ABCDEF0123456789ABCDEF";state.component.resize(sizeof(values));std::memcpy(state.component.data(),values.data(),sizeof(values));return state;}
     bool set_parameter(std::uint32_t id,float value) noexcept override{if(id<100||id>101||value<0||value>1)return false;values[id-100]=value;return true;}
     std::optional<float> parameter_value(std::uint32_t id) const noexcept override{return id>=100&&id<=101?std::optional<float>{values[id-100]}:std::nullopt;}
     std::uint32_t latency() const noexcept override{return 0;}
     bool live_safe() const noexcept override{return true;}
     void warm() override{}
     void reset() noexcept override{}
-    void process(ProcessBlock block) noexcept override{for(auto& value:block.audio)value*=values[0]*values[1];}
+    void process(ProcessBlock block) noexcept override{for(const auto& p:block.parameters)(void)set_parameter(p.id,p.value);for(auto& value:block.audio)value*=values[0]*values[1];}
 };
 
 }
@@ -56,10 +57,37 @@ int main(){try {
     twoState.nodes[0].parameters={{100,.75f},{101,.25f}};
     two.restore_settings(twoState,rollbackFailed);
     audio.fill(1);two.process(audio.data(),8);CHECK(audio[0]==.1875f);
+    const auto selected=two.capture();
+    CHECK(two.enqueue_parameters(selected));
+    audio.fill(1);two.process(audio.data(),8);
+    check(audio[0]==.1875f,"Unrelated parameter publication cannot reset a materialized variant");
+    const auto capturesBefore=TwoControls::captures,restoresBefore=TwoControls::restores;
+    auto fastState=twoState;fastState.nodes[0].parameters={{100,.9f},{101,.1f}};
+    CHECK(two.enqueue_parameters(fastState,true));
+    // A newer baseline request must override a queued A even before A renders.
+    fastState.nodes[0].parameters={{100,.5f},{101,.5f}};
+    CHECK(two.enqueue_parameters(fastState,true));
+    audio.fill(1);two.process(audio.data(),8);CHECK(audio[0]==.25f);
+    fastState.nodes[0].parameters={{100,.75f},{101,.25f}};
+    CHECK(two.enqueue_parameters(fastState,true));
+    audio.fill(1);two.process(audio.data(),8);CHECK(audio[0]==.1875f);
+    CHECK(TwoControls::captures==capturesBefore&&TwoControls::restores==restoresBefore);
     // Fresh Patch loading must interpret modern explicit controls as such.
-    PreparedGraph freshlyLoaded{snapshot(twoState),{48000,2,8},[](const NodeState&){return std::make_unique<TwoControls>();}};
+    PreparedGraph freshlyLoaded{snapshot(twoState),{48000,2,8},[](const NodeState&){return std::make_unique<TwoControls>();},true};
     audio.fill(1);freshlyLoaded.process(audio.data(),8);
     check(audio[0]==.1875f,"Modern full-parameter variant survives a fresh Patch load");
+    PreparedGraph legacy{snapshot(twoState),{48000,2,8},[](const NodeState&){return std::make_unique<TwoControls>();}};
+    audio.fill(1);legacy.process(audio.data(),8);
+    check(audio[0]==.25f,"Legacy opaque state remains authoritative over a historical parameter mirror");
+    const auto materialized=freshlyLoaded.capture();
+    CHECK(materialized.nodes[0].parameters.empty());
+    PreparedGraph reopened{snapshot(materialized),{48000,2,8},[](const NodeState&){return std::make_unique<TwoControls>();}};
+    audio.fill(1);reopened.process(audio.data(),8);
+    check(audio[0]==.1875f,"Materialized modern variant survives Save/Reopen with legacy compatibility enabled");
+    auto noControls=materialized;
+    CHECK(reopened.enqueue_parameters(noControls));
+    audio.fill(1);reopened.process(audio.data(),8);CHECK(audio[0]==.1875f);
+
     std::cout<<"Sub-patch settings: complete sound, processor identity, atomic rollback and slot guard PASS\n";
     return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}
