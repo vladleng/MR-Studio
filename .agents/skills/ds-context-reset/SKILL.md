@@ -34,3 +34,7 @@ Store the state of the work in a file, not in the chat, so a fresh context can c
 - Never put secrets or tokens in it.
 - The fresh context reads the file, not the old transcript.
 - Pair with ds-plan-loop for the Next list and with ds-unstick for the failed-approach notes.
+
+## MR Studio cloud override
+
+For MR Studio, **do not create or commit a root `PROGRESS.md` by default**. The current GitHub Issue/sub-issue holds acceptance criteria, status, checked steps, latest branch/commit, tests, blockers and next step; the PR holds review and exact-SHA CI links. These replace the `PROGRESS.md` instructions above for this repository. For a DSH context reset, supply a compact handoff drawn from those records and `git log -5` or the equivalent GitHub API. Temporary local scratch notes are allowed if they are not committed and contain no secrets. Continue only from observed evidence, never from a stale chat summary.
