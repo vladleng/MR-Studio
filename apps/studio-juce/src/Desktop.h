@@ -259,6 +259,7 @@ public:
     struct LivePreparedPatchGraph {juce::String key;std::shared_ptr<mrs::processing::PreparedGraph> graph;};
     std::map<juce::String,LivePreparedPatchGraph> livePreparedPatchGraphs;
     std::map<juce::String,LivePreparedPatchGraph> liveLookaheadPatchGraphs;
+    std::map<juce::String,juce::String> livePatchPrepareErrors;
     juce::String livePatchScheduleItem;
     bool livePlaybackReady() const;
     bool liveTransportReady() const;

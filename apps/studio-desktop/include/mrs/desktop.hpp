@@ -309,7 +309,7 @@ public:
     // #375: instantiate/warm a complete chain on the control thread, then hand
     // it to the device callback at the next block boundary.
     std::shared_ptr<processing::PreparedGraph> prepare_insert_graph(
-        std::optional<Id>,const std::vector<NativeInsert>&);
+        std::optional<Id>,const std::vector<NativeInsert>&,bool explicitParameters=false);
     bool stage_insert_graphs_live(
         const std::vector<std::pair<std::optional<Id>,std::shared_ptr<processing::PreparedGraph>>>&);
     enum class LiveInsertSwitchState {none,pending,applied,failed};

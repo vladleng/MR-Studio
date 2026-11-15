@@ -1126,7 +1126,7 @@ bool Application::apply_insert_parameters_live(std::optional<Id> track,const std
     return runtime->second.graph->enqueue_parameters(desired,true);
 }
 std::shared_ptr<processing::PreparedGraph> Application::prepare_insert_graph(
-    std::optional<Id> track,const std::vector<NativeInsert>& inserts) {
+    std::optional<Id> track,const std::vector<NativeInsert>& inserts,bool explicitParameters) {
     require(device_&&device_config_,"Connect audio before preparing a Live Patch");
     const auto project=services_.projects->state().project;
     const auto channels=static_cast<std::uint32_t>(device_config_->outputs.size());
@@ -1140,14 +1140,17 @@ std::shared_ptr<processing::PreparedGraph> Application::prepare_insert_graph(
         processing::ProcessConfig{project->sample_rate,channels,block,block,instrument}
 #ifdef MRS_HAS_VST3
         ,processing::hosted_factory
+#else
+        ,processing::native_factory
 #endif
+        ,explicitParameters
     );
 }
 bool Application::stage_insert_graphs_live(
     const std::vector<std::pair<std::optional<Id>,std::shared_ptr<processing::PreparedGraph>>>& requests) {
     require(!recording(),"Stop recording before changing a Live channel chain");
-    require(engine_->state().playback==PlaybackState::playing,
-            "Live channel graph switching requires Play");
+    audio::RealtimeState head;
+    if(!engine_->try_state(head)||head.playback!=PlaybackState::playing)return false;
     require(requests.size()<=8,"Too many channel graphs in one Live switch");
     if(pending_live_insert_switch_.transition)return false;
     live_insert_switch_failed_=false;
@@ -1155,7 +1158,7 @@ bool Application::stage_insert_graphs_live(
     PendingLiveInsertSwitch pending;
     std::vector<audio::AudioEngine::InsertGraphChange> changes;
     for(const auto& [track,graph]:requests) {
-        require(track&&graph,"Live channel graph switch requires a channel and a prepared graph");
+        require(track,"Live channel graph switch requires a channel");
         const auto mixer=std::find(mixer_tracks_.begin(),mixer_tracks_.end(),*track);
         require(mixer!=mixer_tracks_.end(),"Live channel is not prepared in the mixer");
         require(pending.graphs.emplace(track->value,graph).second,"Duplicate Live channel in one switch");
@@ -1185,12 +1188,20 @@ void Application::cancel_live_insert_switch() {
         if(phase==audio::AudioEngine::TransitionPhase::adopted) {
             // The callback already swapped the chain; publish its metadata
             // instead of leaving the control view on the previous graph.
-            if(engine_->acknowledge_insert_switch(pending_live_insert_switch_.transition))
+            if(engine_->acknowledge_insert_switch(pending_live_insert_switch_.transition)) {
                 for(auto& [key,graph]:pending_live_insert_switch_.graphs)
-                    if(auto runtime=insert_runtime_.find(key);runtime!=insert_runtime_.end())
+                    if(auto runtime=insert_runtime_.find(key);runtime!=insert_runtime_.end()) {
                         runtime->second.graph=std::move(graph);
-        } else {
-            (void)engine_->cancel_insert_switch(pending_live_insert_switch_.transition);
+                        runtime->second.pending.reset();
+                        runtime->second.settings_failed=false;
+                    }
+                ++insert_generation_;
+            }
+        } else if(!engine_->cancel_insert_switch(pending_live_insert_switch_.transition)) {
+            // The callback acquired the transition; keep ownership until the
+            // next poll observes adopted/cancelled. Releasing here would free
+            // memory the audio thread is still reading.
+            return;
         }
     }
     pending_live_insert_switch_={};
@@ -1212,9 +1223,13 @@ void Application::poll_live_insert_switch() {
         return;
     }
     for(auto& [key,graph]:pending_live_insert_switch_.graphs) {
-        if(auto runtime=insert_runtime_.find(key);runtime!=insert_runtime_.end())
+        if(auto runtime=insert_runtime_.find(key);runtime!=insert_runtime_.end()) {
             runtime->second.graph=std::move(graph);
+            runtime->second.pending.reset();
+            runtime->second.settings_failed=false;
+        }
     }
+    ++insert_generation_;
     pending_live_insert_switch_={};
     live_insert_switch_failed_=false;
     live_insert_switch_applied_=true;
@@ -1329,6 +1344,7 @@ void Application::install_playback(Project candidate,
     std::uint64_t token,bool staged,std::vector<Id> live_tracks) {
     require(workspace_==Workspace::live&&path_.empty(),"Playback handoff requires a Live runtime");
     require_not_recording();
+    cancel_live_insert_switch();
     if(!live_tracks.empty())
         require(device_ && device_config_ && audio_name_!="Offline clock (no sound)" &&
                 audio_name_!="Disconnected" && audio_running(),

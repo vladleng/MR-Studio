@@ -285,12 +285,13 @@ std::shared_ptr<AudioEngine::PreparedInsertSwitch> AudioEngine::prepare_insert_s
     for(auto& change:changes) {
         if(change.track>=current.inserts.size())
             throw std::invalid_argument("insert switch track is outside the mixer");
-        if(!change.graph)throw std::invalid_argument("insert switch requires a prepared graph");
-        const auto chain=change.graph->config();
-        if(chain.sample_rate!=config_.sample_rate||chain.channels!=config_.output_channels)
-            throw std::invalid_argument("insert switch config differs from the device");
-        if(config_.processing_block&&chain.max_block<config_.processing_block)
-            throw std::invalid_argument("insert switch block size is below the device block");
+        if(change.graph) {
+            const auto chain=change.graph->config();
+            if(chain.sample_rate!=config_.sample_rate||chain.channels!=config_.output_channels)
+                throw std::invalid_argument("insert switch config differs from the device");
+            if(config_.processing_block&&chain.max_block<config_.processing_block)
+                throw std::invalid_argument("insert switch block size is below the device block");
+        }
         for(const auto& earlier:result->changes)
             if(earlier.track==change.track)
                 throw std::invalid_argument("insert switch repeats a channel");
@@ -310,7 +311,7 @@ std::shared_ptr<AudioEngine::PreparedInsertSwitch> AudioEngine::prepare_insert_s
     info->graph=std::move(next);info->compensation=result->compensation;info->domains=result->domains;
     result->info=std::move(info);
     if(profile_)for(const auto& change:result->changes)
-        change.graph->set_profiling(profile_->enabled.load(std::memory_order_relaxed));
+        if(change.graph)change.graph->set_profiling(profile_->enabled.load(std::memory_order_relaxed));
     return result;
 }
 bool AudioEngine::stage_insert_switch(const std::shared_ptr<PreparedInsertSwitch>& next) {
@@ -347,6 +348,12 @@ AudioEngine::TransitionPhase AudioEngine::insert_switch_phase(const std::shared_
 }
 bool AudioEngine::acknowledge_insert_switch(const std::shared_ptr<PreparedInsertSwitch>& next) {
     if(!next||next->phase.load(std::memory_order_acquire)!=TransitionPhase::adopted)return false;
+    if(!control_info_||!next->info||control_info_->generation!=next->info->generation) {
+        // A full prepare replaced the control graph while this switch was in
+        // flight; publishing the old view would resurrect retired graphs.
+        next->phase.store(TransitionPhase::cancelled,std::memory_order_release);
+        return false;
+    }
     control_info_=next->info;
     next->phase.store(TransitionPhase::acknowledged,std::memory_order_release);
     return true;
@@ -433,15 +440,21 @@ void AudioEngine::adopt_insert_switch() noexcept {
     // Swap prepared storage only: no allocation/free, locks, I/O or transport reset.
     for(auto& change:next->changes)
         std::swap(graph_.inserts[change.track],change.graph);
-    std::swap(compensation_,next->compensation);
-    std::swap(route_delays_,next->route_delays);
-    std::swap(send_delays_,next->send_delays);
-    std::swap(legacy_delay_,next->legacy_delay);
+    const bool compensationChanged=next->compensation.output!=compensation_.output||
+        next->compensation.master!=compensation_.master||
+        next->compensation.track_paths!=compensation_.track_paths;
+    if(compensationChanged) {
+        std::swap(compensation_,next->compensation);
+        std::swap(route_delays_,next->route_delays);
+        std::swap(send_delays_,next->send_delays);
+        std::swap(legacy_delay_,next->legacy_delay);
+    }
     std::swap(domains_,next->domains);
     next->phase.store(TransitionPhase::adopted,std::memory_order_release);
 }
 bool AudioEngine::stage_transition(const std::shared_ptr<PreparedTransition>& next){
     if(!next || next->expected!=control_graph().performance_token || next->phase.load()!=TransitionPhase::prepared)return false;
+    if(pending_insert_switch_.load(std::memory_order_acquire)!=nullptr)return false;
     if(next->voices_only&&(!async_voice_transition_available()||!control_info_||next->previous_info->generation!=control_info_->generation))return false;
     auto phase=TransitionPhase::prepared;if(!next->phase.compare_exchange_strong(phase,TransitionPhase::pending))return false;
     PreparedTransition* empty{};
@@ -470,6 +483,10 @@ AudioEngine::PerformanceStatus AudioEngine::performance_status() const noexcept 
 AudioEngine::RoutingPlan AudioEngine::build_routing(const RenderGraph& graph,
     const RenderConfig& config) const {
     RoutingPlan plan;
+    if(graph.outputs.size()!=graph.mixer.size()||graph.sends.size()!=graph.mixer.size()||
+       graph.hardware_outputs.size()!=graph.mixer.size()||
+       (!graph.inserts.empty()&&graph.inserts.size()!=graph.mixer.size()))
+        throw std::invalid_argument("routing size mismatch");
     std::vector<std::size_t> incoming(graph.mixer.size());
     const auto edge = [&](std::size_t destination) {
         if (destination == no_mixer_track) return;

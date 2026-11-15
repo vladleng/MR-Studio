@@ -3261,6 +3261,7 @@ void Desktop::resetLivePatchSchedule() {
     livePendingGraphChanges.clear();
     livePreparedPatchGraphs.clear();
     liveLookaheadPatchGraphs.clear();
+    livePatchPrepareErrors.clear();
     livePatchScheduleItem.clear();
     app.cancel_live_insert_switch();
 }
@@ -3279,8 +3280,11 @@ void Desktop::syncLivePatchSchedule() {
         livePendingGraphChanges.clear();
         // A stopped/paused transport may have had its sound changed manually;
         // re-seed from the loaded runtime on the next Play instead of trusting
-        // a stale scheduled choice.
+        // a stale scheduled choice or a graph prepared before a Show edit.
         liveScheduledPatches.clear();
+        livePreparedPatchGraphs.clear();
+        liveLookaheadPatchGraphs.clear();
+        livePatchPrepareErrors.clear();
         return;
     }
     const auto& state=liveDocument->interfaceState;
@@ -3291,6 +3295,7 @@ void Desktop::syncLivePatchSchedule() {
         livePendingGraphChanges.clear();
         livePreparedPatchGraphs.clear();
         liveLookaheadPatchGraphs.clear();
+        livePatchPrepareErrors.clear();
         livePatchScheduleItem=itemId;
     }
     const auto switchState=app.live_insert_switch_state();
@@ -3375,12 +3380,19 @@ void Desktop::syncLivePatchSchedule() {
                 if(aheadPatch.isObject() && (ahead.subPatchId.isEmpty()||aheadSub.isObject()) && aheadNeedsGraph) {
                     LiveScheduledPatch aheadTarget{itemId,channel,ahead.patchId,ahead.subPatchId,aheadSnapshot};
                     const auto aheadKey=choiceKey(aheadTarget);
+                    if(livePatchPrepareErrors.contains(aheadKey))continue;
                     const auto cached=liveLookaheadPatchGraphs.find(channel);
                     if(cached==liveLookaheadPatchGraphs.end() || cached->second.key!=aheadKey) {
-                        const auto inserts=live::completeLiveSubPatchInserts(state,aheadPatch,aheadSub);
-                        auto graph=app.prepare_insert_graph(track,inserts);
-                        if(graph && graph->latency().live_safe)
-                            liveLookaheadPatchGraphs[channel]=LivePreparedPatchGraph{aheadKey,std::move(graph)};
+                        try {
+                            const auto inserts=live::completeLiveSubPatchInserts(state,aheadPatch,aheadSub);
+                            auto graph=app.prepare_insert_graph(track,inserts,
+                                ahead.patchId==target.patchId&&!aheadSnapshot);
+                            if(inserts.empty()||(graph&&graph->latency().live_safe))
+                                liveLookaheadPatchGraphs[channel]=LivePreparedPatchGraph{aheadKey,std::move(graph)};
+                            else livePatchPrepareErrors[aheadKey]="the next Patch has a non-live-safe plugin";
+                        } catch(const std::exception& error) {
+                            livePatchPrepareErrors[aheadKey]=juce::String::fromUTF8(error.what());
+                        }
                     }
                 }
             } catch(const std::exception&) {
@@ -3420,6 +3432,11 @@ void Desktop::syncLivePatchSchedule() {
             }
         }
         const auto key=choiceKey(target);
+        if(const auto failed=livePatchPrepareErrors.find(key);failed!=livePatchPrepareErrors.end()) {
+            if(livePreloadError.isEmpty()||livePreloadError.startsWith("Patch: "))
+                livePreloadError="Patch: "+failed->second;
+            continue;
+        }
         auto prepared=livePreparedPatchGraphs.find(channel);
         if(prepared==livePreparedPatchGraphs.end() || prepared->second.key!=key) {
             auto aheadGraph=liveLookaheadPatchGraphs.find(channel);
@@ -3431,15 +3448,21 @@ void Desktop::syncLivePatchSchedule() {
             if(prepared==livePreparedPatchGraphs.end() || prepared->second.key!=key) {
                 try {
                     const auto inserts=live::completeLiveSubPatchInserts(state,patch,sub);
-                    auto graph=app.prepare_insert_graph(track,inserts);
-                    if(!graph)throw std::runtime_error("empty prepared chain");
-                    if(!graph->latency().live_safe)
+                    const bool explicitParameters=active!=liveScheduledPatches.end() &&
+                        active->second.patchId==target.patchId && !target.snapshot;
+                    auto graph=app.prepare_insert_graph(track,inserts,explicitParameters);
+                    if(!inserts.empty() && !graph)
+                        throw std::runtime_error("prepared chain is unavailable");
+                    if(graph && !graph->latency().live_safe)
                         throw std::runtime_error("the next Patch has a non-live-safe plugin");
-                    livePreparedPatchGraphs[channel]=LivePreparedPatchGraph{key,graph};
+                    livePreparedPatchGraphs[channel]=LivePreparedPatchGraph{key,std::move(graph)};
                     prepared=livePreparedPatchGraphs.find(channel);
+                    livePatchPrepareErrors.erase(key);
                 } catch(const std::exception& error) {
+                    const auto message=juce::String::fromUTF8(error.what());
+                    livePatchPrepareErrors[key]=message;
                     if(livePreloadError.isEmpty()||livePreloadError.startsWith("Patch: "))
-                        livePreloadError="Patch: "+juce::String::fromUTF8(error.what());
+                        livePreloadError="Patch: "+message;
                     continue;
                 }
             }
