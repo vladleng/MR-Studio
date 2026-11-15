@@ -11,14 +11,14 @@ Plan before coding, check the plan once, then build the task one verified step a
 
 1. Restate the goal in one sentence. List the files and commands you expect to touch. Read those files before you plan. Do not plan from memory.
 2. Write a numbered plan. Each step gets one action and one acceptance check that a command or a direct observation can confirm, for example "`npm test -- auth` passes" or "`GET /health` returns 200". Keep each step small enough to verify in a single diff.
-3. Write the plan to a file (PLAN.md, or the PROGRESS.md from ds-context-reset) so later steps and fresh sessions can read it.
+3. In MR Studio, write or update the short verifiable plan in the assigned GitHub Issue/sub-issue, not a new `PLAN.md`/`PROGRESS.md`. If no Issue is assigned for a small one-off task, keep a concise in-session plan. In other repositories, a PLAN.md/PROGRESS.md may be suitable.
 4. Critique the plan in a fresh pass. Reread only the goal and the plan, as a reviewer who did not write it. If you can, run the critique in a subagent or new session. Answer three questions:
    - Which step is missing (setup, migration, config, tests, cleanup)?
    - Which assumption has not been checked against the code or docs?
    - Is there a simpler path that reaches the same goal with fewer steps?
 5. Revise the plan. Check each risky assumption now by reading code or running a command. Do not carry it forward as a guess.
 6. Execute step 1 only. Run its acceptance check and read the real output. Use ds-verify-loop when the check fails.
-7. Mark the step done in the plan file, along with the evidence (command and result). Then move to the next step.
+7. Mark the step done in the Issue or plan file, with the real command/run and result. Then move to the next step.
 8. If a step shows that the plan is wrong, stop and revise the remaining steps before continuing. Do not improvise around it.
 
 ## Stop when
@@ -33,3 +33,7 @@ Plan before coding, check the plan once, then build the task one verified step a
 - Do one step per diff. Do not batch steps to save time.
 - Do not add steps that the goal does not need.
 - Keep the plan short: about 3-10 steps. Split bigger work into separate plans.
+
+## MR Studio / DSH
+
+GitHub Issues, PRs and Actions are the durable task/proof ledger; do not create duplicate project checklists or change the current CI gating. `mr-github-workflow` governs remote execution and `AGENTS.md` governs permission to close or merge.

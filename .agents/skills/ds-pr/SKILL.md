@@ -30,3 +30,7 @@ Open one real PR whose title and description a busy reviewer can read in ten sec
 - No file-by-file change lists in the description.
 - Do not post follow-up comments unless the request needs one. Use `ds-pr-comments` when it does.
 - Never guess a model name.
+
+## MR Studio / DSH
+
+Use the current GitHub connector/API for an existing branch/PR when `gh` or a terminal is unavailable. Do not claim to have created a PR until the service returns its URL. Base the description on the assigned Issue and actual checks; separate CI PASS, NOT TESTED and user acceptance. A created PR is **not** authorization to merge it or close the Issue. See `mr-github-workflow`.

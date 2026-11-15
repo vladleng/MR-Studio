@@ -5,12 +5,12 @@ description: "Runs the full ds-ship workflow but stops with the pull request rea
 
 Do all of `ds-ship` except the merge. Hand the user an open PR that passes the merge gate.
 
-The request grants the same test permission as `ds-ship`, and you may commit, push, rebase and `--force-with-lease` this task's branch. You may not merge.
+For MR Studio the request grants only writes and tests already permitted by `AGENTS.md` and the assigned Issue. You may commit and push to the task branch, but it does **not** authorize force-push, history rewrite, auto-merge/merge-queue changes, merge or Issue closure.
 
 ## Steps
 
 1. Read `ds-ship` and follow its steps 1 to 6: branch, change, prove, review, file, watch.
-2. Before the first push, turn off auto-merge and take the PR out of any merge queue. Check again before each push. If you cannot stop automatic merging, report that before you continue.
+2. Check if auto-merge or a merge queue is already enabled. For MR Studio do not change either setting without explicit permission; if an automatic merge threatens required user acceptance, stop and report a blocker. Recheck before final handoff.
 3. After the last fix, re-prove any behavior change and any non-trivial conflict resolution.
 4. Fetch the base branch. Read the live PR: head SHA, base, checks, reviews, mergeable state. Confirm it is open and not a draft.
 5. Apply the `ds-ship` merge gate and pick one verdict:
@@ -30,3 +30,8 @@ The request grants the same test permission as `ds-ship`, and you may commit, pu
 - Never merge, turn on auto-merge, join a merge queue or push to the default branch.
 - Do not ask another agent to do any of those things for you.
 - Show evidence for the verdict: the check list and mergeable state you read.
+
+## MR Studio status
+
+- A PR can be technically READY but still be **WAITING FOR USER ACCEPTANCE**. CI PASS is not permission to merge. Verify the exact SHA and actual check results.
+- Follow `mr-github-workflow` and `mr-studio-build-test`; generic `ds-ship` wording never authorizes unnecessary full CTest or Windows Release.
