@@ -87,21 +87,42 @@ inline void channelPatchLibrary() {
     saveItem(state,item);
     check(!itemDirty(state,item),"A re-saved item with another default patch is clean");
     {
-        // #289 A-Upd1: the item switch adopts these default patches.
-        const auto targets=itemDefaultPatches(state,item);
-        check(targets.size()==1&&targets[0].first==channel&&targets[0].second==second,
-              "An item exposes its channel default patch for the switch");
-        auto emptyItem=addItem(state,"Song B");
-        check(itemDefaultPatches(state,emptyItem).empty(),
-              "An item without an assignment asks for no patch");
-        auto legacy=state.clone();
+        // #374 I: stopped Item switching follows the actual Timeline, not
+        // tracks[].patchId from the obsolete Item default assignment.
+        check(itemDefaultPatches(state,item).empty(),
+              "Old Item default alone cannot choose the Timeline sound");
+        auto timeline=state.clone();
+        auto& chosen=require(require(timeline,"channels",channel),"patches",second);
+        const auto defaultId=createDefaultSubPatch(chosen,"teal");
+        auto spans=object();
+        put(spans,juce::Identifier(second),
+            fullDefaultSubPatchSpan(blockSpan(0.,8.),defaultId));
+        put(trackOf(timeline),"spans",spans);
+        put(trackOf(timeline),"patchOrder",juce::var(juce::Array<juce::var>{second}));
+        validate(timeline);
+        const auto targets=itemDefaultPatches(timeline,item);
+        check(targets.size()==1&&targets[0].first==channel&&targets[0].second==second &&
+              timelinePatchAtBar(timeline,item,channel,0.).subPatchId==defaultId,
+              "Stopped Item switching takes Patch and default Sub-patch from Timeline");
+        const auto emptyItem=addItem(timeline,"Song B");
+        check(itemDefaultPatches(timeline,emptyItem).empty(),
+              "An Item without Timeline blocks asks for no Patch");
+        // Even if an old Item default is present, a legacy demo Patch can
+        // never replace the current, valid Timeline sound.
+        auto legacy=timeline.clone();
         auto& legacyBank=array(require(legacy,"channels",channel),"patches");
         auto demo=object();
         put(demo,"id","demo-patch-local");put(demo,"name","Legacy demo local");
         put(demo,"engine",object());legacyBank.add(demo);
         put(trackOf(legacy),"patchId","demo-patch-local");
-        check(itemDefaultPatches(legacy,item).empty(),
-              "Legacy demo patches are never applied automatically on an item switch");
+        const auto stillSelected=itemDefaultPatches(legacy,item);
+        check(stillSelected.size()==1&&stillSelected[0].second==second,
+              "Legacy Item default cannot override a Timeline Patch");
+        auto noTimeline=timeline.clone();
+        put(trackOf(noTimeline),"spans",object());
+        put(trackOf(noTimeline),"patchOrder",juce::var(juce::Array<juce::var>{}));
+        check(itemDefaultPatches(noTimeline,item).empty(),
+              "Removing Timeline blocks cannot resurrect the old Item default");
     }
     {
         // Pre-#289 saved versions carry no assignment; opening such a show must

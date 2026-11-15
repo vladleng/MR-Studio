@@ -132,13 +132,42 @@ struct LiveDocument {
     }
     void write(const juce::File &file) const {
         const auto bytes = juce::JSON::toString(json(file), false, 17);
-        if (bytes.getNumBytesAsUTF8() > live::maximumShowBytes)
+        const auto byteCount = bytes.getNumBytesAsUTF8();
+        if (byteCount > live::maximumShowBytes)
             throw std::runtime_error("MR Live show exceeds 64 MiB");
-        if (file.getParentDirectory().createDirectory().failed())
-            throw std::runtime_error("Cannot create MR Live folder");
+        const auto directory = file.getParentDirectory();
+        const auto directoryResult = directory.createDirectory();
+        if (directoryResult.failed())
+            throw std::runtime_error(("Cannot create MR Live folder: " +
+                                      directoryResult.getErrorMessage() + " (" +
+                                      directory.getFullPathName() + ")").toStdString());
         juce::TemporaryFile temporary(file);
-        if (!temporary.getFile().replaceWithText(bytes) || !temporary.overwriteTargetFileWithTemporary())
-            throw std::runtime_error("Cannot save MR Live show");
+        // Write directly to the single sibling temporary file. Calling
+        // replaceWithText() on that temporary file created a *second* hidden
+        // temporary file and performed an unnecessary second rename on Windows.
+        // Keep the output stream closed before replacing the original show.
+        {
+            juce::FileOutputStream output(temporary.getFile());
+            if (output.failedToOpen())
+                throw std::runtime_error(("Cannot create MR Live temporary file: " +
+                                          output.getStatus().getErrorMessage() + " (" +
+                                          file.getFullPathName() + ")").toStdString());
+            if (!output.write(bytes.toRawUTF8(), static_cast<std::size_t>(byteCount))) {
+                throw std::runtime_error(("Cannot write MR Live temporary file: " +
+                                          output.getStatus().getErrorMessage() + " (" +
+                                          file.getFullPathName() + ")").toStdString());
+            }
+            output.flush();
+            if (output.getStatus().failed())
+                throw std::runtime_error(("Cannot flush MR Live temporary file: " +
+                                          output.getStatus().getErrorMessage() + " (" +
+                                          file.getFullPathName() + ")").toStdString());
+        }
+        if (!temporary.overwriteTargetFileWithTemporary())
+            throw std::runtime_error(("Cannot replace MR Live show: " +
+                                      file.getFullPathName() +
+                                      ". The destination may be locked, read-only or protected; "
+                                      "try Save As to a new local folder.").toStdString());
     }
 };
 } // namespace ui

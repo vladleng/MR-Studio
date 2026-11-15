@@ -163,8 +163,8 @@ public:
         self.events_in_.clear();self.events_out_.clear();
         for(int pass=0;pass<20;++pass){
             self.input_.clear();self.output_.clear();std::size_t emitted=0;
-            for(std::size_t i=0;i<infos_.size()&&emitted<256;++i)if(self.initial_pending_[i]){self.input_.add(infos_[i].id,values_[i].load(),0);self.initial_pending_[i]=false;--self.initial_count_;++emitted;}
             ParameterChange change;while(emitted<256&&self.editor_changes_.pop(change)){self.input_.add(change.id,change.value,0);++emitted;}
+            for(std::size_t i=0;i<infos_.size()&&emitted<256;++i)if(self.initial_pending_[i]){self.input_.add(infos_[i].id,values_[i].load(),0);self.initial_pending_[i]=false;--self.initial_count_;++emitted;}
             if(!emitted)break;
             self.data_.numSamples=0;if(!safe_process(processor_,&self.data_))throw std::runtime_error("VST3: pending parameter state flush failed");
         }
@@ -172,14 +172,23 @@ public:
         const auto copy=[](MemoryStream& stream){if(stream.getSize()<0 || static_cast<std::uint64_t>(stream.getSize())>PluginState::maximum_bytes)throw std::runtime_error("VST3 state exceeds 16 MiB budget");std::vector<std::byte> v(static_cast<std::size_t>(stream.getSize()));if(!v.empty())std::memcpy(v.data(),stream.getData(),v.size());return v;};
         MemoryStream component,controller;ok(component_->getState(&component),"capture component state failed");state.component=copy(component);if(controller_->getState(&controller)==kResultOk)state.controller=copy(controller);return state;
     }
-    std::vector<mrs::processing::ParameterInfo> parameters() const override{return infos_;}
+    // Capture/dirty reads run on the control thread. ParameterInfo.initial
+    // is the host's captured normalized value here, not the creation-time
+    // preset default: vendor performEdit writes values_ but not infos_.
+    std::vector<mrs::processing::ParameterInfo> parameters() const override {
+        auto sampled=infos_;
+        for(std::size_t i=0;i<sampled.size();++i)
+            sampled[i].initial=values_[i].load(std::memory_order_relaxed);
+        return sampled;
+    }
     bool set_parameter(std::uint32_t id,float value) noexcept override{const auto i=index(id);if(!i||!std::isfinite(value)||value<0||value>1)return false;values_[*i]=value;if(!initial_pending_[*i]){initial_pending_[*i]=true;++initial_count_;}return true;}
     std::optional<float> parameter_value(std::uint32_t id) const noexcept override{auto i=index(id);return i?std::optional<float>{values_[*i].load()}:std::nullopt;}
+    std::uint32_t quiescent_latency() const noexcept override{return processor_->getLatencySamples();}
     std::uint32_t latency() const noexcept override{return latency_;}bool live_safe() const noexcept override{return false;}
     void warm() override{for(std::size_t i=0;i<infos_.size();++i)if(initial_pending_[i])controller_->setParamNormalized(infos_[i].id,values_[i].load());if(!active_){ok(component_->setActive(true),"activation failed");active_=true;}ok(processor_->setProcessing(true),"start processing failed");processing_=true;latency_=processor_->getLatencySamples();}
     void reset() noexcept override{context_.projectTimeSamples=0;reset_midi_=true;}
     bool edited() noexcept override{if(refresh_values_.exchange(false))for(std::size_t i=0;i<infos_.size();++i)values_[i]=static_cast<float>(controller_->getParamNormalized(infos_[i].id));return edited_.exchange(false);}
-    void sync_controller(std::uint32_t id,float value) override{controller_->setParamNormalized(id,value);}
+    void sync_controller(std::uint32_t id,float value) override{controller_->setParamNormalized(id,value);if(auto i=index(id))values_[*i]=value;}
     bool failed() const noexcept override{return fault_.load();}
     bool open_editor(void* parent,int& width,int& height) override{
         close_editor();view_=owned(controller_->createView(ViewType::kEditor));if(!view_ || view_->isPlatformTypeSupported(kPlatformTypeHWND)!=kResultOk){view_=nullptr;return false;}
@@ -202,8 +211,10 @@ public:
         events_in_.clear();events_out_.clear();
         if(reset_midi_){reset_midi_=false;for(std::uint8_t ch=0;ch<16;++ch){midi_event({0,MidiKind::cc,ch,123,0});midi_event({0,MidiKind::pitch_bend,ch,0,64});}}
         for(const auto& event:block.midi)midi_event(event);
-        for(const auto& p:block.parameters){if(auto i=index(p.id))values_[*i]=p.value;input_.add(p.id,p.value,static_cast<int32>(p.offset));}
+        // An explicit host batch wins over editor changes already pending at
+        // this processing boundary (e.g. reselect a saved Sub-patch after editing).
         ParameterChange change;for(int i=0;i<256&&editor_changes_.pop(change);++i)input_.add(change.id,change.value,0);
+        for(const auto& p:block.parameters){if(!p.controller_synced)if(auto i=index(p.id))values_[*i]=p.value;input_.add(p.id,p.value,static_cast<int32>(p.offset));}
         for(int32 b=0;b<data_.numInputs;++b){data_.inputs[b].silenceFlags=0;for(int32 c=0;c<data_.inputs[b].numChannels;++c){auto* out=data_.inputs[b].channelBuffers32[c];for(std::uint32_t f=0;f<block.frames;++f)out[f]=b==0?block.audio[static_cast<std::size_t>(f)*block.channels+c]:0;}}
         for(int32 b=0;b<data_.numOutputs;++b){data_.outputs[b].silenceFlags=0;for(int32 c=0;c<data_.outputs[b].numChannels;++c)std::fill_n(data_.outputs[b].channelBuffers32[c],block.frames,0.f);}
         data_.numSamples=static_cast<int32>(block.frames);

@@ -167,6 +167,13 @@ std::unique_ptr<IProjectTransaction> ProjectStore::prepare_transaction(const ICo
     undo.reserve(history_limit_);redo.reserve(history_limit_);
     auto result=std::make_unique<Transaction>(*this,std::move(next),std::move(undo),std::move(redo),std::move(name));guard.transferred=true;return result;
 }
+std::unique_ptr<IProjectTransaction> ProjectStore::prepare_projection(const ICommand* command) {
+    EditGuard guard(editing_);if(!command)throw std::invalid_argument("missing projection command");
+    auto candidate=*project_;command->apply(candidate);candidate.validate();if(candidate==*project_)return {};
+    auto next=std::make_shared<const Project>(std::move(candidate));
+    auto result=std::make_unique<Transaction>(*this,std::move(next),undo_,redo_,std::string(command->name()));
+    guard.transferred=true;return result;
+}
 void ProjectStore::execute(const ICommand& command) {
     {
         EditGuard guard(editing_);

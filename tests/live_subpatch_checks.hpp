@@ -26,6 +26,11 @@ inline void subPatchChainVariants() {
     const auto patchId=addChannelPatch(state,require(state,"channels",channel),
                                        std::vector<mrs::NativeInsert>{base},"Clean","blue");
     auto& patchRow=require(require(state,"channels",channel),"patches",patchId);
+    // #374 G: Model fixture must match a newly captured Patch. Capture in
+    // LiveInterface stores this reference baseline alongside the opaque VST3
+    // state; Update of a Parameters Sub-patch requires it, by design.
+    put(patchRow,"parameterBaseline",
+        encodeLivePatchParameterBaseline(std::vector<mrs::NativeInsert>{base}));
     const auto trackOf=[&](juce::var& target)->juce::var& {
         for(auto& entry:array(target,"items"))
             if(entry["id"].toString()==item)
@@ -41,6 +46,110 @@ inline void subPatchChainVariants() {
         return find(channelPatch(show),"subPatches","sub-rhythm");
     };
     const auto baseInserts=decodeLivePatchInserts(state,channelPatch(state));
+    // #374 Stop switching RED: Timeline spans, not legacy item defaults,
+    // must decide the initial sound when a different Item is selected.
+    {
+        auto timeline=state.clone();
+        auto& library=require(require(timeline,"channels",channel),"patches",patchId);
+        const auto firstSub=createDefaultSubPatch(library,"blue");
+        auto spans=object();
+        put(spans,juce::Identifier(patchId),
+            fullDefaultSubPatchSpan(blockSpan(0.,8.),firstSub));
+        auto& assigned=trackOf(timeline);
+        put(assigned,"spans",spans);
+        put(assigned,"patchId","stale-item-default");
+        const auto initial=itemDefaultPatches(timeline,item);
+        check(initial.size()==1 && initial.front().first==channel &&
+              initial.front().second==patchId,
+              "#374 Stop: initial sound must resolve from the Timeline Patch, not Item default");
+    }
+    {
+        // Right-edge ownership, nested Sub-patches, and independent fragment
+        // IDs are resolved from library IDs, never legacy Item defaults.
+        auto timeline=state.clone();
+        auto& first=require(require(timeline,"channels",channel),"patches",patchId);
+        const auto defaultId=createDefaultSubPatch(first,"blue");
+        auto solo=object();
+        put(solo,"id","sub-solo");
+        put(solo,"name","Solo");
+        put(solo,"color","violet");
+        put(solo,"type","parameters");
+        put(solo,"formatVersion",2);
+        put(solo,"overrides",juce::var(juce::Array<juce::var>{}));
+        array(first,"subPatches").add(solo);
+        auto firstSpan=fullDefaultSubPatchSpan(blockSpan(0.,4.),defaultId);
+        auto subSpans=object();
+        put(subSpans,juce::Identifier(defaultId),blockSpan(0.,2.));
+        auto soloSpan=blockSpan(2.,2.);
+        put(soloSpan,"subPatchId","sub-solo");
+        put(subSpans,juce::Identifier("split-solo"),soloSpan);
+        put(firstSpan,"subs",subSpans);
+        const auto lead=addChannelPatch(timeline,require(timeline,"channels",channel),
+                                         std::vector<mrs::NativeInsert>{base},"Lead","violet");
+        auto& leadPatch=require(require(timeline,"channels",channel),"patches",lead);
+        const auto leadDefault=createDefaultSubPatch(leadPatch,"violet");
+        auto secondSpan=fullDefaultSubPatchSpan(blockSpan(4.,4.),leadDefault);
+        put(secondSpan,"patchId",lead);
+        auto spans=object();
+        put(spans,juce::Identifier(patchId),firstSpan);
+        put(spans,juce::Identifier("split-lead"),secondSpan);
+        put(trackOf(timeline),"spans",spans);
+        const auto at0=timelinePatchAtBar(timeline,item,channel,0.);
+        const auto at2=timelinePatchAtBar(timeline,item,channel,2.);
+        const auto at4=timelinePatchAtBar(timeline,item,channel,4.);
+        const auto at8=timelinePatchAtBar(timeline,item,channel,8.);
+        check(at0.patchId==patchId && at0.subPatchId==defaultId &&
+              at2.patchId==patchId && at2.subPatchId=="sub-solo" &&
+              at4.patchId==lead && at4.subPatchId==leadDefault &&
+              at8.patchId.isEmpty(),
+              "#374 Stop: Patch/Sub-patch boundary and split ID resolution");
+    }
+    {
+        // #374 H: a new Patch contains one real, editable 'default'
+        // Sub-patch covering the whole parent. No implied Base gap.
+        auto show=empty();
+        const auto ch=addChannel(show,"Player","Guitar");
+        const auto id=addChannelPatch(show,require(show,"channels",ch),
+                                     std::vector<mrs::NativeInsert>{base},"New Patch","blue");
+        auto& bank=require(require(show,"channels",ch),"patches",id);
+        const auto initial=createDefaultSubPatch(bank,"blue");
+        const auto parent=fullDefaultSubPatchSpan(blockSpan(0.,8.),initial);
+        check(bank["subPatches"].size()==1 &&
+              bank["subPatches"][0]["name"].toString()=="default" &&
+              parent["subs"].getDynamicObject()->getProperties().size()==1 &&
+              std::abs(blockLength(parent["subs"][juce::Identifier(initial)])-8.)<1.e-9 &&
+              subPatchBaseGaps(parent).empty(),
+              "#374 H: new Patch has one full-length default Sub-patch, no derived Base");
+        validate(show);
+    }
+    {
+        // #374 G: loading a sound for editing mutates only the active
+        // Live Input, not the Item's saved Patch/Sub-patch choice.
+        auto loaded=state.clone();
+        const auto itemBefore=trackOf(loaded).clone();
+        auto profile=object();
+        put(profile,"authoringFixture",true);
+        commitLoadedPatchToShow(loaded,channel,profile,item,patchId,{},false);
+        check(sameShowValue(trackOf(loaded),itemBefore) &&
+              find(loaded,"channels",channel)["liveInput"]["authoringFixture"].isBool(),
+              "#374 G: Load for editing preserves Item default and updates Live Input only");
+        commitLoadedPatchToShow(loaded,channel,profile,item,patchId,{},true);
+        check(trackOf(loaded)["patchId"].toString()==patchId &&
+              trackOf(loaded)["subPatchId"].isVoid(),
+              "#374 G: explicit Apply & set Item default still assigns the Patch");
+    }
+    {
+        const auto capturedBaseline=encodeLivePatchParameterBaseline(baseInserts);
+        auto restored=baseInserts;
+        restored[0].parameters.clear();
+        applyLivePatchParameterBaseline(restored,capturedBaseline);
+        check(restored[0].parameters==baseInserts[0].parameters,
+              "#374 E3: separate baseline preserves VST3 parameters without changing opaque state");
+        auto missing=restored;
+        missing[0].parameters.clear();
+        checkThrows([&]{applyLivePatchParameterBaseline(missing,{});},
+                    "#374 E3: older Base Patch without exposed parameters requires recapture");
+    }
     auto variant=baseInserts;
     variant[0].component_state=std::vector<std::byte>{std::byte{9},std::byte{9}};
     variant[0].parameters[0].value=0.9f;
@@ -52,17 +161,133 @@ inline void subPatchChainVariants() {
     array(patchRow,"subPatches").add(sub);
     validate(state);
     const auto effective=patchInsertsWithSubPatch(state,channelPatch(state),subPatchOf(state));
-    check(effective.size()==1&&effective[0].component_state==variant[0].component_state&&
+    check(sub["overrides"].isArray() && sub["overrides"].size()==1 &&
+          sub["inserts"].isVoid(),"New Sub-patch stores only one explicit parameter override");
+    check(effective.size()==1&&effective[0].component_state==base.component_state&&
           std::abs(effective[0].parameters[0].value-0.9f)<1.e-6f,
-          "A sub-patch applies its captured same-chain state");
+          "A sub-patch applies exposed parameters without replacing base VST3 state");
     check(sameInsertStructure(effective,baseInserts),
           "Sub-patch switching never changes the insert chain structure");
+    {
+        // A real newly captured Patch keeps parameter baselines separately:
+        // its native VST3 inserts contain opaque state but NO full parameter list.
+        auto sparse=state.clone();
+        auto& patch=live::require(live::require(sparse,"channels",channel),
+                                  "patches",patchId);
+        put(patch,"parameterBaseline",encodeLivePatchParameterBaseline(baseInserts));
+        auto& savedInserts=*patch["inserts"].getArray();
+        put(savedInserts.getReference(0),"parameters",juce::var(juce::Array<juce::var>{}));
+        validate(sparse);
+        const auto sparseVariant=patchInsertsWithSubPatch(sparse,
+            find(find(sparse,"channels",channel),"patches",patchId),
+            find(find(find(sparse,"channels",channel),"patches",patchId),
+                "subPatches","sub-rhythm"));
+        check(sparseVariant[0].parameters.size()==1 &&
+              std::abs(sparseVariant[0].parameters[0].value-.9f)<1.e-6f,
+              "#374 E3: baseline metadata validates sparse override without replaying full VST3 preset");
+    }
     const auto baseOnly=patchInsertsWithSubPatch(state,channelPatch(state),{});
     check(baseOnly.size()==1&&baseOnly[0].component_state==base.component_state&&
           std::abs(baseOnly[0].parameters[0].value-0.5f)<1.e-6f,
           "Base restores the captured patch state");
     checkThrows([&]{subPatchChain(state,baseInserts,baseInserts);},
                 "An unchanged chain must not produce a sub-patch");
+    auto vendorPresetOnly=baseInserts;
+    vendorPresetOnly[0].component_state=std::vector<std::byte>{std::byte{18},std::byte{19}};
+    checkThrows([&]{subPatchChain(state,baseInserts,vendorPresetOnly);},
+                "Opaque-only preset changes must not be misrepresented as Sub-patch parameters");
+    {
+        // #374 G: Snapshot does NOT need a parameter baseline and does
+        // NOT create/rewrite one. No migration of old user Patch libraries.
+        auto noBaseline=state.clone();
+        auto& noBase= require(require(noBaseline,"channels",channel),"patches",patchId);
+        if(auto* obj=noBase.getDynamicObject())obj->removeProperty("parameterBaseline");
+        auto snapshotSource=vendorPresetOnly;
+        snapshotSource[0].parameters.clear();
+        const auto snapshot=captureSubPatchFromBase(noBaseline,noBase,snapshotSource,
+                                                    SubPatchCaptureMode::snapshot);
+        check(snapshot["type"].toString()=="snapshot" &&
+              snapshot["states"].size()==1 &&
+              noBase["parameterBaseline"].isVoid(),
+              "#374 G: Snapshot Capture works without parameterBaseline and does not rewrite Base");
+        const auto automatic=captureSubPatchFromBase(noBaseline,noBase,snapshotSource);
+        check(automatic["type"].toString()=="snapshot" && automatic["states"].size()==1,
+              "#374 G: Auto chooses Snapshot when a reliable Parameter baseline is unavailable");
+        checkThrows([&]{captureSubPatchFromBase(noBaseline,noBase,snapshotSource,
+                                                 SubPatchCaptureMode::parameters);},
+                    "#374 G: Parameters does not silently invent missing Base parameter values");
+        auto newBase=state.clone();
+        auto& fresh=require(require(newBase,"channels",channel),"patches",patchId);
+        put(fresh,"parameterBaseline",encodeLivePatchParameterBaseline(baseInserts));
+        auto paramVariant=captureSubPatchFromBase(newBase,fresh,variant,
+                                                  SubPatchCaptureMode::parameters);
+        check(paramVariant["type"].toString()=="parameters" &&
+              paramVariant["overrides"].size()==1,
+              "#374 G: new Patch with baseline captures changed VST3 parameters");
+    }
+    // #374 F: full vendor Snapshot is a same-chain Sub-patch, not an
+    // additional Patch or a duplicate Base. Both formats share library IDs.
+    {
+        auto autoState=state.clone();
+        const auto automatic=captureSubPatchVariant(autoState,baseInserts,variant);
+        check(automatic["type"].toString()=="parameters" &&
+              automatic["overrides"].size()==1 && automatic["states"].isVoid(),
+              "#374 F: Auto chooses sparse Parameters for exposed changes");
+        const auto direct=captureSubPatchVariant(autoState,baseInserts,variant,
+                                                 SubPatchCaptureMode::parameters);
+        check(direct["type"].toString()=="parameters",
+              "#374 F: explicitly selected Parameters remains supported");
+        checkThrows([&]{captureSubPatchVariant(autoState,baseInserts,vendorPresetOnly,
+                                               SubPatchCaptureMode::parameters);},
+                    "#374 F: Parameters refuses opaque-only preset changes");
+        auto snapshot=captureSubPatchVariant(autoState,baseInserts,vendorPresetOnly);
+        check(snapshot["type"].toString()=="snapshot" &&
+              snapshot["states"].size()==1 && snapshot["overrides"].isVoid(),
+              "#374 F: Auto falls back to full-state Snapshot for opaque-only VST3");
+        put(snapshot,"id","sub-snapshot");
+        put(snapshot,"name","Preset");
+        put(snapshot,"color","amber");
+        auto& bank=require(require(autoState,"channels",channel),"patches",patchId);
+        array(bank,"subPatches").add(snapshot);
+        validate(autoState);
+        auto effectiveSnapshot=patchInsertsWithSubPatch(autoState,
+            find(find(autoState,"channels",channel),"patches",patchId),
+            find(find(find(autoState,"channels",channel),"patches",patchId),
+                 "subPatches","sub-snapshot"));
+        check(effectiveSnapshot.size()==1 &&
+              effectiveSnapshot[0].component_state==vendorPresetOnly[0].component_state &&
+              effectiveSnapshot[0].parameters.empty() &&
+              patchInsertsWithSubPatch(autoState,
+                find(find(autoState,"channels",channel),"patches",patchId),{})[0].component_state==
+                    baseInserts[0].component_state,
+              "#374 F: Snapshot changes only selected VST3 state; Base stays intact");
+        const auto hash=snapshot["states"][0]["state"].toString();
+        prunePatchStates(autoState);
+        check(autoState["patchStates"][juce::Identifier(hash)].isObject(),
+              "#374 F: Snapshot blobs survive reference pruning");
+        auto invalid=autoState.clone();
+        auto& snapshots=array(require(require(invalid,"channels",channel),"patches",patchId),"subPatches");
+        for(auto& v:snapshots)
+            if(v["id"].toString()=="sub-snapshot") {
+                auto row=v["states"][0].clone();
+                put(row,"insertId","foreign-insert");
+                auto list=v["states"].clone();
+                list.getArray()->set(0,row);
+                put(v,"states",list);
+            }
+        checkThrows([&]{validate(invalid);},
+                    "#374 F: Snapshot cannot reference foreign VST3 insert ID");
+        auto both=variant;
+        auto forcedSnapshot=captureSubPatchVariant(autoState,baseInserts,both,
+                                                   SubPatchCaptureMode::snapshot);
+        check(forcedSnapshot["type"].toString()=="snapshot" &&
+              forcedSnapshot["states"].size()==1,
+              "#374 F: explicit Snapshot works when parameters and state both change");
+        auto missing=autoState.clone();
+        missing["patchStates"].getDynamicObject()->removeProperty(juce::Identifier(hash));
+        checkThrows([&]{validate(missing);},
+                    "#374 F: missing Snapshot binary data fails validation");
+    }
     auto otherStructure=baseInserts;
     otherStructure[0].id=mrs::Id{"fx-2"};
     checkThrows([&]{subPatchChain(state,baseInserts,otherStructure);},
@@ -85,17 +310,37 @@ inline void subPatchChainVariants() {
     {
         auto broken=state.clone();
         auto& subs=array(require(require(broken,"channels",channel),"patches",patchId),"subPatches");
-        subs.getReference(0)["inserts"].getArray()->getReference(0)
-            .getDynamicObject()->setProperty("id","fx-9");
-        checkThrows([&]{validate(broken);},"A sub-patch chain with a different insert must be rejected");
+        auto& overrides=*subs.getReference(0)["overrides"].getArray();
+        put(overrides.getReference(0),"insertId","fx-9");
+        checkThrows([&]{validate(broken);},"A Sub-patch referencing a foreign insert is rejected");
     }
     {
         auto broken=state.clone();
         auto& subs=array(require(require(broken,"channels",channel),"patches",patchId),"subPatches");
-        const auto hash=subs.getReference(0)["inserts"][0]["state"].toString();
-        check(broken["patchStates"].isObject(),"Patch state store exists");
+        // Legacy full-state Sub-patches must remain readable after migration,
+        // including their own opaque state: pruning must not delete those blobs.
+        auto& legacySub=subs.getReference(0);
+        legacySub.getDynamicObject()->removeProperty("overrides");
+        put(legacySub,"inserts",encodeLivePatchInserts(broken,variant));
+        validate(broken);
+        const auto legacyEffective=patchInsertsWithSubPatch(broken,
+            find(find(broken,"channels",channel),"patches",patchId),legacySub);
+        check(legacyEffective[0].component_state==variant[0].component_state,
+              "Old full-state Sub-patch round-trips without losing its preset");
+        const auto hash=legacySub["inserts"][0]["state"].toString();
+        prunePatchStates(broken);
+        check(broken["patchStates"][juce::Identifier(hash)].isObject(),
+              "Pruning retains the legacy Sub-patch opaque VST3 state");
         broken["patchStates"].getDynamicObject()->removeProperty(juce::Identifier(hash));
-        checkThrows([&]{validate(broken);},"A sub-patch with missing opaque state must be rejected");
+        checkThrows([&]{validate(broken);},"Legacy Sub-patch with missing opaque state is rejected");
+    }
+    {
+        auto broken=state.clone();
+        auto& subs=array(require(require(broken,"channels",channel),"patches",patchId),"subPatches");
+        auto& first=*subs.getReference(0)["overrides"].getArray();
+        put(first.getReference(0),"parameterId",static_cast<juce::int64>(123456));
+        checkThrows([&]{validate(broken);},
+                    "Sub-patch override for an unknown base parameter fails validation");
     }
     {
         auto duplicate=state.clone();
@@ -103,9 +348,85 @@ inline void subPatchChainVariants() {
         auto other=object();
         put(other,"id","sub-solo");
         put(other,"name","Rhythm");
-        put(other,"inserts",subs.getReference(0)["inserts"].clone());
+        put(other,"overrides",subs.getReference(0)["overrides"].clone());
         subs.add(other);
         checkThrows([&]{validate(duplicate);},"Duplicate sub-patch names must be rejected");
+    }
+    {
+        // #374 H: Patch Update owns the shared insert chain and preserves
+        // Sub-patch overrides for compatible slots. New inserts inherit Base.
+        auto edited=state.clone();
+        auto replacement=baseInserts;
+        replacement[0].component_state={std::byte{4},std::byte{5}};
+        replacement[0].parameters[0].value=.3f;
+        replaceCapturedPatch(edited,channel,patchId,replacement,
+                             encodeLivePatchParameterBaseline(replacement));
+        const auto changedPatch=find(find(edited,"channels",channel),"patches",patchId);
+        check(changedPatch["id"].toString()==patchId &&
+              decodeLivePatchInserts(edited,changedPatch)[0].component_state==
+                  replacement[0].component_state &&
+              find(changedPatch,"subPatches","sub-rhythm").isObject(),
+              "#374 H: Patch Update preserves Sub-patch library and shared parent ID");
+        auto withoutSubs=state.clone();
+        auto& barePatch=require(require(withoutSubs,"channels",channel),"patches",patchId);
+        put(barePatch,"subPatches",juce::var(juce::Array<juce::var>{}));
+        replaceCapturedPatch(withoutSubs,channel,patchId,replacement);
+        check(decodeLivePatchInserts(withoutSubs,
+                  find(find(withoutSubs,"channels",channel),"patches",patchId))[0].component_state==
+                  replacement[0].component_state,
+              "#374 H: standalone Patch still supports full Update");
+        auto changed=baseInserts;
+        changed[0].parameters[0].value=.7f;
+        replaceCapturedSubPatch(edited,channel,patchId,"sub-rhythm",changed);
+        const auto changedSub=find(find(find(edited,"channels",channel),"patches",patchId),"subPatches","sub-rhythm");
+        check(changedSub["id"].toString()=="sub-rhythm"&&changedSub["inserts"].isVoid() &&
+              changedSub["overrides"].isArray()&&changedSub["overrides"].size()==1,
+              "Update Sub-patch keeps ID and captures parameter deltas only");
+        validate(edited);
+        checkThrows([&]{replaceCapturedSubPatch(edited,channel,patchId,"sub-rhythm",changed);},
+                    "Repeated unchanged Sub-patch Update is rejected");
+        {
+            auto other=changed;
+            other[0].parameters[0].value=.2f;
+            auto second=subPatchChain(edited,baseInserts,other);
+            auto first=object();put(first,"overrides",changedSub["overrides"].clone());
+            const auto before=canonical(edited["patchStates"]);
+            for(const auto& seekVariant:std::vector<juce::var>{first,second,first}) {
+                const auto restored=patchInsertsWithSubPatch(edited,
+                    find(find(edited,"channels",channel),"patches",patchId),seekVariant);
+                check(restored.size()==1 && !restored[0].parameters.empty(),
+                      "Parameter Sub-patch resolves explicit overrides for A/B/A");
+                const auto expected=static_cast<float>(static_cast<double>(seekVariant["overrides"][0]["value"]));
+                check(std::abs(restored[0].parameters[0].value-expected)<1.e-6f,
+                      "A/B/A Sub-patch restoration returns the saved normalized value");
+            }
+            check(canonical(edited["patchStates"])==before,
+                  "Parameter Sub-patch resolution never rewrites opaque plugin blobs");
+        }
+        auto invalid=baseInserts;
+        invalid[0].id=mrs::Id{"changed-identity"};
+        checkThrows([&]{replaceCapturedSubPatch(edited,channel,patchId,"sub-rhythm",invalid);},
+                    "Update Sub-patch refuses changed plugin identity");
+        check(find(find(state,"channels",channel),"patches",patchId)["inserts"].isArray(),
+              "Update operations leave the previous snapshot intact for Undo");
+        // Add a second insert without invalidating the saved first variation.
+        mrs::NativeInsert added;
+        added.id=mrs::Id{"fx-added"};
+        added.kind=mrs::InsertKind::gain;
+        added.gain=.8f;
+        auto expanded=replacement;
+        expanded.push_back(added);
+        replaceCapturedPatch(edited,channel,patchId,expanded,
+                             encodeLivePatchParameterBaseline(expanded));
+        const auto newParent=find(find(edited,"channels",channel),"patches",patchId);
+        const auto newVariant=find(newParent,"subPatches","sub-rhythm");
+        const auto effectiveChain=patchInsertsWithSubPatch(edited,newParent,newVariant);
+        check(effectiveChain.size()==2 && effectiveChain[1].id==added.id &&
+              effectiveChain[0].parameters.size()==1 &&
+              std::abs(effectiveChain[0].parameters[0].value-.7f)<1.e-6f,
+              "#374 H: added insert is inherited by existing Sub-patches");
+        validate(edited);
+
     }
     {
         auto legacy=state.clone();
@@ -149,5 +470,124 @@ inline void subPatchChainVariants() {
                     savedReference=true;
         check(!savedReference,"Deleting a sub-patch clears its saved Browser reference");
     }
+}
+
+inline void subPatchRailGeometry() {
+    const auto check=[](bool condition,const char* message) {
+        if(!condition)throw std::runtime_error(message);
+    };
+    const auto throws=[](const auto& f,const char* message) {
+        try {f();}catch(const std::exception&){return;}
+        throw std::runtime_error(message);
+    };
+    // #374 J: the single real default covers the complete parent. A new
+    // library variation splits the clicked segment instead of finding a gap.
+    auto initial=object();
+    put(initial,"default",blockSpan(0.,8.));
+    check(subPatchRailCovered(initial,8.),"Default covers the parent Patch exactly");
+    const auto strips=addedSubPatchSpanAt(initial,8.,"rhythm",2.13);
+    const auto rows=orderedSpans(strips);
+    check(rows.size()==3 && subPatchRailCovered(strips,8.) &&
+          std::abs(blockLength(rows[0].second)-2.25)<1.e-9 &&
+          std::abs(blockStart(rows[1].second)-2.25)<1.e-9 &&
+          std::abs(blockLength(rows[1].second)-1.)<1.e-9 &&
+          subPatchLibraryId(rows[1].first,rows[1].second)=="rhythm" &&
+          std::abs(blockStart(rows[2].second)-3.25)<1.e-9 &&
+          subPatchLibraryId(rows[2].first,rows[2].second)=="default",
+          "#374 J: capture/insert splices a one-bar child and preserves both adjacent default sounds");
+    auto parent=blockSpan(1.,8.);
+    put(parent,"subs",strips);
+    check(subPatchBaseGaps(parent).empty() && parent["baseCuts"].isVoid(),
+          "#374 J: no Base gap or editorial cuts after adding a Sub-patch");
+    const auto twice=addedSubPatchSpanAt(strips,8.,"rhythm",6.);
+    check(subPatchRailCovered(twice,8.) && orderedSpans(twice).size()==5,
+          "The same library Sub-patch can appear in two independent instances");
+    const auto seam=joinedSubPatchSpans([&]{
+        auto spans=object();
+        put(spans,"patch",parent);
+        return spans;
+    }(),"patch",rows[0].first,rows[1].first,2.5);
+    check(subPatchRailCovered(seam["patch"]["subs"],8.) &&
+          std::abs(blockLength(seam["patch"]["subs"]
+              [juce::Identifier(rows[0].first)])-2.5)<1.e-9,
+          "A shared seam edits neighbouring lengths without creating gaps");
+    const auto divided=splitSubPatchBlock([&]{
+        auto spans=object();
+        put(spans,"patch",parent);
+        return spans;
+    }(),"patch",rows[1].first,2.75);
+    check(subPatchRailCovered(divided.spans["patch"]["subs"],8.) &&
+          subPatchLibraryId(divided.rightId,divided.spans["patch"]["subs"]
+              [juce::Identifier(divided.rightId)])=="rhythm" &&
+          orderedSpans(divided.spans["patch"]["subs"]).size()==4,
+          "Scissors splits the Sub-patch into two full-coverage fragments of one library sound");
+    const auto reassigned=replaceSubPatchSegment(divided.spans,"patch",divided.rightId,"solo");
+    check(subPatchRailCovered(reassigned["patch"]["subs"],8.) &&
+          subPatchLibraryId(divided.rightId,reassigned["patch"]["subs"]
+              [juce::Identifier(divided.rightId)])=="solo" &&
+          subPatchLibraryId(rows[1].first,reassigned["patch"]["subs"]
+              [juce::Identifier(rows[1].first)])=="rhythm",
+          "LMB reassigns only the clicked split fragment");
+    const auto removed=removedSubPatchSpan(strips,8.,rows[1].first);
+    check(subPatchRailCovered(removed,8.) &&
+          orderedSpans(removed).size()==2 &&
+          std::abs(blockLength(orderedSpans(removed)[0].second)-3.25)<1.e-9,
+          "Backspace expands the preceding Sub-patch instead of leaving Base");
+    const auto leftmost=removedSubPatchSpan(strips,8.,rows[0].first);
+    check(subPatchRailCovered(leftmost,8.) &&
+          std::abs(blockStart(orderedSpans(leftmost)[0].second))<1.e-9,
+          "Deleting the first segment extends the right neighbour to the left edge");
+    throws([&]{removedSubPatchSpan(initial,8.,"default");},
+           "The final Sub-patch cannot be deleted");
+    throws([&]{addedSubPatchSpanAt(initial,8.,"solo",8.);},
+           "Insertion beyond the Patch edge is not silently relocated");
+    auto invalid=object();
+    put(invalid,"default",blockSpan(.25,7.75));
+    check(!subPatchRailCovered(invalid,8.),
+          "A rail missing its left edge is rejected, not represented as Base");
+    throws([&]{addedSubPatchSpanAt(invalid,8.,"solo",2.);},
+           "An incomplete rail cannot be edited as if it were valid");
+}
+
+inline void subPatchAuthoringE() {
+    const auto check=[](bool condition,const char* message) {
+        if(!condition)throw std::runtime_error(message);
+    };
+    auto original=object();
+    put(original,"default",blockSpan(0.,8.));
+    auto spans=object();
+    auto parent=blockSpan(1.,8.);
+    put(parent,"subs",original);
+    put(spans,"patch",parent);
+    // The single child cannot detach from the edge by body drag or trim.
+    const auto detached=editedSubPatchSpan(spans,"patch","default",2.,4.,true);
+    check(sameShowValue(detached,spans),
+          "#374 J: dragging a Sub-patch cannot detach it from the parent edge");
+    const auto trimmed=editedSubPatchSpan(spans,"patch","default",1.,3.,false);
+    check(sameShowValue(trimmed,spans),
+          "#374 J: individual trim cannot create an empty Base interval");
+    const auto split=splitSubPatchBlock(spans,"patch","default",4.);
+    check(subPatchRailCovered(split.spans["patch"]["subs"],8.) &&
+          orderedSpans(split.spans["patch"]["subs"]).size()==2,
+          "#374 J: scissors preserves the full rail");
+    const auto moved=joinedSubPatchSpans(split.spans,"patch","default",split.rightId,4.5);
+    check(subPatchRailCovered(moved["patch"]["subs"],8.) &&
+          std::abs(blockLength(moved["patch"]["subs"]["default"])-4.5)<1.e-9,
+          "#374 J: joined seam changes both adjacent children, not parent length");
+    const auto assigned=replaceSubPatchSegment(moved,"patch",split.rightId,"solo");
+    check(subPatchRailCovered(assigned["patch"]["subs"],8.) &&
+          std::abs(blockLength(assigned["patch"])-8.)<1.e-9,
+          "#374 J: choosing Solo changes only the right sound");
+    const auto enlarged=editedPatchSpans(assigned,16.,"patch",1.,10.,false);
+    check(subPatchRailCovered(enlarged["patch"]["subs"],10.) &&
+          std::abs(blockLength(enlarged["patch"])-10.)<1.e-9,
+          "#374 J: changing Patch length scales every child without an end gap");
+    bool shrinkRejected=false;
+    try { (void)editedPatchSpans(assigned,16.,"patch",1.,.25,false); }
+    catch(const std::runtime_error&) {shrinkRejected=true;}
+    check(shrinkRejected,
+          "#374 J: a parent cannot shrink below the minimum size of its child rail");
+    check(sameShowValue(spans,spans.clone()),
+          "#374 J: all edits preserve the original Undo source");
 }
 } // namespace ui::live::test
