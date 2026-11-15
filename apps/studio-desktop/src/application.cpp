@@ -1672,7 +1672,9 @@ void Application::update_live_channels(const std::vector<Id>& owned,std::vector<
         insert_runtime_.try_emplace(std::string{},InsertRuntime{});
         preparing_project_=&candidate;auto graph=render(config,true);preparing_project_=nullptr;
         Projection command{candidate};auto transaction=services_.projects->prepare_transaction(&command);
-        require(static_cast<bool>(transaction),"Live channel transaction is empty");
+        // Capturing/materializing explicit controls can normalize a requested
+        // channel profile back to the committed project. The prepared runtime
+        // still needs publication, but that no-op needs no model transaction.
         if(reopen){device_->close();closed=true;}
         for(const auto& track:candidate.tracks)if(track.kind==TrackKind::instrument) {
             const auto& runtime=insert_runtime_.at(track.id.value);if(runtime.graph)runtime.graph->panic();
@@ -1680,8 +1682,10 @@ void Application::update_live_channels(const std::vector<Id>& owned,std::vector<
         engine_->prepare({config.sample_rate,static_cast<std::uint32_t>(config.inputs.size()),static_cast<std::uint32_t>(config.outputs.size()),8192,config.buffer_frames,config.processing_workers},std::move(graph),head);
         if(reopen)device_->open(config,engine_);
         try {
-            transaction->commit();device_config_=config;device_->start();transaction->finish();
-        } catch(...) {transaction->rollback();throw;}
+            if(transaction)transaction->commit();
+            device_config_=config;device_->start();
+            if(transaction)transaction->finish();
+        } catch(...) {if(transaction)transaction->rollback();throw;}
     } catch(...) {
         const auto error=std::current_exception();preparing_project_=nullptr;
         try {
