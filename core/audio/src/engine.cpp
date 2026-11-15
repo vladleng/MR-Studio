@@ -241,6 +241,16 @@ struct AudioEngine::PreparedInsertSwitch {
     std::shared_ptr<const ControlInfo> info;
     std::atomic<TransitionPhase> phase{TransitionPhase::prepared};
 };
+struct AudioEngine::RoutingPlan {
+    std::vector<std::size_t> order, levels;
+    std::vector<std::vector<std::size_t>> channel_levels;
+    CompensationReport compensation;
+    std::vector<CompensationDelay> route_delays;
+    std::vector<std::vector<CompensationDelay>> send_delays;
+    CompensationDelay legacy_delay;
+    ProcessingDomains domains;
+    std::uint32_t insert_block_size{};
+};
 struct AudioEngine::PreparedTransition {
     std::unique_ptr<PreparedState> next;
     bool voices_only{};
@@ -455,16 +465,6 @@ AudioEngine::PerformanceStatus AudioEngine::performance_status() const noexcept 
     return {published_performance_token_.load(std::memory_order_acquire),published_manual_revision_.load(std::memory_order_acquire),
         published_end_serial_.load(std::memory_order_acquire),static_cast<PerformanceAction>(published_performance_action_.load()),published_performance_stalled_.load()};
 }
-struct AudioEngine::RoutingPlan {
-    std::vector<std::size_t> order, levels;
-    std::vector<std::vector<std::size_t>> channel_levels;
-    CompensationReport compensation;
-    std::vector<CompensationDelay> route_delays;
-    std::vector<std::vector<CompensationDelay>> send_delays;
-    CompensationDelay legacy_delay;
-    ProcessingDomains domains;
-    std::uint32_t insert_block_size{};
-};
 // Shared by a full quiescent prepare and a #375 live insert switch. Reads only
 // prepared/control data, never DSP instances or the device callback.
 AudioEngine::RoutingPlan AudioEngine::build_routing(const RenderGraph& graph,

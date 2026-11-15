@@ -3302,7 +3302,8 @@ void Desktop::syncLivePatchSchedule() {
         livePendingGraphChanges.clear();
         if(livePreloadError.startsWith("Patch: "))livePreloadError.clear();
     } else if(switchState==mrs::desktop::Application::LiveInsertSwitchState::failed) {
-        if(!livePendingGraphChanges.empty() && !livePreloadError.startsWith("Patch: "))
+        if(!livePendingGraphChanges.empty() &&
+           (livePreloadError.isEmpty()||livePreloadError.startsWith("Patch: ")))
             livePreloadError="Patch: prepared chain was rejected; kept the previous sound";
         livePendingGraphChanges.clear();
     } else if(switchState==mrs::desktop::Application::LiveInsertSwitchState::pending) {
@@ -3330,7 +3331,7 @@ void Desktop::syncLivePatchSchedule() {
         closeEditors(); // Patch/Snapshot replaces the VST3 instances; Parameters keeps them.
         try {
             if(!app.stage_insert_graphs_live(requests) &&
-               !livePreloadError.startsWith("Patch: "))
+               (livePreloadError.isEmpty()||livePreloadError.startsWith("Patch: ")))
                 livePreloadError="Patch: the next channel graph is still being adopted";
         } catch(const std::exception& error) {
             livePendingGraphChanges.clear();
@@ -3343,7 +3344,7 @@ void Desktop::syncLivePatchSchedule() {
         live::TimelinePatchChoice choice;
         try { choice=live::timelinePatchAtBar(state,itemId,channel,bar); }
         catch(const std::exception& error) {
-            if(!livePreloadError.startsWith("Patch: "))
+            if(livePreloadError.isEmpty()||livePreloadError.startsWith("Patch: "))
                 livePreloadError="Patch: "+juce::String::fromUTF8(error.what());
             continue;
         }
@@ -3354,6 +3355,33 @@ void Desktop::syncLivePatchSchedule() {
         if(choice.subPatchId.isNotEmpty()&&!sub.isObject())continue;
         LiveScheduledPatch target{itemId,channel,choice.patchId,choice.subPatchId,
                                   choice.subPatchId.isNotEmpty()&&live::opaqueSubPatch(sub)};
+        // Warm the next Patch/Snapshot while the current block still plays.
+        // Preparation is the expensive part; adoption stays at a block boundary.
+        live::TimelinePatchChoice ahead;
+        try { ahead=live::timelinePatchAtBar(state,itemId,channel,bar+lookaheadBars); }
+        catch(const std::exception&) { ahead={}; }
+        if(!ahead.patchId.isEmpty() && (ahead.patchId!=target.patchId || ahead.subPatchId!=target.subPatchId)) {
+            try {
+                const auto aheadPatch=live::find(live::find(state,"channels",channel),"patches",ahead.patchId);
+                const auto aheadSub=ahead.subPatchId.isEmpty()?juce::var{}:
+                    live::find(aheadPatch,"subPatches",ahead.subPatchId);
+                const bool aheadSnapshot=ahead.subPatchId.isNotEmpty()&&live::opaqueSubPatch(aheadSub);
+                const bool aheadNeedsGraph=aheadSnapshot||ahead.patchId!=target.patchId;
+                if(aheadPatch.isObject() && (ahead.subPatchId.isEmpty()||aheadSub.isObject()) && aheadNeedsGraph) {
+                    LiveScheduledPatch aheadTarget{itemId,channel,ahead.patchId,ahead.subPatchId,aheadSnapshot};
+                    const auto aheadKey=choiceKey(aheadTarget);
+                    const auto cached=liveLookaheadPatchGraphs.find(channel);
+                    if(cached==liveLookaheadPatchGraphs.end() || cached->second.key!=aheadKey) {
+                        const auto inserts=live::completeLiveSubPatchInserts(state,aheadPatch,aheadSub);
+                        auto graph=app.prepare_insert_graph(track,inserts);
+                        if(graph && graph->latency().live_safe)
+                            liveLookaheadPatchGraphs[channel]=LivePreparedPatchGraph{aheadKey,std::move(graph)};
+                    }
+                }
+            } catch(const std::exception&) {
+                // The boundary path prepares synchronously if this guess is stale.
+            }
+        }
         auto active=liveScheduledPatches.find(channel);
         if(active==liveScheduledPatches.end()) {
             // Play may start on the already loaded sound; do not rebuild it just
@@ -3405,38 +3433,13 @@ void Desktop::syncLivePatchSchedule() {
                     livePreparedPatchGraphs[channel]=LivePreparedPatchGraph{key,graph};
                     prepared=livePreparedPatchGraphs.find(channel);
                 } catch(const std::exception& error) {
-                    if(!livePreloadError.startsWith("Patch: "))
+                    if(livePreloadError.isEmpty()||livePreloadError.startsWith("Patch: "))
                         livePreloadError="Patch: "+juce::String::fromUTF8(error.what());
                     continue;
                 }
             }
         }
         livePendingGraphChanges.push_back({target,prepared->second.graph});
-        // Preload the following block on the control thread. Preparation is
-        // the expensive part; adoption still happens only at a block boundary.
-        const auto ahead=live::timelinePatchAtBar(state,itemId,channel,bar+lookaheadBars);
-        if(!ahead.patchId.isEmpty() && (ahead.patchId!=target.patchId || ahead.subPatchId!=target.subPatchId)) {
-            try {
-                const auto aheadPatch=live::find(live::find(state,"channels",channel),"patches",ahead.patchId);
-                const auto aheadSub=ahead.subPatchId.isEmpty()?juce::var{}:
-                    live::find(aheadPatch,"subPatches",ahead.subPatchId);
-                const bool aheadSnapshot=ahead.subPatchId.isNotEmpty()&&live::opaqueSubPatch(aheadSub);
-                const bool aheadNeedsGraph=aheadSnapshot||ahead.patchId!=target.patchId;
-                if(aheadPatch.isObject() && (ahead.subPatchId.isEmpty()||aheadSub.isObject()) && aheadNeedsGraph) {
-                    LiveScheduledPatch aheadTarget{itemId,channel,ahead.patchId,ahead.subPatchId,aheadSnapshot};
-                    const auto aheadKey=choiceKey(aheadTarget);
-                    const auto cached=liveLookaheadPatchGraphs.find(channel);
-                    if(cached==liveLookaheadPatchGraphs.end() || cached->second.key!=aheadKey) {
-                        const auto inserts=live::completeLiveSubPatchInserts(state,aheadPatch,aheadSub);
-                        auto graph=app.prepare_insert_graph(track,inserts);
-                        if(graph && graph->latency().live_safe)
-                            liveLookaheadPatchGraphs[channel]=LivePreparedPatchGraph{aheadKey,std::move(graph)};
-                    }
-                }
-            } catch(const std::exception&) {
-                // The boundary path prepares synchronously if this guess is stale.
-            }
-        }
     }
     stagePending();
 }
