@@ -1180,8 +1180,19 @@ Application::LiveInsertSwitchState Application::live_insert_switch_state() const
     return LiveInsertSwitchState::none;
 }
 void Application::cancel_live_insert_switch() {
-    if(pending_live_insert_switch_.transition)
-        (void)engine_->cancel_insert_switch(pending_live_insert_switch_.transition);
+    if(pending_live_insert_switch_.transition) {
+        const auto phase=engine_->insert_switch_phase(pending_live_insert_switch_.transition);
+        if(phase==audio::AudioEngine::TransitionPhase::adopted) {
+            // The callback already swapped the chain; publish its metadata
+            // instead of leaving the control view on the previous graph.
+            if(engine_->acknowledge_insert_switch(pending_live_insert_switch_.transition))
+                for(auto& [key,graph]:pending_live_insert_switch_.graphs)
+                    if(auto runtime=insert_runtime_.find(key);runtime!=insert_runtime_.end())
+                        runtime->second.graph=std::move(graph);
+        } else {
+            (void)engine_->cancel_insert_switch(pending_live_insert_switch_.transition);
+        }
+    }
     pending_live_insert_switch_={};
     live_insert_switch_failed_=false;
     live_insert_switch_applied_=false;

@@ -3277,6 +3277,10 @@ void Desktop::syncLivePatchSchedule() {
         if(app.live_insert_switch_state()==mrs::desktop::Application::LiveInsertSwitchState::pending)
             app.cancel_live_insert_switch();
         livePendingGraphChanges.clear();
+        // A stopped/paused transport may have had its sound changed manually;
+        // re-seed from the loaded runtime on the next Play instead of trusting
+        // a stale scheduled choice.
+        liveScheduledPatches.clear();
         return;
     }
     const auto& state=liveDocument->interfaceState;
