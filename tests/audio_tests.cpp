@@ -681,17 +681,13 @@ void insert_switch() {
     std::vector<float> samples(512);
     for(std::size_t i=0;i<samples.size();++i)samples[i]=i%2?0.2f:0.1f;
     auto asset=std::make_shared<const AudioData>(AudioData{48000,2,std::move(samples)});
-    RenderGraph graph;graph.mixer={{1,0,false,false}};graph.voices={{asset,0,0,256,{{0,0,1},{1,1,1}}}};
+    RenderGraph graph;graph.mixer={{1,0,false,false}};
+    Voice voice{asset,0,0,256,{{0,0,1},{1,1,1}}};voice.mixer_track=0;graph.voices={voice};
     graph.inserts={gainGraph(.5f)};
     AudioEngine engine;engine.prepare({48000,0,2,8},graph,{PlaybackState::paused,0,std::nullopt});
     CHECK(engine.enqueue({ControlKind::play}));
     std::array<float,16> out{};
     engine.process(nullptr,out.data(),4);
-    if(std::abs(out[0]-.05f)>=1e-6f)
-        std::cerr<<"insert_switch diagnostic out0="<<out[0]<<" out1="<<out[1]
-                 <<" sample="<<engine.state().sample<<" playback="<<static_cast<int>(engine.state().playback)
-                 <<" graphParam="<<graph.inserts.front()->snapshot().graph->nodes.front().parameters.front().value
-                 <<" gainValue="<<graph.inserts.front()->parameter_infos(graph.inserts.front()->snapshot().graph->nodes.front().id).front().initial<<'\n';
     CHECK(std::abs(out[0]-.05f)<1e-6f);
     auto head=engine.state();CHECK(head.sample==4&&head.playback==PlaybackState::playing);
     // #375: a prepared chain is adopted at the next block boundary. The
