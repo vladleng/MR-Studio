@@ -17,6 +17,7 @@
 #include "ProjectHome.h"
 #include <fstream>
 #include <windows.h>
+#include "../../../tests/live_subpatch_runtime_checks.hpp"
 
 namespace ui {
 namespace {
@@ -2565,6 +2566,23 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   "Unavailable VST3 editor request preserves inactive channel and saved plugin descriptor");
         inputPilot.releaseLiveInput();
     }
+#ifdef MRS_HAS_VST3
+    if(juce::SystemStats::getEnvironmentVariable("MRS_LIVE_TEST_VST3",{}).isNotEmpty()) {
+        Desktop runtimePilot(true,false,true);runtimePilot.importLiveShow(fixture);
+        const auto runtimeChannel=runtimePilot.liveDocument->interfaceState["channels"][1]["id"].toString();
+        juce::String runtimeOther;
+        runtimePilot.editLiveInterface("Sub-patch runtime second channel",[&](auto& state){
+            runtimeOther=live::addChannel(state,"Player","Runtime other");
+        });
+        runtimePilot.app.connect(std::make_unique<LivePlaybackTestDevice>(),{0,48000,128,{0,1},{0,1}});
+        runtimePilot.startLiveAudioInput(0,runtimeChannel);
+        runtimePilot.startLiveAudioInput(1,runtimeOther);
+        live::test::subPatchRuntime(runtimePilot,runtimeChannel,runtimeOther,folder,[](auto& host){
+            host.app.connect(std::make_unique<LivePlaybackTestDevice>(),{0,48000,128,{0,1},{0,1}});
+            host.syncAutomaticLiveMonitoring();
+        });
+    }
+#endif
     Desktop desktop(true, true);
     desktop.importLiveShow(fixture);
     liveCheck(desktop.liveDocument && desktop.project()->tracks.empty() && !desktop.liveDocument->currentLinked(),

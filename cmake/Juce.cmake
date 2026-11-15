@@ -386,6 +386,11 @@ add_custom_command(TARGET MoonRiverStudioJuce POST_BUILD COMMAND ${CMAKE_COMMAND
 if(BUILD_TESTING)
   add_test(NAME juce_live_application COMMAND MRLiveJuce --live-application-smoke --show-fixture "${PROJECT_SOURCE_DIR}/tests/fixtures/mr-live-interface-demo-v3.json")
   set_tests_properties(juce_live_application PROPERTIES TIMEOUT 30 RUN_SERIAL TRUE)
+  if(TARGET mrs_vst3_fixture)
+    add_dependencies(MRLiveJuce mrs_vst3_fixture)
+    set_tests_properties(juce_live_entry_smoke PROPERTIES
+      ENVIRONMENT "MRS_LIVE_TEST_VST3=$<TARGET_FILE:mrs_vst3_fixture>")
+  endif()
 endif()
 
 endif() # MRS_BUILD_LIVE
