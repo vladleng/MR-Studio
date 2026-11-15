@@ -474,7 +474,7 @@ void PreparedGraph::restore_settings(const GraphState& target,bool& rollbackFail
             }
         }
         (void)node.processor->capture(); // flush VST3 sparse controls without rendering frames
-        if(node.processor->latency()!=latencies[i])
+        if(node.processor->quiescent_latency()!=latencies[i])
             throw std::runtime_error("Sub-patch changes plugin latency; PDC requires a full Patch load");
         node.bypass=state.bypass;
     };

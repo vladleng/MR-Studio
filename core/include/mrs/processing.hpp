@@ -154,6 +154,8 @@ public:
     virtual bool set_parameter(std::uint32_t,float) noexcept = 0;
     virtual std::optional<float> parameter_value(std::uint32_t) const noexcept = 0;
     virtual std::uint32_t latency() const noexcept = 0;
+    // NON-RT: query the processor after state/parameter restoration.
+    virtual std::uint32_t quiescent_latency() const noexcept {return latency();}
     virtual bool live_safe() const noexcept = 0;
     // Opt in only when reset_anticipation clears DSP history while retaining parameter
     // targets, device-sized packet rendering is valid, and all external edits are

@@ -49,6 +49,8 @@ void subPatchRuntime(Host& host,const juce::String& channel,const juce::String& 
         add(live::subPatchChain(state,baseline,a),"runtime-a");
         auto b=baseline;setGain(b[2],.25f);
         add(live::subPatchChain(state,baseline,b),"runtime-b");
+        auto latencyParameter=baseline;setGain(latencyParameter[1],.9f);
+        add(live::subPatchChain(state,baseline,latencyParameter),"runtime-latency-parameters");
         const auto bytes=[](float gain){std::vector<std::byte> result(sizeof(gain));std::memcpy(result.data(),&gain,sizeof(gain));return result;};
         auto snapshot=base;
         snapshot[1].component_state=snapshot[1].controller_state=bytes(.625f);
@@ -108,12 +110,15 @@ void subPatchRuntime(Host& host,const juce::String& channel,const juce::String& 
     check(rejected && live::canonical(host.liveDocument->interfaceState)==showBefore,
           "#374 runtime: failed second VST3 state leaves show unchanged");
     verify(.5f,.25f);
-    latencyChanges(1);rejected=false;
-    try{choose("runtime-snapshot");}catch(const std::exception&){rejected=true;}
+    latencyChanges(1);
+    for(const auto& id:juce::StringArray{"runtime-latency-parameters","runtime-snapshot"}) {
+        rejected=false;
+        try{choose(id);}catch(const std::exception&){rejected=true;}
+        check(rejected && live::canonical(host.liveDocument->interfaceState)==showBefore,
+              "#374 runtime: changed parameter/Snapshot latency rejects without committing show");
+        verify(.5f,.25f);
+    }
     latencyChanges(0);
-    check(rejected && live::canonical(host.liveDocument->interfaceState)==showBefore,
-          "#374 runtime: changed VST3 latency rejects without committing show");
-    verify(.5f,.25f);
     const auto loaded=host.liveLoadedPatches.at(channel);
     host.liveLoadedPatches.erase(channel);rejected=false;
     try{host.applyLiveChannelSubPatch(channel,patchId,"runtime-a");}catch(const std::exception&){rejected=true;}
