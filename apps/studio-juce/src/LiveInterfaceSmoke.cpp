@@ -1468,7 +1468,7 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
                   live::subPatchBaseGaps(first).empty() && first["baseCuts"].isVoid(),
                   "#374 J: first Sub-patch splits default and preserves full coverage without Base");
         const float subY=static_cast<float>(laneRect.getY()+94);
-        const float firstSubX=seamX-static_cast<float>(3.5*scale);
+        const float firstSubX=seamX-static_cast<float>(3.25*scale);
         juce::PopupMenu::dismissAllActiveMenus();
         livePump();
         body->mouseDown(event(firstSubX,subY));
