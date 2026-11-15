@@ -1843,6 +1843,17 @@ void Desktop::applyLiveChannelSubPatch(const juce::String& requested,const juce:
     // Restore the complete parent state on every slot, then its sparse variant.
     // This also handles default and repeated selection after editing a plugin.
     auto target=live::patchInsertsWithSubPatch(liveDocument->interfaceState,patch,sub);
+    // Only old opaque snapshots carry the historical full parameter mirror.
+    // Modern overrides remain explicit even when they cover every parameter.
+    const bool legacyState=sub["inserts"].isArray() ||
+        (!patch["parameterBaseline"].isArray() && !sub["overrides"].isArray());
+    if(legacyState)for(auto& fx:target) {
+        if(fx.kind!=mrs::InsertKind::vst3 || fx.component_state.empty() || fx.parameters.size()<2)continue;
+        const auto infos=app.plugin_parameters(liveInputTrack(channel),fx.id);
+        if(fx.parameters.size()==static_cast<std::size_t>(std::count_if(infos.begin(),infos.end(),[](const auto& info){return info.automatable;})) &&
+           std::all_of(fx.parameters.begin(),fx.parameters.end(),[&](const auto& value){return std::any_of(infos.begin(),infos.end(),[&](const auto& info){return info.id==value.id&&info.automatable;});}))
+            fx.parameters.clear();
+    }
     // A parameter-only parent without opaque state needs its complete captured
     // baseline. Never inherit omitted controls from the previously active sound.
     if(std::any_of(target.begin(),target.end(),[](const auto& fx){return fx.kind==mrs::InsertKind::vst3 && fx.component_state.empty() && fx.controller_state.empty();})) {

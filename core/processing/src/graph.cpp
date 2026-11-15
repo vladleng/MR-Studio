@@ -459,11 +459,10 @@ void PreparedGraph::restore_settings(const GraphState& target,bool& rollbackFail
         // Native resources are unchanged (validated by the application); apply
         // their complete control set without replacing/resetting the processor.
         const auto infos=node.processor->parameters();
-        const bool legacyFull=state.format==ProcessorFormat::vst3 &&
-            !state.plugin.component.empty() && state.parameters.size()>1 &&
-            state.parameters.size()==static_cast<std::size_t>(std::count_if(infos.begin(),infos.end(),[](const auto& v){return v.automatable;})) &&
-            std::all_of(state.parameters.begin(),state.parameters.end(),[&](const auto& v){return std::any_of(infos.begin(),infos.end(),[&](const auto& info){return info.id==v.id&&info.automatable;});});
-        if(!legacyFull)for(const auto& v:state.parameters) {
+        // This API receives explicit target controls. Even a variant changing
+        // every exposed control is authoritative; legacy normalization belongs
+        // to the caller that knows the saved representation.
+        for(const auto& v:state.parameters) {
             const auto at=std::find_if(infos.begin(),infos.end(),[&](const auto& info){return info.id==v.id;});
             if(at==infos.end() || !std::isfinite(v.value) || v.value<at->minimum || v.value>at->maximum ||
                (state.format==ProcessorFormat::vst3 && !at->automatable))
