@@ -678,7 +678,7 @@ void insert_switch() {
         auto saved=std::make_shared<const GraphState>(insert_graph(fx));
         return std::make_shared<PreparedGraph>(GraphSnapshot{saved,0,false,false},ProcessConfig{48000,2,8});
     };
-    std::vector<float> samples(256);
+    std::vector<float> samples(512);
     for(std::size_t i=0;i<samples.size();++i)samples[i]=i%2?0.2f:0.1f;
     auto asset=std::make_shared<const AudioData>(AudioData{48000,2,std::move(samples)});
     RenderGraph graph;graph.mixer={{1,0,false,false}};graph.voices={{asset,0,0,256,{{0,0,1},{1,1,1}}}};
