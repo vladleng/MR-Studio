@@ -56,6 +56,10 @@ int main(){try {
     twoState.nodes[0].parameters={{100,.75f},{101,.25f}};
     two.restore_settings(twoState,rollbackFailed);
     audio.fill(1);two.process(audio.data(),8);CHECK(audio[0]==.1875f);
+    // Fresh Patch loading must interpret modern explicit controls as such.
+    PreparedGraph freshlyLoaded{snapshot(twoState),{48000,2,8},[](const NodeState&){return std::make_unique<TwoControls>();}};
+    audio.fill(1);freshlyLoaded.process(audio.data(),8);
+    check(audio[0]==.1875f,"Modern full-parameter variant survives a fresh Patch load");
     std::cout<<"Sub-patch settings: complete sound, processor identity, atomic rollback and slot guard PASS\n";
     return 0;
 }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}
