@@ -683,7 +683,7 @@ void insert_switch() {
     auto asset=std::make_shared<const AudioData>(AudioData{48000,2,std::move(samples)});
     RenderGraph graph;graph.mixer={{1,0,false,false}};graph.voices={{asset,0,0,256,{{0,0,1},{1,1,1}}}};
     graph.inserts={gainGraph(.5f)};
-    AudioEngine engine;engine.prepare({48000,0,2,8},graph,{PlaybackState::paused,0});
+    AudioEngine engine;engine.prepare({48000,0,2,8},graph,{PlaybackState::paused,0,std::nullopt});
     CHECK(engine.enqueue({ControlKind::play}));
     std::array<float,16> out{};
     engine.process(nullptr,out.data(),4);
