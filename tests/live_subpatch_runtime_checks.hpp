@@ -124,6 +124,11 @@ void subPatchRuntime(Host& host,const juce::String& channel,const juce::String& 
     try{host.applyLiveChannelSubPatch(channel,patchId,"runtime-a");}catch(const std::exception&){rejected=true;}
     check(rejected,"#374 runtime: unknown parent refuses Sub-patch without a full-load fallback");
     host.liveLoadedPatches[channel]=loaded;verify(.5f,.25f);
+    host.liveLoadedPatches[channel].patchId="wrong-parent";rejected=false;
+    try{choose("runtime-a");}catch(const std::exception&){rejected=true;}
+    check(rejected && live::canonical(host.liveDocument->interfaceState)==showBefore,
+          "#374 runtime: a different active parent cannot apply this Sub-patch");
+    host.liveLoadedPatches[channel]=loaded;verify(.5f,.25f);
     std::array<float,256> input{},output{};
     host.app.play();host.app.engine()->process(input.data(),output.data(),128);
     rejected=false;
@@ -150,6 +155,21 @@ void subPatchRuntime(Host& host,const juce::String& channel,const juce::String& 
     try{host.applyLiveChannelSubPatch(channel,patchId,"runtime-a");}catch(const std::exception&){rejected=true;}
     check(rejected,"#374 runtime: recording refuses Sub-patch state restoration");
     host.app.stop_recording();host.app.stop();host.app.engine()->process(input.data(),output.data(),128);
+    // Ordinary Patch selection still owns structural changes; other channels
+    // retain their saved controls while this channel changes its insert count.
+    auto alternate=reopened;auto extra=native;extra.id={"runtime-extra"};alternate.push_back(extra);
+    host.setLiveInputEffects(channel,alternate);
+    host.captureLiveChannelPatch(channel,"Runtime alternate Patch","blue");
+    const auto alternateBank=live::find(host.liveDocument->interfaceState,"channels",channel)["patches"];
+    const auto alternatePatch=alternateBank[alternateBank.size()-1];
+    host.loadLiveChannelPatch(channel,patchId,"runtime-b");
+    check(host.captureLiveChannelInserts(channel,false,true).size()==3,"#374 runtime: ordinary Patch restores its insert count");
+    const auto beforeOrdinaryLoad=creations();
+    host.loadLiveChannelPatch(channel,alternatePatch["id"].toString(),alternatePatch["subPatches"][0]["id"].toString());
+    check(host.captureLiveChannelInserts(channel,false,true).size()==4 && creations()>beforeOrdinaryLoad,
+          "#374 runtime: ordinary Patch may replace the chain");
+    check(host.captureLiveChannelInserts(other,false,true)==otherBefore,"#374 runtime: ordinary Patch leaves the other channel unchanged");
+    host.loadLiveChannelPatch(channel,patchId,"runtime-b");
     rejectRestores(1);rejected=false;bool explicitRollbackFailure=false;
     try{host.loadLiveChannelPatch(channel,patchId,"runtime-snapshot");}
     catch(const std::exception& error){rejected=true;explicitRollbackFailure=std::string(error.what()).find("rollback failed")!=std::string::npos;}

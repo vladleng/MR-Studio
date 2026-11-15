@@ -1807,7 +1807,7 @@ void Desktop::commitLiveSubPatchState(const juce::String& channel,const LoadedLi
     if(!track || active==liveLoadedPatches.end() ||
        active->second.patchId!=loaded.patchId || active->second.itemId!=loaded.itemId ||
        loaded.itemId!=liveDocument->interfaceState["currentItem"].toString() ||
-       !loaded.runtimeIdentity || active->second.runtimeIdentity!=loaded.runtimeIdentity ||
+       active->second.runtimeIdentity!=loaded.runtimeIdentity ||
        app.insert_runtime_identity(track)!=loaded.runtimeIdentity)
         throw std::runtime_error("Sub-patch parent Patch is not active on this channel; load the parent Patch first");
     const auto patch=live::find(live::find(state,"channels",channel),"patches",loaded.patchId);
@@ -1815,9 +1815,10 @@ void Desktop::commitLiveSubPatchState(const juce::String& channel,const LoadedLi
         throw std::runtime_error("Sub-patch chain differs from its parent Patch");
     live::validate(state);live::validatePlayback(state);
     validateMusicalEdit(*this,state);validatePlaybackEdit(*this,state);
+    auto committed=state.clone(); // History must not alias mutable current-Item UI state.
     app.apply_insert_settings(track,chain);
     // All fallible work precedes publication of the chosen sound and segment.
-    liveDocument->interfaceState=state;
+    liveDocument->interfaceState=std::move(committed);
     active->second=loaded;
     liveShowEditing=true;updateLiveDirty();++liveUiRevision;
 }
@@ -1832,7 +1833,7 @@ void Desktop::applyLiveChannelSubPatch(const juce::String& requested,const juce:
     const auto active=liveLoadedPatches.find(channel);
     if(active==liveLoadedPatches.end() || active->second.patchId!=patchId ||
        active->second.itemId!=liveDocument->interfaceState["currentItem"].toString() ||
-       !liveInputTrack(channel) || !active->second.runtimeIdentity ||
+       !liveInputTrack(channel) ||
        app.insert_runtime_identity(liveInputTrack(channel))!=active->second.runtimeIdentity)
         throw std::runtime_error("Sub-patch parent Patch is not active; load the parent Patch first");
     const auto oldLoaded=active->second;
@@ -1841,7 +1842,24 @@ void Desktop::applyLiveChannelSubPatch(const juce::String& requested,const juce:
     if(!sub.isObject())throw std::runtime_error("Choose a Sub-patch of the active Patch");
     // Restore the complete parent state on every slot, then its sparse variant.
     // This also handles default and repeated selection after editing a plugin.
-    const auto target=live::patchInsertsWithSubPatch(liveDocument->interfaceState,patch,sub);
+    auto target=live::patchInsertsWithSubPatch(liveDocument->interfaceState,patch,sub);
+    // A parameter-only parent without opaque state needs its complete captured
+    // baseline. Never inherit omitted controls from the previously active sound.
+    if(std::any_of(target.begin(),target.end(),[](const auto& fx){return fx.kind==mrs::InsertKind::vst3 && fx.component_state.empty() && fx.controller_state.empty();})) {
+        if(!patch["parameterBaseline"].isArray())
+            throw std::runtime_error("Parent Patch has neither complete VST3 state nor a parameter baseline; capture the parent Patch first");
+        auto baseline=live::decodeLivePatchInserts(liveDocument->interfaceState,patch);
+        live::applyLivePatchParameterBaseline(baseline,patch["parameterBaseline"]);
+        for(std::size_t i=0;i<target.size();++i) {
+            auto& fx=target[i];
+            if(fx.kind!=mrs::InsertKind::vst3 || !fx.component_state.empty() || !fx.controller_state.empty())continue;
+            const auto overrides=fx.parameters;fx.parameters=baseline[i].parameters;
+            for(const auto& value:overrides) {
+                auto at=std::find_if(fx.parameters.begin(),fx.parameters.end(),[&](const auto& p){return p.id==value.id;});
+                if(at==fx.parameters.end())fx.parameters.push_back(value);else *at=value;
+            }
+        }
+    }
     auto before=liveDocument->interfaceState.clone();captureLiveInputs(before);
     auto after=before.clone();
     auto row=live::find(after,"channels",channel);
