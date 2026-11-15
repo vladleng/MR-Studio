@@ -722,8 +722,8 @@ void insert_switch() {
     auto pdcTransition=engine.prepare_insert_switch({{0,delayed}});
     CHECK(engine.stage_insert_switch(pdcTransition));
     engine.process(nullptr,out.data(),4);
-    CHECK(engine.compensation().track_paths[0]==7);
     CHECK(engine.acknowledge_insert_switch(pdcTransition));
+    CHECK(engine.compensation().track_paths[0]==7);
 }
 void callback_blocks(){
     using namespace mrs::processing;
