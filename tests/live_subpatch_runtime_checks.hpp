@@ -2,7 +2,7 @@
 #include <cstring>
 #ifdef MRS_HAS_VST3
 
-namespace live::test {
+namespace ui::live::test {
 // Real Live command path, two hosted VST3 instances and a native insert.
 template<class Host,class Reconnect>
 void subPatchRuntime(Host& host,const juce::String& channel,const juce::String& other,
