@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['CMakeLists.txt', 'tools/ci/sdk-lock.json', 'apps/studio-desktop/src/*transcription*', 'apps/studio-desktop/include/mrs/*transcription*', 'apps/studio-juce/src/TranscriptionRuntime*', 'apps/studio-juce/src/SeparationModels*', 'tools/transcription/**', 'tools/transcription_runtime_check.cpp', 'cmake/TranscriptionProfile.cmake', 'cmake/Separation.cmake', '.github/workflows/transcription-runtime.yml']
+    paths: ['tools/ci/sdk-lock.json', 'apps/studio-desktop/src/*transcription*', 'apps/studio-desktop/include/mrs/*transcription*', 'apps/studio-juce/src/TranscriptionRuntime*', 'apps/studio-juce/src/SeparationModels*', 'tools/transcription/**', 'tools/transcription_runtime_check.cpp', 'cmake/TranscriptionProfile.cmake', 'cmake/Separation.cmake', '.github/workflows/transcription-runtime.yml']
   pull_request:
-    paths: ['CMakeLists.txt', 'tools/ci/sdk-lock.json', 'apps/studio-desktop/src/*transcription*', 'apps/studio-desktop/include/mrs/*transcription*', 'apps/studio-juce/src/TranscriptionRuntime*', 'apps/studio-juce/src/SeparationModels*', 'tools/transcription/**', 'tools/transcription_runtime_check.cpp', 'cmake/TranscriptionProfile.cmake', 'cmake/Separation.cmake', '.github/workflows/transcription-runtime.yml']
+    paths: ['tools/ci/sdk-lock.json', 'apps/studio-desktop/src/*transcription*', 'apps/studio-desktop/include/mrs/*transcription*', 'apps/studio-juce/src/TranscriptionRuntime*', 'apps/studio-juce/src/SeparationModels*', 'tools/transcription/**', 'tools/transcription_runtime_check.cpp', 'cmake/TranscriptionProfile.cmake', 'cmake/Separation.cmake', '.github/workflows/transcription-runtime.yml']
 permissions:
   contents: read
 concurrency:

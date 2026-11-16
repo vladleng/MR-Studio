@@ -74,7 +74,20 @@ void TranscriptionRuntime::install(std::stop_token token)const{
         need(target.getParentDirectory().createDirectory().wasOk(),"runtime_io");std::unique_ptr<juce::InputStream> input{archive.createStreamForEntry(i)};auto output=target.createOutputStream();need(input&&output&&output->writeFromInputStream(*input,entry->uncompressedSize)==entry->uncompressedSize,"runtime_io");
      }}
     need(source.deleteFile()&&pip.deleteFile(),"runtime_io");
-    const auto beat=fetch({"beat-this-final0.ckpt","https://cloud.cp.jku.at/public.php/dav/files/7ik4RrBKTS273gp/final0.ckpt","8c328b45f59d8dd3dff219253ff6a8d6482be57d0133a29140e2febbf8eb8331",81058141});
+    // The upstream JKU share can return an HTTP error; retry only that failure
+    // against a mirror of the identical SHA-pinned MIT checkpoint.
+    const auto beat=[&]() -> juce::File {
+        constexpr auto digest="8c328b45f59d8dd3dff219253ff6a8d6482be57d0133a29140e2febbf8eb8331";
+        try {
+            return fetch({"beat-this-final0.ckpt","https://cloud.cp.jku.at/public.php/dav/files/7ik4RrBKTS273gp/final0.ckpt",digest,81058141});
+        } catch(const std::exception& e) {
+            if(stop.load() || juce::String(e.what())!="http_error")throw;
+            const auto partial=stage.dir.getChildFile("beat-this-final0.ckpt");
+            if(partial.existsAsFile())need(partial.deleteFile(),"runtime_io");
+            log.appendText("Primary checkpoint host returned an HTTP error; trying the SHA-256 pinned mirror\n");
+            return fetch({"beat-this-final0.ckpt","https://huggingface.co/rtikw/localmusic-assets/resolve/main/analysis/beat_this-final0.ckpt",digest,81058141});
+        }
+    }();
     const auto beatCache=stage.dir.getChildFile("torch-cache/hub/checkpoints");need(beatCache.createDirectory().wasOk()&&beat.moveFileTo(beatCache.getChildFile("beat_this-final0.ckpt")),"runtime_io");
     run("pip check",{"-I","-B","-m","pip","check"});mark("runtime probe");probe(stage.dir,stop,&log);
     mark("freeze installed packages");
