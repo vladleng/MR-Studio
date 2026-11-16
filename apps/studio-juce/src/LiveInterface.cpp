@@ -3459,10 +3459,10 @@ void Desktop::syncLivePatchSchedule() {
                     prepared=livePreparedPatchGraphs.find(channel);
                     livePatchPrepareErrors.erase(key);
                 } catch(const std::exception& error) {
-                    const auto message=juce::String::fromUTF8(error.what());
-                    livePatchPrepareErrors[key]=message;
+                    const auto reason=juce::String::fromUTF8(error.what());
+                    livePatchPrepareErrors[key]=reason;
                     if(livePreloadError.isEmpty()||livePreloadError.startsWith("Patch: "))
-                        livePreloadError="Patch: "+message;
+                        livePreloadError="Patch: "+reason;
                     continue;
                 }
             }

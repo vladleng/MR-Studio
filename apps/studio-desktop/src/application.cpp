@@ -1158,7 +1158,7 @@ bool Application::stage_insert_graphs_live(
     PendingLiveInsertSwitch pending;
     std::vector<audio::AudioEngine::InsertGraphChange> changes;
     for(const auto& [track,graph]:requests) {
-        require(track,"Live channel graph switch requires a channel");
+        require(track.has_value(),"Live channel graph switch requires a channel");
         const auto mixer=std::find(mixer_tracks_.begin(),mixer_tracks_.end(),*track);
         require(mixer!=mixer_tracks_.end(),"Live channel is not prepared in the mixer");
         require(pending.graphs.emplace(track->value,graph).second,"Duplicate Live channel in one switch");
