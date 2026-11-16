@@ -41,3 +41,11 @@ Desktop.ini
 /Архивы/
 
 /Отчеты/
+
+# Local acceptance packages (runtime copies outside the build trees)
+/acceptance-*/
+
+# Generated caches
+/.gh-cache/
+__pycache__/
+*.pyc
