@@ -237,6 +237,8 @@ public:
     void assignLiveItemPatch(const juce::String&, const juce::String& patchId);
     void renameLiveChannelPatch(const juce::String&, const juce::String& patchId, const juce::String& name);
     void setLiveChannelPatchColour(const juce::String&, const juce::String& patchId, const juce::String& colour);
+    void setLiveChannelSubPatchColour(const juce::String&, const juce::String& patchId,
+                                      const juce::String& subPatchId, const juce::String& colour);
     void deleteLiveChannelPatch(const juce::String&, const juce::String& patchId);
     void setLivePlaybackTrim(double startSeconds, double endSeconds);
     void syncLivePlayback();

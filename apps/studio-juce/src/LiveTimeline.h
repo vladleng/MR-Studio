@@ -644,6 +644,29 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
     class Viewport final : public juce::Viewport {
       public:
         explicit Viewport(LiveTimeline &host) : parent(host) {}
+        // Shift+Ctrl + wheel zooms around the bar under the pointer: the bar keeps
+        // its screen position instead of the view drifting from the left edge.
+        void mouseWheelMove(const juce::MouseEvent& event,const juce::MouseWheelDetails& wheel) override {
+            if(event.mods.isShiftDown() && event.mods.isCtrlDown() && wheel.deltaY!=0.f) {
+                const auto factor=wheel.deltaY>0.f?1.25:.8;
+                const auto bodyX=static_cast<float>(getViewPositionX()+event.x);
+                const Item* under=nullptr;
+                for(const auto& item:parent.items)
+                    if(!item.collapsed && bodyX>=item.bounds.getX() && bodyX<=item.bounds.getRight()) {
+                        under=&item;break;
+                    }
+                if(under==nullptr) { parent.zoom(factor); return; }
+                const auto bar=Body::barAt(*under,bodyX);
+                const auto oldScale=under->scale;
+                const auto newScale=juce::jlimit(4.,128.,oldScale*factor);
+                const auto delta=(bar-under->start+under->lead)*(newScale-oldScale);
+                parent.zoom(factor);
+                setViewPosition(juce::jmax(0,getViewPositionX()+juce::roundToInt(delta)),
+                                getViewPositionY());
+                return;
+            }
+            juce::Viewport::mouseWheelMove(event,wheel);
+        }
         void visibleAreaChanged(const juce::Rectangle<int>& area) override {
             if(lastX>=0 && lastX!=area.getX() &&
                parent.followEnabled && !parent.followProgrammaticScroll &&
@@ -677,6 +700,39 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             juce::String itemId,channelId,blockId,subId;
         };
         std::vector<PatchSelection> selectedPatches,marqueeBase;
+        // Same 28x26 swatches with 40 px spacing as the Section/Chord editor, so
+        // Patch and Sub-patch colours read as a palette instead of a text submenu.
+        class ColourPalette final:public juce::PopupMenu::CustomComponent {
+          public:
+            ColourPalette(Theme& theme,const juce::String& current,
+                          std::shared_ptr<juce::String> result)
+                :CustomComponent(false),chosen(std::move(result)) {
+                setLookAndFeel(&theme);
+                for(std::size_t i=0;i<live::patchColours.size();++i) {
+                    auto& button=buttons[i];
+                    const juce::String name(live::patchColours[i]);
+                    addAndMakeVisible(button);
+                    button.setName(name);
+                    button.setTooltip(name);
+                    const auto colour=liveBlockColour(name);
+                    button.setColour(juce::TextButton::buttonColourId,colour);
+                    button.setColour(juce::TextButton::buttonOnColourId,colour);
+                    button.setToggleState(name==current,juce::dontSendNotification);
+                    button.onClick=[this,name]{*chosen=name;triggerMenuItem();};
+                }
+            }
+            ~ColourPalette()override{setLookAndFeel(nullptr);}
+            void getIdealSize(int& width,int& height)override {
+                width=12+40*static_cast<int>(live::patchColours.size());height=42;
+            }
+            void resized()override {
+                for(std::size_t i=0;i<live::patchColours.size();++i)
+                    buttons[i].setBounds(12+40*static_cast<int>(i),8,28,26);
+            }
+          private:
+            std::shared_ptr<juce::String> chosen;
+            std::array<juce::TextButton,live::patchColours.size()> buttons;
+        };
         juce::Point<int> marqueeStart,marqueeEnd;
         bool marqueeArmed{},marqueeActive{},marqueeAdditive{};
         static bool samePatch(const PatchSelection& left,const PatchSelection& right) {
@@ -1491,10 +1547,19 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 }
             }
             menu.addSubMenu("+ Sub-patch",insertion,stopped);
+            std::shared_ptr<juce::String> subColour;
             if(hasSub) {
                 menu.addItem(2,"Rename");
                 menu.addItem(3,"Delete");
                 menu.addItem(4,"Update",stopped);
+                menu.addSeparator();
+                if(hit.librarySubId.isNotEmpty()) {
+                    subColour=std::make_shared<juce::String>(sub["color"].toString());
+                    auto palette=std::make_unique<ColourPalette>(parent.owner.theme,*subColour,subColour);
+                    menu.addCustomItem(300,std::move(palette),nullptr,"Sub-patch color");
+                } else {
+                    menu.addItem(301,"Color (capture this Sub-patch first)",false);
+                }
             }
             const auto channelId=hit.channelId,patchBlock=hit.patchId,patchId=hit.libraryPatchId,
                        subBlock=hit.subId,subId=hit.librarySubId,itemId=hit.itemId;
@@ -1503,7 +1568,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             menu.showMenuAsync(liveMenuOptions(*this).withTargetScreenArea(
                     juce::Rectangle<int>(screen.x,screen.y,1,1)),
                 [safe,channelId,patchBlock,patchId,subBlock,subId,itemId,
-                 generation,offset,sub,existingIds](int action) {
+                 generation,offset,sub,existingIds,subColour](int action) {
                     if(!safe||!action||!safe->liveDocument||
                        safe->liveDocumentGeneration!=generation)return;
                     if(action>=100 && action-100<static_cast<int>(existingIds.size())) {
@@ -1542,6 +1607,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     safe->run([&] {
                         if(action==3)safe->removeSelectedLivePatchBlocks({{itemId,channelId,patchBlock,subBlock}});
                         else if(action==4)safe->updateLiveChannelSubPatch(channelId,patchId,subId);
+                        else if(action==300 && subColour && subColour->isNotEmpty())
+                            safe->setLiveChannelSubPatchColour(channelId,patchId,subId,*subColour);
                     });
                 });
             return true;
@@ -1576,6 +1643,15 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                                           candidate["name"].toString());
                 }
             if(!patchIds.empty())menu.addSubMenu("Replace",replacements);
+            menu.addSeparator();
+            std::shared_ptr<juce::String> patchColour;
+            if(hit.libraryPatchId.isNotEmpty()) {
+                patchColour=std::make_shared<juce::String>(patch["color"].toString());
+                auto palette=std::make_unique<ColourPalette>(parent.owner.theme,*patchColour,patchColour);
+                menu.addCustomItem(300,std::move(palette),nullptr,"Patch color");
+            } else {
+                menu.addItem(301,"Color (capture this Patch first)",false);
+            }
             const auto item=std::find_if(parent.items.begin(),parent.items.end(),
                 [&](const auto& i){return i.value["id"].toString()==hit.itemId;});
             const double atBar=item==parent.items.end()?-1.:
@@ -1586,7 +1662,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             juce::Component::SafePointer<Desktop> safe(&parent.owner);
             menu.showMenuAsync(liveMenuOptions(*this).withTargetScreenArea(
                     juce::Rectangle<int>(screen.x,screen.y,1,1)),
-                [safe,channelId,patchBlock,patchId,itemId,gen,atBar,patchIds,patch](int action) {
+                [safe,channelId,patchBlock,patchId,itemId,gen,atBar,patchIds,patch,patchColour](int action) {
                     if(!safe||!action||!safe->liveDocument||
                        safe->liveDocumentGeneration!=gen)return;
                     if(action==1) {
@@ -1615,6 +1691,8 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                     safe->run([&] {
                         if(action==3)safe->removeSelectedLivePatchBlocks({{itemId,channelId,patchBlock,{}}});
                         else if(action==4)safe->updateLiveChannelPatch(channelId,patchId);
+                        else if(action==300 && patchColour && patchColour->isNotEmpty())
+                            safe->setLiveChannelPatchColour(channelId,patchId,*patchColour);
                         else if(action>=100 && action-100<static_cast<int>(patchIds.size())) {
                             safe->replaceLivePatchBlock(channelId,patchBlock,
                                 patchIds[static_cast<std::size_t>(action-100)],itemId);

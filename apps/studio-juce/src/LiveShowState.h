@@ -242,6 +242,9 @@ inline juce::var blockSpan(double start,double length) {
     put(span,"length",juce::jmax(.25,length));
     return span;
 }
+// A newly created Patch block asks for sixteen bars; a shorter Item or the free
+// gap between existing blocks clamps it instead of refusing the insert.
+inline constexpr double newPatchBlockBars=16.;
 // Authored timeline blocks have their own IDs. Older shows used the
 // library Patch/Sub-patch ID as the span key; that remains valid. Scissors
 // allocate a NEW block key while retaining a reference to the same library

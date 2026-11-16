@@ -1303,6 +1303,55 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
                   "#374 G: authoring load identity is separate from Item default");
         editing.liveLoadedPatches.clear();
     }
+    {
+        // A patch name is metadata: the rename must stay a local value patch
+        // instead of cloning, validating and re-applying the whole show.
+        const auto metadataBefore=editing.liveEdits.metadata;
+        const auto structureBefore=editing.liveUiRevision;
+        const auto localBefore=editing.liveLocalPatchApplications;
+        const auto patchName=[&] {
+            if(const auto* channels=editing.liveDocument->interfaceState["channels"].getArray())
+                for(const auto& channel:*channels) {
+                    if(channel["id"].toString()!=patchChannel)continue;
+                    if(const auto* patches=channel["patches"].getArray())
+                        for(const auto& patch:*patches)
+                            if(patch["id"].toString()==patchId)return patch["name"].toString();
+                }
+            return juce::String();
+        };
+        const auto originalName=patchName();
+        editing.renameLiveChannelPatch(patchChannel,patchId,"QA Renamed Patch");
+        liveCheck(patchName()=="QA Renamed Patch" &&
+                  editing.liveEdits.metadata==metadataBefore+1 &&
+                  editing.liveUiRevision==structureBefore &&
+                  editing.liveLocalPatchApplications==localBefore+1,
+                  "Patch rename is a local metadata edit, not a full show re-apply");
+        editing.undoLiveInterface();
+        liveCheck(patchName()==originalName,"Patch rename Undo restores the previous name");
+    }
+    {
+        // Colours follow the same local metadata path as names.
+        const auto metadataBefore=editing.liveEdits.metadata;
+        const auto structureBefore=editing.liveUiRevision;
+        const auto patchColour=[&] {
+            if(const auto* channels=editing.liveDocument->interfaceState["channels"].getArray())
+                for(const auto& channel:*channels) {
+                    if(channel["id"].toString()!=patchChannel)continue;
+                    if(const auto* patches=channel["patches"].getArray())
+                        for(const auto& patch:*patches)
+                            if(patch["id"].toString()==patchId)return patch["color"].toString();
+                }
+            return juce::String();
+        };
+        const auto previousColour=patchColour();
+        editing.setLiveChannelPatchColour(patchChannel,patchId,"teal");
+        liveCheck(patchColour()=="teal" &&
+                  editing.liveEdits.metadata==metadataBefore+1 &&
+                  editing.liveUiRevision==structureBefore,
+                  "Patch colour is a local metadata edit, not a full show re-apply");
+        editing.undoLiveInterface();
+        liveCheck(patchColour()==previousColour,"Patch colour Undo restores the previous colour");
+    }
     const auto activeEntryBefore=editing.liveCurrentEntry;
     const auto engineBeforePatch=editing.app.engine();
     const auto channelBankBefore=editing.liveDocument->interfaceState["channels"].getArray();
@@ -1316,6 +1365,11 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
               !live::channelItemTrack(editing.liveDocument->interfaceState,activeBeforePatch,patchChannel)
                   ["spans"][juce::Identifier(patchId)].isObject(),
               "#374 RMB patch insertion edits the targeted inactive Item, not the active one");
+    const auto inactiveBars=static_cast<double>(
+        live::find(editing.liveDocument->interfaceState,"items",inactive)["bars"]);
+    liveCheck(std::abs(live::blockLength(inactiveSpan()) -
+                       juce::jmin(16.,inactiveBars-2.))<1.e-9,
+              "A new Patch block defaults to sixteen bars, clamped by the Item");
     auto edited=live::editedPatchSpans(
         live::channelItemTrack(editing.liveDocument->interfaceState,inactive,patchChannel)["spans"],
         16.,patchId,2.,5.,false);

@@ -1630,8 +1630,8 @@ void Desktop::captureLiveChannelPatch(const juce::String& requested,const juce::
             const auto original=(*track)["spans"];
             const auto bars=static_cast<double>(item["bars"]);
             auto next=preferredBar>=0.?
-                live::addedPatchSpanAt(original,bars,id,preferredBar,bars):
-                live::addedPatchSpan(original,bars,id,bars);
+                live::addedPatchSpanAt(original,bars,id,preferredBar,live::newPatchBlockBars):
+                live::addedPatchSpan(original,bars,id,live::newPatchBlockBars);
             auto span=next[juce::Identifier(id)].clone();
             if(!span.isObject())throw std::runtime_error("No free space for a new Patch");
             span=live::fullDefaultSubPatchSpan(span,defaultId);
@@ -2126,19 +2126,29 @@ void Desktop::renameLiveChannelSubPatch(const juce::String& requested,const juce
     const auto channel=inputChannel(*this,requested);
     const auto trimmed=name.trim();
     if(!live::named(trimmed))throw std::runtime_error("Invalid sub-patch name");
-    editLiveInterface("Rename sub-patch",[&](auto& state){
-        auto& subs=live::array(live::require(live::require(state,"channels",channel),"patches",patchId),
-                               "subPatches");
-        for(const auto& other:subs)
-            if(other["id"].toString()!=subPatchId &&
-               other["name"].toString().compareIgnoreCase(trimmed)==0)
-                throw std::runtime_error("A sub-patch with this name already exists");
-        for(auto& sub:subs)
+    // Same metadata-only path as the Patch rename: no global show apply.
+    const auto bank=live::find(liveDocument->interfaceState,"channels",channel)["patches"];
+    juce::var patch;
+    if(const auto* rows=bank.getArray())
+        for(const auto& row:*rows)
+            if(row["id"].toString()==patchId) {patch=row;break;}
+    if(!patch.isObject())throw std::runtime_error("Channel patch no longer exists");
+    bool found=false;
+    if(const auto* subs=patch["subPatches"].getArray())
+        for(const auto& sub:*subs) {
             if(sub["id"].toString()==subPatchId) {
-                live::put(sub,"name",trimmed);return;
+                found=true;
+                if(sub["name"].toString()==trimmed)return;
+                continue;
             }
-        throw std::runtime_error("Sub-patch no longer exists");
-    });
+            if(sub["name"].toString().compareIgnoreCase(trimmed)==0)
+                throw std::runtime_error("A sub-patch with this name already exists");
+        }
+    if(!found)throw std::runtime_error("Sub-patch no longer exists");
+    live::EditPath path{"channels",live::EditStep::id(channel),"patches",live::EditStep::id(patchId),
+                        "subPatches",live::EditStep::id(subPatchId),"name"};
+    performLiveValuePatch("Rename sub-patch",std::move(path),trimmed,
+                          live::EditImpact::metadata|live::EditImpact::paint,true);
 }
 void Desktop::deleteLiveChannelSubPatch(const juce::String& requested,const juce::String& patchId,
                                         const juce::String& subPatchId) {
@@ -2286,8 +2296,8 @@ void Desktop::addLivePatchBlock(const juce::String& requested,const juce::String
         throw std::runtime_error("This patch block is already on the Item");
     const auto itemBars=livePatchItemBars(*this,itemId);
     auto nextSpans=preferredStartBars>=0.
-        ? live::addedPatchSpanAt(spans,itemBars,patchId,preferredStartBars,itemBars)
-        : live::addedPatchSpan(spans,itemBars,patchId,itemBars);
+        ? live::addedPatchSpanAt(spans,itemBars,patchId,preferredStartBars,live::newPatchBlockBars)
+        : live::addedPatchSpan(spans,itemBars,patchId,live::newPatchBlockBars);
     if(!nextSpans[juce::Identifier(patchId)].isObject())
         throw std::runtime_error("No free space for the patch block on this Item");
     if(const auto* variants=patch["subPatches"].getArray())
@@ -2618,29 +2628,67 @@ void Desktop::renameLiveChannelPatch(const juce::String& requested,const juce::S
     const auto channel=inputChannel(*this,requested);
     const auto trimmed=name.trim();
     if(!live::named(trimmed))throw std::runtime_error("Invalid channel patch name");
-    editLiveInterface("Rename channel patch",[&](auto& state){
-        auto& bank=live::array(live::require(state,"channels",channel),"patches");
-        for(const auto& other:bank)
-            if(other["id"].toString()!=patchId &&
-               other["name"].toString().compareIgnoreCase(trimmed)==0)
-                throw std::runtime_error("A channel patch with this name already exists");
-        for(auto& patch:bank)
+    // A name is metadata: publish one bounded value patch instead of cloning,
+    // validating and re-applying the whole show for a single string.
+    const auto bank=live::find(liveDocument->interfaceState,"channels",channel)["patches"];
+    bool found=false;
+    if(const auto* rows=bank.getArray())
+        for(const auto& patch:*rows) {
             if(patch["id"].toString()==patchId) {
-                live::put(patch,"name",trimmed);return;
+                found=true;
+                if(patch["name"].toString()==trimmed)return;
+                continue;
             }
-        throw std::runtime_error("Channel patch no longer exists");
-    });
+            if(patch["name"].toString().compareIgnoreCase(trimmed)==0)
+                throw std::runtime_error("A channel patch with this name already exists");
+        }
+    if(!found)throw std::runtime_error("Channel patch no longer exists");
+    live::EditPath path{"channels",live::EditStep::id(channel),"patches",
+                        live::EditStep::id(patchId),"name"};
+    performLiveValuePatch("Rename channel patch",std::move(path),trimmed,
+                          live::EditImpact::metadata|live::EditImpact::paint,true);
 }
 void Desktop::setLiveChannelPatchColour(const juce::String& requested,const juce::String& patchId,const juce::String& colour) {
     const auto channel=inputChannel(*this,requested);
     if(!live::patchColour(colour))throw std::runtime_error("Invalid channel patch colour");
-    editLiveInterface("Channel patch colour",[&](auto& state){
-        for(auto& patch:live::array(live::require(state,"channels",channel),"patches"))
+    const auto bank=live::find(liveDocument->interfaceState,"channels",channel)["patches"];
+    bool found=false;
+    if(const auto* rows=bank.getArray())
+        for(const auto& patch:*rows)
             if(patch["id"].toString()==patchId) {
-                live::put(patch,"color",colour);return;
+                found=true;
+                if(patch["color"].toString()==colour)return;
+                break;
             }
-        throw std::runtime_error("Channel patch no longer exists");
-    });
+    if(!found)throw std::runtime_error("Channel patch no longer exists");
+    live::EditPath path{"channels",live::EditStep::id(channel),"patches",
+                        live::EditStep::id(patchId),"color"};
+    performLiveValuePatch("Channel patch colour",std::move(path),colour,
+                          live::EditImpact::metadata|live::EditImpact::paint,true);
+}
+void Desktop::setLiveChannelSubPatchColour(const juce::String& requested,const juce::String& patchId,
+                                           const juce::String& subPatchId,const juce::String& colour) {
+    const auto channel=inputChannel(*this,requested);
+    if(!live::patchColour(colour))throw std::runtime_error("Invalid sub-patch colour");
+    const auto bank=live::find(liveDocument->interfaceState,"channels",channel)["patches"];
+    juce::var patch;
+    if(const auto* rows=bank.getArray())
+        for(const auto& row:*rows)
+            if(row["id"].toString()==patchId) {patch=row;break;}
+    if(!patch.isObject())throw std::runtime_error("Channel patch no longer exists");
+    bool found=false;
+    if(const auto* subs=patch["subPatches"].getArray())
+        for(const auto& sub:*subs)
+            if(sub["id"].toString()==subPatchId) {
+                found=true;
+                if(sub["color"].toString()==colour)return;
+                break;
+            }
+    if(!found)throw std::runtime_error("Sub-patch no longer exists");
+    live::EditPath path{"channels",live::EditStep::id(channel),"patches",live::EditStep::id(patchId),
+                        "subPatches",live::EditStep::id(subPatchId),"color"};
+    performLiveValuePatch("Sub-patch colour",std::move(path),colour,
+                          live::EditImpact::metadata|live::EditImpact::paint,true);
 }
 void Desktop::deleteLiveChannelPatch(const juce::String& requested,const juce::String& patchId) {
     const auto channel=inputChannel(*this,requested);
