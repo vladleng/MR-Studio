@@ -670,6 +670,61 @@ void inserts() {
     graph.inserts.pop_back(); rejects([&] { engine.prepare({48000,1,2,128},graph); });
 }
 
+void insert_switch() {
+    using namespace mrs::processing;
+    const auto gainGraph=[](float gain) {
+        NativeInsert insert;insert.id=new_id();insert.kind=InsertKind::gain;insert.gain=gain;
+        const std::array<NativeInsert,1> fx{insert};
+        auto saved=std::make_shared<const GraphState>(insert_graph(fx));
+        return std::make_shared<PreparedGraph>(GraphSnapshot{saved,0,false,false},ProcessConfig{48000,2,8});
+    };
+    std::vector<float> samples(512);
+    for(std::size_t i=0;i<samples.size();++i)samples[i]=i%2?0.2f:0.1f;
+    auto asset=std::make_shared<const AudioData>(AudioData{48000,2,std::move(samples)});
+    RenderGraph graph;graph.mixer={{1,0,false,false}};
+    Voice voice{asset,0,0,256,{{0,0,1},{1,1,1}}};voice.mixer_track=0;graph.voices={voice};
+    graph.inserts={gainGraph(.5f)};
+    AudioEngine engine;engine.prepare({48000,0,2,8},graph,{PlaybackState::paused,0,std::nullopt});
+    CHECK(engine.enqueue({ControlKind::play}));
+    std::array<float,16> out{};
+    engine.process(nullptr,out.data(),4);
+    CHECK(std::abs(out[0]-.05f)<1e-6f);
+    auto head=engine.state();CHECK(head.sample==4&&head.playback==PlaybackState::playing);
+    // #375: a prepared chain is adopted at the next block boundary. The
+    // callback swaps storage without allocation and keeps the transport head.
+    auto next=gainGraph(.25f);
+    auto transition=engine.prepare_insert_switch({{0,next}});
+    CHECK(engine.stage_insert_switch(transition));
+    CHECK(engine.insert_switch_phase(transition)==AudioEngine::TransitionPhase::pending);
+    allocation_check::count=0;allocation_check::enabled=true;
+    engine.process(nullptr,out.data(),4);
+    allocation_check::enabled=false;
+    CHECK(allocation_check::count==0);
+    CHECK(std::abs(out[0]-.025f)<1e-6f);
+    CHECK(engine.insert_switch_phase(transition)==AudioEngine::TransitionPhase::adopted);
+    CHECK(engine.acknowledge_insert_switch(transition));
+    CHECK(engine.state().sample==8&&engine.state().playback==PlaybackState::playing);
+    CHECK(engine.compensation().track_paths.size()==1);
+    // A cancelled handoff keeps the audible chain.
+    auto cancelled=gainGraph(.125f);
+    auto rejected=engine.prepare_insert_switch({{0,cancelled}});
+    CHECK(engine.stage_insert_switch(rejected));
+    CHECK(engine.cancel_insert_switch(rejected));
+    engine.process(nullptr,out.data(),4);
+    CHECK(std::abs(out[0]-.025f)<1e-6f);
+    rejects([&]{engine.prepare_insert_switch({});});
+    rejects([&]{engine.prepare_insert_switch({{9,gainGraph(.5f)}});});
+    // The same handoff republishes the PDC plan for the new chain.
+    auto delayedState=demo_graph();delayedState.nodes.front().parameters.clear();
+    auto delayed=std::make_shared<PreparedGraph>(
+        GraphSnapshot{std::make_shared<const GraphState>(delayedState),0,false,false},
+        ProcessConfig{48000,2,8},[](const auto&){return std::make_unique<LatencyFixture>(7);});
+    auto pdcTransition=engine.prepare_insert_switch({{0,delayed}});
+    CHECK(engine.stage_insert_switch(pdcTransition));
+    engine.process(nullptr,out.data(),4);
+    CHECK(engine.acknowledge_insert_switch(pdcTransition));
+    CHECK(engine.compensation().track_paths[0]==7);
+}
 void callback_blocks(){
     using namespace mrs::processing;
     struct Observed {std::array<std::uint32_t,32> frames{};std::array<Sample,32> positions{};std::size_t calls{};unsigned fp_mode{};} observed;
@@ -867,7 +922,7 @@ int main(int argc, char** argv) {
         if (argc != 2) throw std::invalid_argument("expected suite");
         const std::string suite = argv[1];
         if(suite=="state_snapshot"){state_snapshot();std::cout<<"PASS state_snapshot: "<<assertions<<" checks\n";return 0;}
-        if(suite=="performance")performance();else if(suite=="metronome")metronome();else if(suite=="callback_blocks")callback_blocks();else if (suite=="pdc") pdc(); else if (suite=="inserts") inserts(); else if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
+        if(suite=="performance")performance();else if(suite=="metronome")metronome();else if(suite=="callback_blocks")callback_blocks();else if (suite=="pdc") pdc(); else if (suite=="inserts") inserts(); else if(suite=="insert_switch")insert_switch(); else if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
         else if (suite=="queue") queue(); else if (suite=="wav") wav();
         else if (suite=="device") device(); else if (suite=="metrics") metrics();
         else if (suite=="streaming") streaming(); else if (suite=="recording") recording();
