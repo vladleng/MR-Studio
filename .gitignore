@@ -49,3 +49,6 @@ Desktop.ini
 /.gh-cache/
 __pycache__/
 *.pyc
+
+# Generated GUI preview renders (root-level juce-*.png previews)
+/juce-*.png
