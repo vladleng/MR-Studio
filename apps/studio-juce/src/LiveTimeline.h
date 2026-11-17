@@ -91,6 +91,12 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
             owner.editLiveItemView(itemId,"scale",juce::jlimit(4.,128.,oldScale*factor));
         });
     }
+    // The header +/− buttons zoom the current Item; Shift+Ctrl+wheel zooms the
+    // whole timeline through one uniform factor.
+    void zoomAll(double factor) {
+        if (!owner.liveDocument) return;
+        owner.run([&] { owner.setLiveTimelineScale(factor); });
+    }
     void zoomFit() {
         if (!owner.liveDocument) return;
         owner.run([&] {
@@ -644,25 +650,11 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
     class Viewport final : public juce::Viewport {
       public:
         explicit Viewport(LiveTimeline &host) : parent(host) {}
-        // Shift+Ctrl + wheel zooms around the bar under the pointer: the bar keeps
-        // its screen position instead of the view drifting from the left edge.
+        // Shift+Ctrl + wheel is the global timeline zoom; the header +/− buttons
+        // keep zooming only the current Item.
         void mouseWheelMove(const juce::MouseEvent& event,const juce::MouseWheelDetails& wheel) override {
             if(event.mods.isShiftDown() && event.mods.isCtrlDown() && wheel.deltaY!=0.f) {
-                const auto factor=wheel.deltaY>0.f?1.25:.8;
-                const auto bodyX=static_cast<float>(getViewPositionX()+event.x);
-                const Item* under=nullptr;
-                for(const auto& item:parent.items)
-                    if(!item.collapsed && bodyX>=item.bounds.getX() && bodyX<=item.bounds.getRight()) {
-                        under=&item;break;
-                    }
-                if(under==nullptr) { parent.zoom(factor); return; }
-                const auto bar=Body::barAt(*under,bodyX);
-                const auto oldScale=under->scale;
-                const auto newScale=juce::jlimit(4.,128.,oldScale*factor);
-                const auto delta=(bar-under->start+under->lead)*(newScale-oldScale);
-                parent.zoom(factor);
-                setViewPosition(juce::jmax(0,getViewPositionX()+juce::roundToInt(delta)),
-                                getViewPositionY());
+                parent.zoomAll(wheel.deltaY>0.f?1.25:.8);
                 return;
             }
             juce::Viewport::mouseWheelMove(event,wheel);

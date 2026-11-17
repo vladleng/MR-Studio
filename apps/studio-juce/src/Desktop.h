@@ -289,6 +289,8 @@ public:
     void updateLiveDirty();
     void editLiveInterface(const juce::String&,std::function<void(juce::var&)>,bool coalesceTyping=false,bool captureInputs=false,bool explicitParameters=false);
     void editLiveItemView(const juce::String& itemId, const juce::Identifier& key, double value);
+    // Global timeline zoom: one factor for every Item view, one Undo step.
+    void setLiveTimelineScale(double factor);
     void setLiveMusicalRows(const juce::String&,bool section,const juce::var&);
     void setLivePerformanceMode(const juce::String& item,const juce::String& target,mrs::PerformanceMode);
     void setLivePlaybackRegions(const juce::String& item,const juce::String& stem,const juce::var&,const juce::String& label);

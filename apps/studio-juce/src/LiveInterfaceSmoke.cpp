@@ -1352,6 +1352,25 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
         editing.undoLiveInterface();
         liveCheck(patchColour()==previousColour,"Patch colour Undo restores the previous colour");
     }
+    {
+        // Global zoom must reach every Item view through a plain key path; a row
+        // step targets arrays and used to throw, leaving the timeline unchanged.
+        const auto scaleOf=[&](const juce::String& id) {
+            const auto view=editing.liveDocument->interfaceState["performance"]["arrangement"]
+                [juce::Identifier(id)];
+            return live::number(view["scale"])?static_cast<double>(view["scale"]):16.;
+        };
+        juce::String zoomItem;
+        if(const auto* items=editing.liveDocument->interfaceState["items"].getArray())
+            if(!items->isEmpty())zoomItem=(*items)[0]["id"].toString();
+        const auto previousScale=scaleOf(zoomItem);
+        editing.setLiveTimelineScale(1.25);
+        liveCheck(zoomItem.isNotEmpty() && scaleOf(zoomItem)>previousScale,
+                  "Timeline zoom scales the Item view through the local edit path");
+        editing.undoLiveInterface();
+        liveCheck(std::abs(scaleOf(zoomItem)-previousScale)<1.e-9,
+                  "Timeline zoom Undo restores the Item scale");
+    }
     const auto activeEntryBefore=editing.liveCurrentEntry;
     const auto engineBeforePatch=editing.app.engine();
     const auto channelBankBefore=editing.liveDocument->interfaceState["channels"].getArray();
