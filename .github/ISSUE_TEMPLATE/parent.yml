@@ -1,0 +1,62 @@
+name: "Родительская Issue — этап или область"
+description: "Новый этап/область с собственной приёмкой; Sub-issues создаются отдельно и привязываются native-связью"
+title: "[Область] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Родительская Issue задаёт требования и приёмку этапа. Sub-issues создаются только для независимых срезов с собственной приёмкой, а Markdown-чеклист не является native-иерархией.
+        Создание и native-привязка — только по явному поручению пользователя (`AGENTS.md`, `.agents/skills/mr-github-workflow/SKILL.md`).
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Контекст и проблема
+      description: Почему этап нужен сейчас и что он меняет для пользователя.
+    validations:
+      required: true
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: Цель этапа
+      description: Одно-два предложения о результате, а не о процессе.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Критерии приёмки
+      description: Проверяемые пункты — команда или наблюдение, а не «выглядит правильно». Приёмку подтверждает пользователь.
+    validations:
+      required: true
+
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Что не входит
+      description: Явные границы, чтобы не расширять объём автоматически.
+
+  - type: textarea
+    id: subissues
+    attributes:
+      label: Планируемые Sub-issues
+      description: "Список будущих срезов. Это план, а не native-иерархия; проценты по такому списку не заявляются."
+      placeholder: |
+        - [ ] 01 — …
+        - [ ] 02 — …
+
+  - type: textarea
+    id: checks
+    attributes:
+      label: Проверки
+      description: Уровень L0–L4 по `mr-studio-build-test`; фактические PASS/FAIL/NOT TESTED заполняются в отчёте.
+      placeholder: "L0: diff и ссылки; L2: Build-Local.ps1 -Product Studio …"
+
+  - type: checkboxes
+    id: native_checked
+    attributes:
+      label: Native-иерархия
+      options:
+        - label: "После привязки проверено `gh api repos/{owner}/{repo}/issues/<N>/sub_issues` (если привязка входила в поручение)"

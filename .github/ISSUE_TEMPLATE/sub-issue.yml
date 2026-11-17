@@ -1,0 +1,70 @@
+name: "Sub-issue — срез родительской Issue"
+description: "Отдельный этап родительской Issue с собственной приёмкой и своей версией 0.I.S"
+title: "[Область] NN — "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Sub-issue нужна для независимого среза с собственной приёмкой или для значительного дополнения. Мелкий follow-up остаётся `-UpdN` или комментарием в текущей Issue, а не новой Sub-issue.
+        Native-привязка и закрытие — по `AGENTS.md`, `docs/VERSIONING.md` и разделу Issue / Sub-issue lifecycle в `.agents/skills/mr-github-workflow/SKILL.md`.
+
+  - type: input
+    id: parent
+    attributes:
+      label: Родительская Issue
+      description: Номер родительской Issue этого репозитория.
+      placeholder: "#197"
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Версия 0.I.S
+      description: "Третья цифра — порядковый номер Sub-issue в родительской Issue (`docs/VERSIONING.md`)."
+      placeholder: "0.8.3"
+    validations:
+      required: true
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: Цель
+      description: Какой результат даёт этот срез.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Объём (что входит)
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Критерии приёмки
+      description: Проверяемые пункты — команда или наблюдение. Приёмку подтверждает пользователь.
+    validations:
+      required: true
+
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Что не входит
+      description: Границы среза и известные зависимости от других Sub-issues.
+
+  - type: textarea
+    id: checks
+    attributes:
+      label: Проверки
+      description: Уровень L0–L4 по `mr-studio-build-test`; для багфикса — RED/GREEN/REGRESSION.
+      placeholder: "L2: Build-Local.ps1 -Product Studio -Target …; тесты …"
+
+  - type: checkboxes
+    id: native_checked
+    attributes:
+      label: Native-иерархия
+      options:
+        - label: "Привязано к родителю и проверено `gh api repos/{owner}/{repo}/issues/<parent>/sub_issues` (Markdown-чеклист не считается)"
