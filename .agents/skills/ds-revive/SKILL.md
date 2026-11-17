@@ -24,7 +24,7 @@ Update the idea, not only the branch. A clean rebase does not prove the PR still
 7. For REVIVE: work in a clean worktree at the recorded head. Rebase onto the fresh base. Resolve conflicts by the PR's goal and the base's newer rules.
 8. Run `git range-diff` on the old and new series. Confirm no intended change was lost and nothing already landed came back.
 9. Run the focused checks for the touched area. Mark each failure as real, pre-existing or infrastructure.
-10. Push with `--force-with-lease=<branch>:<old head SHA>`.
+10. In MR Studio publish only if source push and history rewrite were explicitly authorized; otherwise keep the verified result local. When force-push is authorized, use `--force-with-lease=<branch>:<old head SHA>`. A lease is a safeguard, not permission.
 11. Report the verdict first, then base changes, conflicts, push result, checks and the remaining decision with the PR link.
 
 ## Stop when

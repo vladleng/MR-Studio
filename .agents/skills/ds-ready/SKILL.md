@@ -3,11 +3,17 @@ name: ds-ready
 description: "Runs the full ds-ship workflow but stops with the pull request ready for a human to merge, and never merges. Use when the user says get it ready, make it mergeable, stop before merge, or /ds-ready."
 ---
 
-Do all of `ds-ship` except the merge. Hand the user an open PR that passes the merge gate.
+For an explicitly requested remote PR workflow, do `ds-ship` except the merge. In MR Studio, a local readiness request ends with a checked local diff/commit and acceptance report; it does not require a PR.
 
-For MR Studio the request grants only writes and tests already permitted by `AGENTS.md` and the assigned Issue. You may commit and push to the task branch, but it does **not** authorize force-push, history rewrite, auto-merge/merge-queue changes, merge or Issue closure.
+For MR Studio follow `AGENTS.md`: source push, PR creation and Actions each require authorization in the user request. Do not infer it from "get it ready". Force-push/history rewrite and merge require separate explicit permission; do not change auto-merge or merge-queue settings automatically.
 
-## Steps
+## Local MR Studio readiness
+
+1. Verify the assigned checkout, HEAD and dirty diff; preserve existing work.
+2. Finish only the requested scope and run proportional local checks from `mr-studio-build-test`, including RED/GREEN for bugs and the documented exceptions.
+3. Report the local diff/commit, exact checks and remaining acceptance items. Stop without push, PR, Actions or merge unless those actions were explicitly requested. A required FAIL/NOT TESTED prevents claiming fully verified readiness.
+
+## Steps for an authorized remote PR workflow
 
 1. Read `ds-ship` and follow its steps 1 to 6: branch, change, prove, review, file, watch.
 2. Check if auto-merge or a merge queue is already enabled. For MR Studio do not change either setting without explicit permission; if an automatic merge threatens required user acceptance, stop and report a blocker. Recheck before final handoff.
@@ -33,5 +39,5 @@ For MR Studio the request grants only writes and tests already permitted by `AGE
 
 ## MR Studio status
 
-- A PR can be technically READY but still be **WAITING FOR USER ACCEPTANCE**. CI PASS is not permission to merge. Verify the exact SHA and actual check results.
+- A local result or PR can be technically READY but still be **WAITING FOR USER ACCEPTANCE**. CI PASS is not permission to merge. Verify the exact SHA and actual check results.
 - Follow `mr-github-workflow` and `mr-studio-build-test`; generic `ds-ship` wording never authorizes unnecessary full CTest or Windows Release.

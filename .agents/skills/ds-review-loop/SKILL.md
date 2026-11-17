@@ -7,7 +7,7 @@ Make a change more correct by letting one fresh reviewer push back until you bot
 
 ## Steps
 
-1. Scope the change. Run `git status --short`. Do not stash, discard or include unrelated files. Find the base: `git fetch origin`, then `git merge-base HEAD origin/<base branch>`. Use one diff command for every round.
+1. Scope the change. Run `git status --short`. Do not stash, discard or include unrelated files. In MR Studio select the actual local base commit/branch; do not substitute origin/main for local history. Fetch and use a remote base only for an explicitly scoped remote PR review. Use one diff command for every round.
 2. Write the goal and out-of-scope list in two sentences. Run the covering checks. Do not send code that fails them.
 3. Pick the reviewer: a stronger model if the harness can reach one (subagent with a model setting, team worker, second CLI), or else a fresh DeepSeek context with no history. Record which one.
 4. Send this brief:
@@ -37,6 +37,6 @@ Make a change more correct by letting one fresh reviewer push back until you bot
 ## Rules
 
 - One reviewer at a time. Never agree just to end the loop.
-- Do not push during the loop. Push afterward only if the user asked to push or ship.
+- Do not push during the loop. In MR Studio push afterward only when source publication was explicitly requested; a local readiness request is not permission to publish.
 - If you update a PR, add: `Reviewed with ds-review-loop: <N> rounds, <reviewer>, verdict <verdict>.`
 - Report rounds, reviewer, fixed and declined findings with reasons, and diff size before and after.

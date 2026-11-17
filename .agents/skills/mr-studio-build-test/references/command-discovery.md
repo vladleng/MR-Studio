@@ -1,49 +1,30 @@
 # Command and target discovery
 
-Use this reference before inventing build commands.
+Use this reference to find real local build commands, not to infer them from historical CI.
 
-## 1. Inspect root files
+## 1. Inspect the affected local entry points
 
-Look for:
-- `CMakePresets.json`
-- `CMakeUserPresets.json`
-- `CMakeLists.txt`
-- build helper scripts
-- README/build docs
-- GitHub Actions workflow files and `docs/CLOUD_DEVELOPMENT.md` (primary for online Windows CI)
-- local build scripts and CMake presets (for optional local diagnostics)
+- `tools/Build-Local.ps1` and `tools/Enter-DevEnvironment.ps1`
+- `CMakePresets.json`, `CMakeUserPresets.json` when present, and `CMakeLists.txt`
+- Target definitions and the matching configured build tree
+- [Local build policy](../../../../docs/LOCAL_BUILD_POLICY.md) and root [AGENTS.md](../../../../AGENTS.md)
 
-## 2. Prefer canonical entry points
+Read only the files needed for the selected product and check. Tool installation alone does not prove configuration or build readiness.
 
-Priority for **online Windows validation**:
-1. current GitHub Actions workflow, inputs, CI markers and target scope
-2. `docs/CLOUD_DEVELOPMENT.md` and applicable `AGENTS.md` rules
-3. current build/test scripts invoked by those workflows
-4. derived command only after checking actual targets
+## 2. Choose the narrowest supported command
 
-For **optional local diagnostics**: project script → CMake preset → documented command → verified derived command.
+Priority: current local build script → applicable CMake preset → documented local command → derived command after checking actual targets and configuration. Inspect the script interface before invoking it; do not invent parameters or target names.
 
-## 3. Record the discovered contract
+Keep Studio-only / Live-only / Core scope. Studio defaults to ARA ON; Live standalone is ARA OFF. Studio ARA-OFF needs an explicit diagnostic request. Full CTest requires an agreed integration/release candidate or a concrete risk justification. Docs-only and cosmetic work follow the exceptions in AGENTS.md.
 
-Write down:
-- configure entry point
-- build entry point
-- test entry point
-- app executable path
-- Studio target
-- Live target
-- shared/core target
-- required configuration
-- hardware-only tests
+## 3. Record reproducible evidence
 
-## 4. Do not hardcode stale names
+Record the actual local branch/HEAD and dirty state, configure/build/test entry points, targets, configuration, SDK pins, commands and PASS/FAIL/NOT TESTED. Include executable/package paths when created and identify hardware checks that remain unperformed. Keep logs outside Git; publish Issue updates only when they are part of the task, otherwise report in chat.
 
-If a prior stage used a target or path that no longer exists, trust the current repository.
+If a historical target or path no longer exists, use the actual local checkout. Missing local tools or SDKs are a validation limitation, not authorization to install dependencies or dispatch Actions.
 
-## 5. Online validation policy (2026-11-08)
+## 4. Explicit remote exceptions
 
-GitHub `main` is the authority for rules, specifications and Issues; topic branches contain the current work. GitHub Actions is the default for Windows builds/tests/artifacts, while the local Windows machine serves user acceptance and physical ASIO/MIDI/DPI/vendor checks.
-- Select an affected Studio-only / Live-only CI profile when available; read the actual workflow before using `checks=studio`, `checks=live`, `[ci studio]` or `[ci live]`.
-- Full integration is a separate agreed gate or requires a justified risk; do not run it for each small change.
-- Follow the current `AGENTS.md` and task authorization: necessary scoped Actions runs/retries may already be approved, so no blanket requirement to request permission for every run. Cosmetic-only changes are checked without CI unless an updated application is requested.
-- Task-branch changes may be pushed as agreed. Merge into `main` and closing Issues require user acceptance. Local scripts are optional diagnostics, not the mandatory development path.
+Source push, PR creation and Actions are outside the normal local process and require an explicit user request. Only then inspect the current workflow inputs, scope and gates. `docs/CLOUD_DEVELOPMENT.md` and older Actions runs are historical evidence; they do not override local rules or validate a different revision.
+
+Merge into local `main` requires separate explicit permission. Passing checks do not establish user/hardware acceptance or authorize Issue closure.

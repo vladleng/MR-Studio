@@ -5,36 +5,26 @@ description: "Keep a PROGRESS.md for long tasks and move to a fresh session or s
 
 # ds-context-reset
 
-Store the state of the work in a file, not in the chat, so a fresh context can continue without drift.
+Keep a compact, evidence-based handoff so work can continue without relying on a stale conversation summary.
+
+## Choose the handoff location
+
+- In MR Studio use the session handoff. The assigned Issue supplies requirements and recorded acceptance; the actual local checkout, Git and logs supply implementation evidence. Update the Issue only when publication is part of the task.
+- Do not create or commit PROGRESS.md or another task journal in MR Studio by default. Temporary scratch, if needed, stays outside Git and contains no secrets.
+- In other repositories follow their policy; a PROGRESS.md may be appropriate. The steps below apply to either location.
 
 ## Steps
 
-1. At the start of a long task, create PROGRESS.md at the repo root with these sections:
-   - **Goal**: one or two sentences, plus the acceptance check for the whole task.
-   - **Done**: the verified steps, each with the command and result that proved it.
-   - **Next**: the ordered steps that remain. The first item is the exact next action.
-   - **Open questions**: unknowns and decisions that wait for the user.
-   - **Key facts**: paths, commands, versions, gotchas, and approaches that failed (with the reason).
-2. Update PROGRESS.md after every verified step. Do not update it for unverified ones. Commit the code and PROGRESS.md together with a descriptive message.
-3. Watch for reset signals: you repeat an earlier answer, you forget a fact that is in Key facts, you retry a fix that failed, the same file gets reread many times, or the context is more than about half full.
-4. When a signal appears, finish or revert the current step so the tree is in a known state.
-5. Rewrite PROGRESS.md as a complete handoff. A reader who has only this file and the repo must be able to continue. Remove chatter and keep the facts.
-6. Start a fresh session or subagent. Give it one instruction: "Read PROGRESS.md and `git log -5`, run the acceptance check for the last Done item, then do the first item in Next."
-7. In the new context, confirm that the baseline check passes before you make new edits. If it fails, fix that first.
+1. Record the goal and acceptance check; completed steps with commands/results; next steps; open questions; important constraints and failed approaches.
+2. Update after each verified step. Distinguish incomplete implementation, failed checks and pending user acceptance.
+3. Reset context when it causes repeated reading, forgotten facts or repeated failed fixes. First record local branch/HEAD, dirty state and unfinished edits. Preserve existing work; in MR Studio do not reset, stash, switch branches or discard files without agreement.
+4. Rewrite the handoff as a concise standalone account. Verify facts against the actual checkout and local Git history; remote history does not replace local Git.
+5. Pass the handoff to a fresh context or authorized subagent. It must inspect actual state before continuing and read only the relevant source/contracts. Do not automatically create a user-owned chat.
+6. Confirm previous evidence still applies to the current revision. Re-run a baseline only when drift or risk justifies it; docs-only/cosmetic work does not require application checks. Investigate discrepancies before relying on the baseline.
 
 ## Stop when
 
-- The goal's acceptance check passes and PROGRESS.md shows every item as Done.
-- You have done 3 resets on one Next item without progress. Stop and ask the user, with the file as your report.
+- The requested scope is complete and its actual checks/remaining acceptance items are reported.
+- Three resets on the same item produced no progress: report the blocker, evidence and next diagnostic step. Do not claim completion.
 
-## Rules
-
-- PROGRESS.md holds facts and evidence, not plans that nobody has checked.
-- Keep it under about 150 lines. Move old Done items into a short summary line.
-- Never put secrets or tokens in it.
-- The fresh context reads the file, not the old transcript.
-- Pair with ds-plan-loop for the Next list and with ds-unstick for the failed-approach notes.
-
-## MR Studio cloud override
-
-For MR Studio, **do not create or commit a root `PROGRESS.md` by default**. The current GitHub Issue/sub-issue holds acceptance criteria, status, checked steps, latest branch/commit, tests, blockers and next step; the PR holds review and exact-SHA CI links. These replace the `PROGRESS.md` instructions above for this repository. For a DSH context reset, supply a compact handoff drawn from those records and `git log -5` or the equivalent GitHub API. Temporary local scratch notes are allowed if they are not committed and contain no secrets. Continue only from observed evidence, never from a stale chat summary.
+Keep the handoff short, preserve the facts and skip conversational history. Pair with `ds-plan-loop` for next steps and `ds-unstick` for failed hypotheses, respecting the same storage and permission rules.

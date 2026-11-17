@@ -5,7 +5,7 @@ description: Implement end-to-end MR Studio product features affecting commands,
 
 # MR Feature Implementation
 
-Use for a **behavioral feature**, not every code edit. Start from the *assigned GitHub Issue* and read only applicable spec sections and source code. Confirm scope and acceptance criteria; do not start the next stage automatically. Local code can be ahead of GitHub, so inspect the actual checkout.
+Use for a **behavioral feature**, not every code edit. Start from the user request and the *assigned GitHub Issue*, when present, and read only applicable spec sections and source code. Confirm scope and acceptance criteria; do not start the next stage automatically. Local code can be ahead of GitHub, so inspect the actual checkout.
 
 ## Minimal workflow
 
@@ -16,7 +16,7 @@ Use for a **behavioral feature**, not every code edit. Start from the *assigned 
 5. Define user-action transactions and Undo/Redo; decide what persists. Check older project defaults, missing files, ID stability and explicit migrations. When this is complex read [persistence reference](references/persistence-and-compatibility.md).
 6. Put scanning, import, media I/O and expensive preparations off UI/audio callbacks. RT changes require `mr-realtime-audio-safety`; native plugin editor/state changes benefit from `mr-plugin-development`; visual work from `mr-studio-ui-design-system`.
 7. Add affected unit, command/Undo, persistence round-trip, engine and/or GUI regression tests; fix causes, not superficial symptoms. Use [test matrix](assets/feature-test-matrix.md) if multiple layers are affected. Use `mr-studio-build-test` when compiling/testing.
-8. Compare result to the assigned Issue. Document *only* new architecture or behavior; update that Issue with actual local commit, tests, limitations and acceptance state. A user-approved stage is not an approval of unrelated parent work.
+8. Compare result to the assigned Issue. Document *only* new architecture or behavior; report the actual local commit, tests, limitations and acceptance state; update the Issue only when its update is part of the task, otherwise report in chat. A user-approved stage is not an approval of unrelated parent work.
 
 ## Guardrails
 

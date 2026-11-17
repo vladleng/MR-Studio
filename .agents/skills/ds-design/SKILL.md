@@ -3,7 +3,7 @@ name: ds-design
 description: "Builds a frontend with a clear visual direction instead of the generic AI look. Use when you create a new page, app screen, or component, or restyle one that looks templated. Run as /ds-design."
 ---
 
-Build a UI that does not look like the default output for any similar prompt.
+Build within the approved product visual system. For MR Studio JUCE screens, read `mr-unified-gui` and `mr-studio-ui-design-system`; preserve MR UDS tokens, typography and accepted geometry. The web defaults below (font pairing, 44px targets, browser widths and screenshots) are not JUCE requirements. Cosmetic work follows V1 without automatic previews/tests; do not introduce a new visual system.
 
 ## Steps
 

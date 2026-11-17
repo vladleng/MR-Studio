@@ -11,7 +11,7 @@ User decision 2026-11-16: code, rules, Git history, builds, tests and packages l
 
 1. Read current root `AGENTS.md`, the assigned Issue/sub-issue when present, and local status/branch/HEAD. Use [local policy](../../../docs/LOCAL_BUILD_POLICY.md) and `mr-studio-build-test` for build/test decisions; load other skills only for affected areas.
 2. Respect precedence: current request and accepted decisions; `AGENTS.md` and Issue; relevant `mr-*` skills; generic `ds-*` techniques. Generic ship/watch/PR workflows do not override the local process.
-3. Keep requirements, acceptance criteria, meaningful results and blockers in the assigned Issue. Do not introduce PLAN.md/PROGRESS.md or parallel task journals by default. Without an assigned Issue, follow the specific request and report in chat.
+3. When Issue updates are part of the task, keep requirements, acceptance criteria, meaningful results and blockers there. Merely assigning an Issue as a requirements source does not authorize comments; otherwise report in chat. Do not introduce PLAN.md/PROGRESS.md or parallel task journals by default. Without an assigned Issue, follow the specific request and report in chat.
 4. Use real `gh` or available GitHub connector/API tools for Issues. Verify access without printing tokens. If access fails, continue independent local work and report the missing Issue update; do not claim it was posted.
 
 ## Local change to Issue evidence

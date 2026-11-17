@@ -3,7 +3,7 @@ name: ds-design-audit
 description: "Reviews an existing UI with scores based on evidence, then fixes the highest-impact problems. Use when a page or app screen looks generic, cluttered, or unfinished, or before you ship UI work. Run as /ds-design-audit."
 ---
 
-Score a UI from what is on the screen, fix the worst problems, and show that the fixes work.
+Score the requested UI from observable evidence. An audit-only request ends with findings and recommendations; apply fixes only when implementation is requested. For MR Studio follow `mr-unified-gui` and `mr-studio-ui-design-system`: use MR UDS and actual JUCE sizes/states, not the web typography, 44px targets or browser widths below. Respect the cosmetic V1 exception.
 
 ## Steps
 
@@ -20,13 +20,13 @@ Score a UI from what is on the screen, fix the worst problems, and show that the
    - Copy: the copy is specific to the product, with no stock phrases and no placeholder data.
 5. Record each banned default that you see: purple-blue gradients, a default font used for display, emoji used as icons, a centered hero with three identical cards, glassmorphism everywhere, gray text on gray, and generic copy.
 6. Rank the fixes by their impact on users. Put broken accessibility and an unclear main action first. Put decoration last. For each fix, give the file, the change, and the score that it raises.
-7. Apply the top 3 to 5 fixes. Fix the cause in the tokens or in the shared components, not in each instance. Keep the identity, content, and behavior of the product.
+7. For an audit-only request, report the ranked findings and stop. If implementation is authorized, apply only the requested fixes. Fix the cause in the tokens or in the shared components, not in each instance. Keep the identity, content, and behavior of the product.
 8. Take new screenshots at the same widths and in the same states as in step 2. Score each area again and show the before and after scores side by side.
 9. If an area still has a score of 2 or lower, or a banned default remains, repeat steps 6 to 8 once. Do not do more than two passes.
 
 ## Stop when
 
-- Two passes are complete, or every area has a score of 3 or higher and no banned default remains.
+- The audit-only report is delivered; or, for authorized fixes, two passes are complete or the agreed checks pass.
 - The report shows the before and after scores, the evidence, the fixes that you applied, and the fixes that you did not apply, each with a reason.
 
 ## Rules

@@ -9,7 +9,7 @@ A long run forgets its own reasons. A short written ledger keeps the goal in vie
 
 ## Steps
 
-1. Create one TSV file, for example `.ds-ledger.tsv`, with the header `ts	phase	decision	why	evidence	result`. Put the goal and done condition in the first row.
+1. In MR Studio keep decisions in the session handoff and update the Issue only when authorized. Do not create or commit a parallel TSV journal by default; if temporary scratch is necessary, keep it outside Git. The row structure below can be used in the handoff. In other repositories, create a TSV file according to their policy, with the header `ts	phase	decision	why	evidence	result`. Put the goal and done condition in the first row.
 2. Before each step, re-read the goal row and the last ten rows. Check that the next step still serves the goal. If it does not, log the drift and correct course.
 3. After each real decision, append one row:
    - ts: ISO 8601 time.
@@ -20,7 +20,7 @@ A long run forgets its own reasons. A short written ledger keeps the goal in vie
    - result: the outcome, such as "tests pass", "reverted", "open".
 4. Keep each cell on one line with no tabs.
 5. Log reverts and dropped work too, with the reason. Failures are the most useful rows.
-6. At the end, add a summary row and point the user to the file. Commit it only if a reviewer needs it.
+6. At the end summarize the decisions and evidence in the chosen location. In MR Studio report in chat or the authorized Issue; do not commit a task journal.
 
 ## Stop when
 

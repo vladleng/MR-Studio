@@ -35,7 +35,7 @@ Visual Studio 18 Community may supply CMake/Ninja outside PATH; use its develope
 
 ## Delivery and acceptance
 
-- Prepare acceptance packages outside checkout with matching component version, manifest and symbols; preserve earlier versions. Exclude SDKs, fixtures, secrets, proprietary plugins and user files.
+- Before assigning a build version or preparing a package, read [versioning rules](../../../docs/VERSIONING.md). Prepare acceptance packages outside checkout with matching component version, manifest and symbols; preserve earlier versions. Exclude SDKs, fixtures, secrets, proprietary plugins and user files.
 - Check startup/editor lifetime and Save/Open/Undo when affected. Report listening, ASIO/MIDI, physical DPI and vendor checks only when actually performed; unavailable hardware remains NOT TESTED.
 - READY requires necessary checks; READY WITH MANUAL CHECK means only stated user/hardware checks remain; otherwise report NOT VALIDATED or BLOCKED. Build PASS is not acceptance, Issue closure or permission to merge into local `main`.
 - Historical CI configuration is retained but is not a required local gate. Actions or remote publication require a separate request; then inspect real workflows rather than bypassing gates.

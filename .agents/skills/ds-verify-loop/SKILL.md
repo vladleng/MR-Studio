@@ -16,8 +16,8 @@ Prove a change works by running the real check and fixing what it reports, not w
 5. State the root cause in one sentence, based on the output. If you cannot, add one print or log line, or read the failing code, and rerun. Do not guess.
 6. Fix the cause, not the symptom. Do not add a special case for the one input that the test uses.
 7. Rerun the same command. Count this as one iteration.
-8. When the narrow check passes, run the next justified check once, based on changed scope and available infrastructure. For MR Studio follow `mr-studio-build-test`: do not automatically run a full test suite or Windows Release after every edit; current GitHub Actions workflows own gates and execution order.
-9. Paste the final passing output (the command and its last lines) in your reply or in PROGRESS.md.
+8. When the narrow check passes, run the next justified check once, based on changed scope and available infrastructure. For MR Studio follow `mr-studio-build-test`: do not automatically run a full test suite or Windows Release after every edit; current local scripts/CMake determine execution; Actions requires a separate request.
+9. Report the command and actual result concisely. In MR Studio keep full logs outside Git, use the chat handoff, and update the Issue only when authorized; do not create PROGRESS.md by default.
 
 ## Stop when
 
@@ -31,10 +31,10 @@ Prove a change works by running the real check and fixing what it reports, not w
 - Never mock away the thing under test.
 - Run the real command every time. Do not reason about what it would print.
 - Change one thing per iteration so that you know what fixed it.
-- If no check exists, write the smallest one that fails without your change, then use the loop.
+- For a bug with no check, add the smallest reproduction before fixing. In MR Studio respect the documented manual reproduction exception and docs-only/cosmetic validation scope; do not invent tests merely to satisfy this loop.
 
-## MR Studio cloud / DSH
+## MR Studio local validation
 
-- Follow `mr-github-workflow`; inspect the current Issue, branch HEAD, available tests and workflow definitions before choosing a check. Never invent a CMake target, workflow input or test command.
-- The narrowest check may run on GitHub Actions, not in a local terminal. Use authenticated GitHub tools/APIs if DSH lacks `gh` or a checkout; otherwise report NOT TESTED/BLOCKED.
+- Follow `mr-github-workflow`; inspect the assigned Issue when present, local branch HEAD, available tests, scripts and CMake before choosing a check. Never invent a CMake target, workflow input or test command.
+- Run checks locally. If the checkout or required tooling is unavailable, report the missing validation as NOT TESTED/BLOCKED and continue independent work; do not substitute Actions without a separate request.
 - Preserve RED → GREEN for bugfixes. Check relevant downstream gates only when justified by `mr-studio-build-test`. CI PASS is not hardware/user acceptance. Never bypass a failing gate.

@@ -7,16 +7,16 @@ user-invocable: false
 
 Own the work from its current state to a merged PR while nobody is watching.
 
-Only act this way when the user clearly asked for it, and only within project permissions. In MR Studio, a request to implement, ship, file a PR or 'merge when green' does not replace separate user acceptance and an explicit command to merge the accepted scope. Force-push/history rewrite needs separate approval. Until then, behave like `ds-ready` and leave the PR open.
+Only act this way when the user clearly asked for it, and only within project permissions. In MR Studio, a request to implement, ship, file a PR or 'merge when green' does not replace separate user acceptance and an explicit command to merge the accepted scope. Force-push/history rewrite needs separate approval. Without an explicit remote publication request, use the local readiness path in `ds-ready`: implement, check and report without push, PR or Actions. If a PR is already in scope, leave it open until acceptance and merge authorization.
 
-## Steps
+## Steps for an authorized remote PR workflow
 
-1. If you are on the default branch, create a new branch.
+1. Check branch, HEAD and dirty state. In MR Studio use the assigned checkout; agree on a branch switch before changing it.
 2. Make the smallest change that meets the goal. Fix the case that was reported, not every case that might exist.
-3. Prove every part of the diff. Reproduce the failure, apply the fix, and run the same reproduction again. Run the checks CI runs. For UI or runtime behavior, run the app and look. Paste the command and its output into your notes.
+3. Prove every part of the diff. Reproduce the failure, apply the fix, and run the same reproduction again. Choose proportional checks from the project build skill. In MR Studio run them locally; respect docs-only and cosmetic exceptions, and perform runtime checks only when required by the affected behavior. Paste the command and its output into your notes.
 4. Review the change with `ds-review-loop`. Re-prove anything the review changed.
 5. Check whether the task branch is current. Update without rewriting shared history unless separately authorized; report conflicts rather than force-pushing. Then file the PR with `ds-pr`, noting actual proof.
-6. Watch the PR with `ds-watch-pr`. Fix real findings and CI failures, prove each fix, push, and watch again.
+6. Watch the PR with `ds-watch-pr`. Fix real findings, prove each fix locally, and push or rerun Actions only within the separately authorized remote scope.
 7. Check the merge gate on the latest commit. For MR Studio merge only after separate explicit user acceptance and a merge instruction for that scope; otherwise leave the PR open and report ready/waiting for acceptance. Never bypass gates with `--admin`.
 8. Report the PR link, merge commit, proof, and every decision you made for the user.
 
@@ -39,4 +39,4 @@ Merge gate, all true on the latest head: proof covers the full diff, required ch
 
 ## MR Studio override
 
-Read `mr-github-workflow`, `mr-studio-build-test` and current `AGENTS.md` before destructive actions. GitHub Actions owns CI ordering and release gates. A passing PR does not replace hardware/manual ASIO/MIDI/DPI/user acceptance. Do not close the assigned Issue before acceptance.
+Read `mr-github-workflow`, `mr-studio-build-test` and current `AGENTS.md` before destructive actions. Local scripts/CMake and `docs/LOCAL_BUILD_POLICY.md` govern normal validation. Inspect current Actions gates only for separately requested remote work. A passing PR does not replace hardware/manual ASIO/MIDI/DPI/user acceptance. Do not close the assigned Issue before acceptance.

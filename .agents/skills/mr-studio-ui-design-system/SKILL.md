@@ -26,6 +26,6 @@ For a single background/color/border, SVG tint or similarly isolated visual chan
 
 ## Verification and delivery
 
-- Use the affected scoped GitHub Actions Windows profile and proportional GUI/state checks (`mr-studio-build-test`) for behavioral/layout changes. For V1 use only the cosmetic shortcut above, with no automatic preview or build unless requested. For layout/control behavior, compare the same theme/size/build, keyboard/pointer/focus/resize and relevant software DPI; physical mixed-DPI transitions and ASIO listening are **NOT TESTED** unless performed by the user.
+- Use the affected local Windows target and proportional GUI/state checks (`mr-studio-build-test`) for behavioral/layout changes. For V1 use only the cosmetic shortcut above, with no automatic preview or build unless requested. For layout/control behavior, compare the same theme/size/build, keyboard/pointer/focus/resize and relevant software DPI; physical mixed-DPI transitions and ASIO listening are **NOT TESTED** unless performed by the user.
 - Use [UI audit template](assets/ui-audit-template.md) or [component template](assets/component-redesign-template.md) only for substantial work; no mandatory giant report or new design documents for tiny fixes.
 - Describe visual changes, affected components, actual PASS/FAIL/NOT TESTED checks and user acceptance status. Shared token decisions update current canonical docs, not a second competing design-system specification. For docs-only skill edits, verify diff/links only; no application rebuild.
