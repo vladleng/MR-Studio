@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="712" viewBox="0 0 1040 712" role="img"><rect x="0" y="0" width="1040" height="712" rx="0" fill="#10151C"  />
+<text x="42" y="24" fill="#6CA4D0" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="26" font-weight="700" dominant-baseline="hanging" text-anchor="start">MR</text>
+<text x="107" y="28" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="16" font-weight="700" dominant-baseline="hanging" text-anchor="start">STUDIO</text>
+<text x="995" y="31" fill="#6C7B89" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="12"  dominant-baseline="hanging" text-anchor="end">AUDIO → MIDI  /  UX SPEC</text>
+<path d="M40 72 L1000 72" stroke="#313A44" stroke-width="1"  fill="none"/>
+<text x="45" y="93" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="19" font-weight="700" dominant-baseline="hanging" text-anchor="start">Сценарий B · ПКМ → Convert to MIDI</text>
+<text x="45" y="126" fill="#9DAAB8" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="13"  dominant-baseline="hanging" text-anchor="start">Для полного микса первый диалог содержит только модель</text>
+<text x="42" y="676" fill="#6C7B89" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="11"  dominant-baseline="hanging" text-anchor="start">MR STUDIO  /  UI WIREFRAME</text>
+<text x="998" y="676" fill="#6C7B89" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="11"  dominant-baseline="hanging" text-anchor="end">04 / 07</text>
+<rect x="114" y="166" width="812" height="477" rx="18" fill="#1B232D" stroke="#34404C" stroke-width="1" />
+<text x="146" y="192" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="22" font-weight="700" dominant-baseline="hanging" text-anchor="start">Convert to MIDI</text>
+<text x="891" y="193" fill="#9DAAB8" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="25"  dominant-baseline="hanging" text-anchor="end">×</text>
+<path d="M142 245 L898 245" stroke="#313A44" stroke-width="1"  fill="none"/>
+<rect x="156" y="278" width="727" height="89" rx="10" fill="#222C37"  />
+<text x="178" y="295" fill="#9DAAB8" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="13"  dominant-baseline="hanging" text-anchor="start">Источник</text>
+<text x="178" y="325" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="19" font-weight="700" dominant-baseline="hanging" text-anchor="start">Full Mix · Selected Audio Clip</text>
+<text x="156" y="395" fill="#9DAAB8" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="14"  dominant-baseline="hanging" text-anchor="start">Модель распознавания</text>
+<rect x="156" y="426" width="727" height="58" rx="9" fill="#222C37" stroke="#34404C" stroke-width="1" />
+<text x="174" y="445" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="18"  dominant-baseline="hanging" text-anchor="start">MuScriptor Medium</text>
+<text x="856" y="445" fill="#9DAAB8" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="24"  dominant-baseline="hanging" text-anchor="end">⌄</text>
+<path d="M156 530 L883 530" stroke="#313A44" stroke-width="1"  fill="none"/>
+<rect x="601" y="559" width="120" height="51" rx="9" fill="#222C37" stroke="#34404C" stroke-width="1" />
+<text x="661" y="574" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="15"  dominant-baseline="hanging" text-anchor="middle">Отмена</text>
+<rect x="737" y="559" width="146" height="51" rx="9" fill="#20394F" stroke="#6CA4D0" stroke-width="1" />
+<text x="810" y="574" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="15" font-weight="700" dominant-baseline="hanging" text-anchor="middle">Распознать партии</text></svg>

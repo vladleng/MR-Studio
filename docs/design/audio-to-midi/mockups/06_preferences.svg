@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1300" height="890" viewBox="0 0 1300 890" role="img"><rect x="0" y="0" width="1300" height="890" rx="0" fill="#10151C"  />
+<text x="42" y="24" fill="#6CA4D0" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="26" font-weight="700" dominant-baseline="hanging" text-anchor="start">MR</text>
+<text x="107" y="28" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="16" font-weight="700" dominant-baseline="hanging" text-anchor="start">STUDIO</text>
+<text x="1255" y="31" fill="#6C7B89" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="12"  dominant-baseline="hanging" text-anchor="end">AUDIO → MIDI  /  UX SPEC</text>
+<path d="M40 72 L1260 72" stroke="#313A44" stroke-width="1"  fill="none"/>
+<text x="45" y="93" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="19" font-weight="700" dominant-baseline="hanging" text-anchor="start">Preferences → Audio-to-MIDI</text>
+<text x="45" y="126" fill="#9DAAB8" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="13"  dominant-baseline="hanging" text-anchor="start">Параметры обработки и MIDI не перегружают окна конвертации</text>
+<text x="42" y="854" fill="#6C7B89" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="11"  dominant-baseline="hanging" text-anchor="start">MR STUDIO  /  UI WIREFRAME</text>
+<text x="1258" y="854" fill="#6C7B89" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="11"  dominant-baseline="hanging" text-anchor="end">06 / 07</text>
+<rect x="65" y="165" width="1173" height="667" rx="14" fill="#1B232D" stroke="#34404C" stroke-width="1" />
+<rect x="85" y="190" width="262" height="620" rx="8" fill="#151C25"  />
+<text x="124" y="227" fill="#9DAAB8" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="17"  dominant-baseline="hanging" text-anchor="start">Audio</text>
+<text x="124" y="299" fill="#9DAAB8" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="17"  dominant-baseline="hanging" text-anchor="start">MIDI</text>
+<rect x="102" y="359" width="221" height="50" rx="7" fill="#20394F"  />
+<text x="124" y="371" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="17" font-weight="700" dominant-baseline="hanging" text-anchor="start">Audio-to-MIDI</text>
+<text x="124" y="443" fill="#9DAAB8" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="17"  dominant-baseline="hanging" text-anchor="start">Plugins</text>
+<text x="124" y="515" fill="#9DAAB8" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="17"  dominant-baseline="hanging" text-anchor="start">Models &amp; Data</text>
+<text x="384" y="206" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="24" font-weight="700" dominant-baseline="hanging" text-anchor="start">Audio-to-MIDI</text>
+<path d="M384 255 L1205 255" stroke="#313A44" stroke-width="1"  fill="none"/>
+<text x="384" y="278" fill="#6CA4D0" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="12" font-weight="700" dominant-baseline="hanging" text-anchor="start">ПРОИЗВОДИТЕЛЬНОСТЬ</text>
+<text x="386" y="313" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="16"  dominant-baseline="hanging" text-anchor="start">CPU Threads</text>
+<text x="386" y="339" fill="#6C7B89" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="12"  dominant-baseline="hanging" text-anchor="start">Ограничено доступными потоками</text>
+<rect x="947" y="302" width="249" height="53" rx="8" fill="#222C37" stroke="#34404C" stroke-width="1" />
+<text x="970" y="315" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="16"  dominant-baseline="hanging" text-anchor="start">Auto</text>
+<text x="1176" y="315" fill="#6C7B89" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="21"  dominant-baseline="hanging" text-anchor="end">⌄</text>
+<text x="386" y="382" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="16"  dominant-baseline="hanging" text-anchor="start">Устройство вычислений</text>
+<text x="386" y="408" fill="#6C7B89" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="12"  dominant-baseline="hanging" text-anchor="start">Только поддерживаемые устройства</text>
+<rect x="947" y="371" width="249" height="53" rx="8" fill="#222C37" stroke="#34404C" stroke-width="1" />
+<text x="970" y="384" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="16"  dominant-baseline="hanging" text-anchor="start">CPU</text>
+<text x="1176" y="384" fill="#6C7B89" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="21"  dominant-baseline="hanging" text-anchor="end">⌄</text>
+<path d="M384 450 L1203 450" stroke="#313A44" stroke-width="1"  fill="none"/>
+<text x="384" y="465" fill="#6CA4D0" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="12" font-weight="700" dominant-baseline="hanging" text-anchor="start">ПОВЕДЕНИЕ MIDI</text>
+<text x="386" y="499" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="16"  dominant-baseline="hanging" text-anchor="start">Квантизация после импорта</text>
+<text x="386" y="525" fill="#6C7B89" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="12"  dominant-baseline="hanging" text-anchor="start">Исходное время нот сохраняется</text>
+<rect x="947" y="488" width="249" height="53" rx="8" fill="#222C37" stroke="#34404C" stroke-width="1" />
+<text x="970" y="501" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="16"  dominant-baseline="hanging" text-anchor="start">Off</text>
+<text x="1176" y="501" fill="#6C7B89" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="21"  dominant-baseline="hanging" text-anchor="end">⌄</text>
+<text x="386" y="570" fill="#9DAAB8" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="16"  dominant-baseline="hanging" text-anchor="start">Сетка / сила квантизации</text>
+<text x="386" y="596" fill="#6C7B89" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="12"  dominant-baseline="hanging" text-anchor="start">Применяется, только если Quantize включена</text>
+<rect x="947" y="559" width="249" height="53" rx="8" fill="#222C37" stroke="#34404C" stroke-width="1" />
+<text x="970" y="572" fill="#9DAAB8" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="16"  dominant-baseline="hanging" text-anchor="start">1/16 · 100%</text>
+<text x="1176" y="572" fill="#6C7B89" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="21"  dominant-baseline="hanging" text-anchor="end">⌄</text>
+<text x="386" y="640" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="16"  dominant-baseline="hanging" text-anchor="start">Velocity по умолчанию</text>
+<text x="386" y="666" fill="#6C7B89" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="12"  dominant-baseline="hanging" text-anchor="start">Используется только без модели velocity</text>
+<rect x="947" y="629" width="249" height="53" rx="8" fill="#222C37" stroke="#34404C" stroke-width="1" />
+<text x="970" y="642" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="16"  dominant-baseline="hanging" text-anchor="start">100</text>
+<text x="1176" y="642" fill="#6C7B89" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="21"  dominant-baseline="hanging" text-anchor="end">⌄</text>
+<path d="M384 712 L1203 712" stroke="#313A44" stroke-width="1"  fill="none"/>
+<text x="384" y="733" fill="#F0F3F6" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="18" font-weight="700" dominant-baseline="hanging" text-anchor="start">Управление моделями</text>
+<text x="1180" y="733" fill="#6CA4D0" font-family="'DejaVu Sans', 'Arial', sans-serif" font-size="16"  dominant-baseline="hanging" text-anchor="end">Открыть →</text></svg>
