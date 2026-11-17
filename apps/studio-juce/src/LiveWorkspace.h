@@ -151,12 +151,15 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         mixerButton.setButtonText({});
         mixerButton.setClickingTogglesState(true);
         mixerButton.setTooltip("Show Mixer");
-        for(auto* button:{&pointerTool,&scissorsTool,&zoomFitButton})addAndMakeVisible(button);
+        for(auto* button:{&pointerTool,&scissorsTool,&zoomFitButton,&zoomResetButton})addAndMakeVisible(button);
         zoomFitButton.setComponentID("live-zoom-fit");
         zoomFitButton.setButtonText({});
         zoomFitButton.getProperties().set("mrHostIcon","action_fit");
         zoomFitButton.setTooltip("Fit current item to Timeline");
         zoomFitButton.onClick=[this]{timeline.zoomFit();};
+        zoomResetButton.setComponentID("live-zoom-reset");
+        zoomResetButton.setTooltip("Reset timeline zoom");
+        zoomResetButton.onClick=[this]{timeline.resetZoom();};
         for(auto* divider:std::array<juce::Component*,3>{&filesSeparator,&windowsSeparator,&historySeparator})
             addAndMakeVisible(divider);
         filesSeparator.setComponentID("live-toolbar-separator-files");
@@ -260,8 +263,8 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         // The design uses a 380px toolbar at 1920px viewport. At the
         // supported narrower Live windows its actual width scales down,
         // so keep all groups inside that region instead of letting the
-        // trailing Fit/Undo/Redo buttons collapse or spill into the header.
-        constexpr int preferredWidth=324;
+        // trailing Fit/Reset/Undo/Redo buttons collapse or spill into the header.
+        constexpr int preferredWidth=352;
         const auto scale=juce::jmin(1.f,
             static_cast<float>(controls.getWidth())/static_cast<float>(preferredWidth));
         const auto toolbarWidth=[scale](int preferred) {
@@ -282,6 +285,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
         pointerTool.setBounds(controls.removeFromLeft(toolbarWidth(28)).reduced(1));
         scissorsTool.setBounds(controls.removeFromLeft(toolbarWidth(28)).reduced(1));
         zoomFitButton.setBounds(controls.removeFromLeft(toolbarWidth(28)).reduced(1));
+        zoomResetButton.setBounds(controls.removeFromLeft(toolbarWidth(28)).reduced(1));
         separator(historySeparator);
         // History remains a separate compact group.
         undoButton.setBounds(controls.removeFromLeft(toolbarWidth(26)));
@@ -579,7 +583,7 @@ class LiveWorkspace final : public juce::Component, private juce::Timer {
     MixerToggle mixerButton;
     FollowToggle followPlayhead;
     juce::TextButton pointerTool{"Pointer"},scissorsTool{"Scissors"};
-    juce::TextButton zoomFitButton{"Fit"};
+    juce::TextButton zoomFitButton{"Fit"},zoomResetButton{"1:1"};
     ToolbarSeparator filesSeparator,windowsSeparator,historySeparator;
     bool mixerVisible{};
     bool showLegacyChannels{};

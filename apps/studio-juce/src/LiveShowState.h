@@ -245,6 +245,8 @@ inline juce::var blockSpan(double start,double length) {
 // A newly created Patch block asks for sixteen bars; a shorter Item or the free
 // gap between existing blocks clamps it instead of refusing the insert.
 inline constexpr double newPatchBlockBars=16.;
+// A newly inserted Sub-patch strip asks for four bars inside its parent Patch.
+inline constexpr double newSubPatchBlockBars=4.;
 // Authored timeline blocks have their own IDs. Older shows used the
 // library Patch/Sub-patch ID as the span key; that remains valid. Scissors
 // allocate a NEW block key while retaining a reference to the same library
@@ -544,15 +546,16 @@ inline juce::var joinedSubPatchSpans(const juce::var& spans,const juce::String& 
     put(result,juce::Identifier(patchId),updated);
     return result;
 }
-// Place one Sub-patch at the click (1 bar by default); shorten to the free
-// interval. UUID instance keys allow repeated Rhythm/Solo occurrences while
-// keeping one shared library override state.
+// Place one Sub-patch at the click (four bars by default, at most half of the
+// clicked sound); shorten to the free interval. UUID instance keys allow
+// repeated Rhythm/Solo occurrences while keeping one shared library override
+// state.
 // At the clicked grid position, splice a new library variation into the
 // existing full-length strip. Keep both surviving pieces of the original
 // sound; never create a Base gap or move the requested insertion elsewhere.
 inline juce::var addedSubPatchSpanAt(const juce::var& subs,double parentLength,
                                      const juce::String& libraryId,double preferredStart,
-                                     double preferredLength=1.) {
+                                     double preferredLength=newSubPatchBlockBars) {
     if(libraryId.isEmpty() || !std::isfinite(preferredStart) ||
        !std::isfinite(parentLength) || parentLength<.25 ||
        !std::isfinite(preferredLength) || preferredLength<.25)
@@ -568,7 +571,11 @@ inline juce::var addedSubPatchSpanAt(const juce::var& subs,double parentLength,
         const auto end=start+blockLength(row.second);
         if(at<start-1.e-7 || at>=end-1.e-7)continue;
         const auto before=at-start;
-        const auto length=juce::jmin(preferredLength,end-at);
+        // A new strip asks for its default length but never takes more than
+        // half of the clicked sound, so both sides of the split stay audible.
+        const auto length=juce::jmin(preferredLength,
+                                     juce::jmax(.25,(end-start)*.5),
+                                     end-at);
         const auto after=end-at-length;
         if((before>1.e-7 && before<.25-1.e-7) ||
            length<.25-1.e-7 ||

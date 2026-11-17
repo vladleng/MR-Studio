@@ -723,31 +723,6 @@ void Desktop::setLiveMusicalColor(const juce::String& itemId,const juce::String&
     performLiveValuePatch(section?"Section color":"Chord color",std::move(path),color,
                           live::EditImpact::metadata|live::EditImpact::paint);
 }
-void Desktop::setLiveTimelineScale(double factor) {
-    if(!liveDocument||!std::isfinite(factor)||factor<=0.)return;
-    const auto& state=liveDocument->interfaceState;
-    std::vector<live::ValuePatch> patches;
-    if(const auto* items=state["items"].getArray())
-        for(const auto& item:*items) {
-            const auto id=item["id"].toString();
-            if(id.isEmpty())continue;
-            // arrangement is an object keyed by Item id, so this is a plain key
-            // path; a row step would look for an array that does not exist.
-            const auto prior=state["performance"]["arrangement"][juce::Identifier(id)];
-            const double oldScale=live::number(prior["scale"])?
-                juce::jlimit(4.,128.,static_cast<double>(prior["scale"])):16.;
-            const double nextScale=juce::jlimit(4.,128.,oldScale*factor);
-            if(std::abs(nextScale-oldScale)<1.e-9)continue;
-            auto updatedView=prior.isObject()?prior.clone():live::object();
-            if(updatedView["scale"].isVoid())live::put(updatedView,"scale",16.);
-            if(updatedView["lead"].isVoid())live::put(updatedView,"lead",0.);
-            live::put(updatedView,"scale",nextScale);
-            live::EditPath path{"performance","arrangement",id};
-            patches.push_back(live::valuePatch(state,std::move(path),updatedView));
-        }
-    if(patches.empty())return;
-    performLiveValuePatches("Timeline zoom",std::move(patches),live::EditImpact::timeline);
-}
 void Desktop::editLiveItemView(const juce::String &id, const juce::Identifier &key, double value) {
     if (!liveDocument || !live::find(liveDocument->interfaceState, "items", id).isObject())
         throw std::runtime_error("Show item no longer exists");
@@ -816,6 +791,7 @@ void Desktop::newLiveShow() {
 void Desktop::prepareLiveInterface(bool saved) {
     ++liveDocumentGeneration;
     ++liveSourceCheckEpoch;++liveSelectionRevision;
+    view.liveTimelineZoom=1.; // Global zoom belongs to the show that was open.
     for (const auto &entry : livePreparedItems)
         app.cancel_playback(entry.media);
     livePreparedItems.clear();

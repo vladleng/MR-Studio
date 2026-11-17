@@ -1353,8 +1353,8 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
         liveCheck(patchColour()==previousColour,"Patch colour Undo restores the previous colour");
     }
     {
-        // Global zoom must reach every Item view through a plain key path; a row
-        // step targets arrays and used to throw, leaving the timeline unchanged.
+        // Global zoom is a view factor: it must reach every Item without
+        // rewriting the show, the authored Item scale or the Undo history.
         const auto scaleOf=[&](const juce::String& id) {
             const auto view=editing.liveDocument->interfaceState["performance"]["arrangement"]
                 [juce::Identifier(id)];
@@ -1364,12 +1364,34 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
         if(const auto* items=editing.liveDocument->interfaceState["items"].getArray())
             if(!items->isEmpty())zoomItem=(*items)[0]["id"].toString();
         const auto previousScale=scaleOf(zoomItem);
-        editing.setLiveTimelineScale(1.25);
-        liveCheck(zoomItem.isNotEmpty() && scaleOf(zoomItem)>previousScale,
-                  "Timeline zoom scales the Item view through the local edit path");
-        editing.undoLiveInterface();
-        liveCheck(std::abs(scaleOf(zoomItem)-previousScale)<1.e-9,
-                  "Timeline zoom Undo restores the Item scale");
+        const auto previousWidth=timeline->itemBounds(zoomItem).getWidth();
+        const auto previousUndo=editing.liveUndo.canUndo();
+        const auto previousSignature=editing.liveDocument->signature();
+        timeline->zoomAll(1.25,0);
+        liveCheck(std::abs(timeline->timelineZoom()-1.25)<1.e-9 &&
+                  timeline->itemBounds(zoomItem).getWidth()>previousWidth &&
+                  std::abs(scaleOf(zoomItem)-previousScale)<1.e-9 &&
+                  editing.liveUndo.canUndo()==previousUndo &&
+                  editing.liveDocument->signature()==previousSignature,
+                  "Timeline zoom scales every Item view without touching show, Item scale or Undo");
+        timeline->resetZoom();
+        liveCheck(std::abs(timeline->timelineZoom()-1.)<1.e-9 &&
+                  timeline->itemBounds(zoomItem).getWidth()==previousWidth &&
+                  std::abs(scaleOf(zoomItem)-previousScale)<1.e-9,
+                  "Resetting the Timeline zoom restores the default factor");
+    }
+    {
+        // A newly inserted Sub-patch strip asks for four bars inside its parent.
+        auto parent=live::blockSpan(0.,16.);
+        parent=live::fullDefaultSubPatchSpan(parent,"defaultSub");
+        const auto next=live::addedSubPatchSpanAt(parent["subs"],16.,"variantSub",8.);
+        double insertedLength=0.;
+        if(const auto* subs=next.getDynamicObject())
+            for(const auto& property:subs->getProperties())
+                if(property.value["subPatchId"].toString()=="variantSub")
+                    insertedLength=live::blockLength(property.value);
+        liveCheck(std::abs(insertedLength-4.)<1.e-9,
+                  "A new Sub-patch strip defaults to four bars inside its Patch");
     }
     const auto activeEntryBefore=editing.liveCurrentEntry;
     const auto engineBeforePatch=editing.app.engine();
@@ -1595,7 +1617,9 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
                   live::orderedSpans(cutSub["subs"]).size()==3,
                   "#374 J: Scissors produces two child instances without a Base gap");
         editing.undoLiveInterface();timeline->refresh();
-        const float defaultX=seamX-static_cast<float>(2.5*scale);
+        // The inserted strip keeps half of the four-bar Patch, so the default
+        // sound now starts at bar 2 and the scissors must cut inside it.
+        const float defaultX=seamX-static_cast<float>(1.*scale);
         body->mouseDown(event(defaultX,subY));
         body->mouseUp(event(defaultX,subY));timeline->refresh();
         const auto cutDefault=live::channelItemTrack(editing.liveDocument->interfaceState,
@@ -1616,7 +1640,7 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
         timeline->setClipScissors(false);
 
         // #374 J: shared seam is the ONLY resize gesture for Sub-patches.
-        const float subSeamX=seamX-static_cast<float>(3.*scale);
+        const float subSeamX=seamX-static_cast<float>(2.*scale);
         const float subSeamY=static_cast<float>(laneRect.getY()+103);
         body->mouseMove(event(subSeamX-2.f,subSeamY));
         liveCheck(body->getMouseCursor()==juce::MouseCursor::LeftRightResizeCursor,
@@ -1629,8 +1653,8 @@ void liveTimelineAuthoringSmoke(const juce::File &fixture) {
             activeBeforePatch,patchChannel)["spans"][juce::Identifier(patchId)];
         const auto subRows=live::orderedSpans(resized["subs"]);
         liveCheck(subRows.size()==2 &&
-                  std::abs(live::blockLength(subRows[0].second)-1.25)<1.e-9 &&
-                  std::abs(live::blockStart(subRows[1].second)-1.25)<1.e-9 &&
+                  std::abs(live::blockLength(subRows[0].second)-2.25)<1.e-9 &&
+                  std::abs(live::blockStart(subRows[1].second)-2.25)<1.e-9 &&
                   live::subPatchRailCovered(resized["subs"],4.),
                   "#374 J: joined Sub-patch resize keeps both endpoints attached");
         editing.undoLiveInterface();timeline->refresh();
@@ -2941,6 +2965,8 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             liveComponent(desktop,"live-mixer-toggle"));
         auto* fitToolbar=dynamic_cast<juce::TextButton*>(
             liveComponent(desktop,"live-zoom-fit"));
+        auto* resetToolbar=dynamic_cast<juce::TextButton*>(
+            liveComponent(desktop,"live-zoom-reset"));
         auto* filesToolbar=liveComponent(desktop,"live-toolbar-files");
         auto* optionsToolbar=liveComponent(desktop,"live-toolbar-options");
         auto* pointerToolbar=liveComponent(desktop,"live-pointer-tool");
@@ -2950,14 +2976,15 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         auto* filesDivider=liveComponent(desktop,"live-toolbar-separator-files");
         auto* windowsDivider=liveComponent(desktop,"live-toolbar-separator-windows");
         auto* historyDivider=liveComponent(desktop,"live-toolbar-separator-history");
-        liveCheck(mixerToolbar && fitToolbar && filesToolbar && optionsToolbar &&
+        liveCheck(mixerToolbar && fitToolbar && resetToolbar && filesToolbar && optionsToolbar &&
                   pointerToolbar && scissorsToolbar && undoToolbar && redoToolbar &&
                   filesDivider && windowsDivider && historyDivider &&
                   mixerToolbar->getButtonText().isEmpty() &&
                   fitToolbar->getButtonText().isEmpty() &&
                   fitToolbar->getProperties()["mrHostIcon"].toString()=="action_fit" &&
-                  mixerToolbar->getTooltip().isNotEmpty() && fitToolbar->getTooltip().isNotEmpty(),
-                  "#309 Mixer and Fit use compact icons with accessible tooltips");
+                  mixerToolbar->getTooltip().isNotEmpty() && fitToolbar->getTooltip().isNotEmpty() &&
+                  resetToolbar->getTooltip().isNotEmpty(),
+                  "#309 Mixer, Fit and zoom Reset use compact icons with accessible tooltips");
         const auto toolbarX=[native](juce::Component* component) {
             return native->getLocalPoint(component,juce::Point<int>{}).getX();
         };
@@ -2969,7 +2996,8 @@ void liveInterfaceSmoke(const juce::File &fixture) {
                   toolbarX(windowsDivider)<toolbarX(pointerToolbar) &&
                   toolbarX(pointerToolbar)<toolbarX(scissorsToolbar) &&
                   toolbarX(scissorsToolbar)<toolbarX(fitToolbar) &&
-                  toolbarX(fitToolbar)<toolbarX(historyDivider) &&
+                  toolbarX(fitToolbar)<toolbarX(resetToolbar) &&
+                  toolbarX(resetToolbar)<toolbarX(historyDivider) &&
                   toolbarX(historyDivider)<toolbarX(undoToolbar) &&
                   toolbarX(undoToolbar)<toolbarX(redoToolbar) &&
                   mixerToolbar->getWidth()==fitToolbar->getWidth(),
@@ -2978,9 +3006,9 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         // the Setlist. Assert that all actions still fit in smaller real
         // windows, rather than merely checking their relative X values.
         const juce::Point<int> originalWorkspaceSize{desktop.getWidth(),desktop.getHeight()};
-        const std::array<juce::Component*,12> orderedControls{
+        const std::array<juce::Component*,13> orderedControls{
             filesToolbar,optionsToolbar,filesDivider,panelToggle,mixerToolbar,
-            windowsDivider,pointerToolbar,scissorsToolbar,fitToolbar,
+            windowsDivider,pointerToolbar,scissorsToolbar,fitToolbar,resetToolbar,
             historyDivider,undoToolbar,redoToolbar
         };
         for(const int windowWidth:{1200,1400,1920}) {
@@ -2993,7 +3021,10 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             for(auto* control:orderedControls) {
                 const auto left=toolbarX(control);
                 const auto right=left+control->getWidth();
-                fits=fits && control->getWidth()>0 &&
+                // Undo/Redo keep a usable hit area instead of collapsing to a sliver.
+                const bool wide=control==undoToolbar||control==redoToolbar ?
+                    control->getWidth()>=16 : control->getWidth()>0;
+                fits=fits && wide &&
                     left>=previousRight && right<=region.getRight();
                 previousRight=right;
             }

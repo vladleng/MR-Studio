@@ -92,13 +92,56 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         });
     }
     // The header +/− buttons zoom the current Item; Shift+Ctrl+wheel zooms the
-    // whole timeline through one uniform factor.
-    void zoomAll(double factor) {
-        if (!owner.liveDocument) return;
-        owner.run([&] { owner.setLiveTimelineScale(factor); });
+    // whole timeline through one view factor.
+    // Global zoom lives in the view: the authored Item scale stays untouched,
+    // so one multiplier can be reset without losing per-Item zoom.
+    double timelineZoom() const {
+        const double zoom=owner.view.liveTimelineZoom;
+        return std::isfinite(zoom)&&zoom>0.?juce::jlimit(.25,8.,zoom):1.;
+    }
+    void zoomAll(double factor,int screenX) {
+        const int contentX=viewport.getViewPositionX()+screenX;
+        const double previous=timelineZoom();
+        const double next=juce::jlimit(.25,8.,previous*factor);
+        if(std::abs(next-previous)<1.e-9)return;
+        // Keep the bar under the pointer: remember which Item and which
+        // fraction of it sit there, then restore that fraction after layout.
+        std::size_t index=items.size();
+        double fraction=0.;
+        for(std::size_t i=0;i<items.size();++i)
+            if(items[i].bounds.getWidth()>0 && contentX>=items[i].bounds.getX() &&
+               contentX<items[i].bounds.getRight()) {
+                index=i;
+                fraction=static_cast<double>(contentX-items[i].bounds.getX())/
+                         items[i].bounds.getWidth();
+                break;
+            }
+        owner.view.liveTimelineZoom=next;
+        layout();
+        body.repaint();
+        if(index>=items.size())return;
+        const auto& anchor=items[index];
+        // Zooming is not the user panning away: keep Follow Playhead engaged.
+        const juce::ScopedValueSetter<bool> guard(followProgrammaticScroll,true);
+        viewport.setViewPosition(
+            juce::jmax(0,juce::roundToInt(anchor.bounds.getX()+fraction*anchor.bounds.getWidth())-screenX),
+            viewport.getViewPositionY());
+    }
+    void resetZoom() {
+        if(std::abs(timelineZoom()-1.)<1.e-9)return;
+        owner.view.liveTimelineZoom=1.;
+        layout();
+        body.repaint();
     }
     void zoomFit() {
         if (!owner.liveDocument) return;
+        // The Item scale is clamped to 4…128 in the show, so a zoomed-out view
+        // can never be fitted through it. Fit therefore clears the view factor
+        // first; that stays a view change, not a document or Undo change.
+        if(std::abs(timelineZoom()-1.)>1.e-9) {
+            owner.view.liveTimelineZoom=1.;
+            layout();
+        }
         owner.run([&] {
             const auto& show=owner.liveDocument->interfaceState;
             const auto itemId=show["currentItem"].toString();
@@ -654,7 +697,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
         // keep zooming only the current Item.
         void mouseWheelMove(const juce::MouseEvent& event,const juce::MouseWheelDetails& wheel) override {
             if(event.mods.isShiftDown() && event.mods.isCtrlDown() && wheel.deltaY!=0.f) {
-                parent.zoomAll(wheel.deltaY>0.f?1.25:.8);
+                parent.zoomAll(wheel.deltaY>0.f?1.25:.8,event.getPosition().getX());
                 return;
             }
             juce::Viewport::mouseWheelMove(event,wheel);
@@ -2283,7 +2326,7 @@ class LiveTimeline final : public juce::Component, public juce::DragAndDropTarge
                 if (!item.isObject())
                     continue;
                 const auto view = state["performance"]["arrangement"][juce::Identifier(item["id"].toString())];
-                const double scale = numeric(view["scale"], 16, 4, 128);
+                const double scale = numeric(view["scale"], 16, 4, 128) * timelineZoom();
                 double lead = numeric(view["lead"], 0, 0, 4096);
                 double start=numeric(view["start"],0,0,4095.75);
                 double bars = numeric(view["length"], numeric(item["bars"], 16, 1, 4096), .25, 4096);

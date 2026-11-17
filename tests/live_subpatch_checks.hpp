@@ -485,7 +485,9 @@ inline void subPatchRailGeometry() {
     auto initial=object();
     put(initial,"default",blockSpan(0.,8.));
     check(subPatchRailCovered(initial,8.),"Default covers the parent Patch exactly");
-    const auto strips=addedSubPatchSpanAt(initial,8.,"rhythm",2.13);
+    // The default new strip is four bars; this check pins the one-bar splice
+    // explicitly so the two scenarios stay covered independently.
+    const auto strips=addedSubPatchSpanAt(initial,8.,"rhythm",2.13,1.);
     const auto rows=orderedSpans(strips);
     check(rows.size()==3 && subPatchRailCovered(strips,8.) &&
           std::abs(blockLength(rows[0].second)-2.25)<1.e-9 &&
@@ -499,7 +501,7 @@ inline void subPatchRailGeometry() {
     put(parent,"subs",strips);
     check(subPatchBaseGaps(parent).empty() && parent["baseCuts"].isVoid(),
           "#374 J: no Base gap or editorial cuts after adding a Sub-patch");
-    const auto twice=addedSubPatchSpanAt(strips,8.,"rhythm",6.);
+    const auto twice=addedSubPatchSpanAt(strips,8.,"rhythm",6.,1.);
     check(subPatchRailCovered(twice,8.) && orderedSpans(twice).size()==5,
           "The same library Sub-patch can appear in two independent instances");
     const auto seam=joinedSubPatchSpans([&]{
