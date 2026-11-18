@@ -26,7 +26,7 @@ public:
         setResizable(true,false);setResizeLimits(1200,700,3840,2160);centreWithSize(1400,850);auto* desktop=dynamic_cast<ui::Desktop*>(getContentComponent());
         if(desktop){desktop->reverbKitPilot=kitPilot;desktop->setShellDesign(shell);}
         if(shell)setName("MR Studio / UDS Shell P1");
-        if(desktop&&assets){desktop->setAssetDesign(true);setName("MR Studio / SVG Controls");}
+        if(desktop&&assets){desktop->setAssetDesign(true);setName("MR Studio");}
         if(desktop&&trackLayoutPath.isNotEmpty()){
             juce::String error;
             const auto path=juce::File::getCurrentWorkingDirectory().getChildFile(trackLayoutPath);
@@ -127,6 +127,9 @@ public:
         // Explicit design-only entry: return before diagnostics, Desktop and audio setup.
         if(args.contains("--ui-gallery-smoke")){try{ui::gallerySmoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("gallery193-entry-failure.txt").replaceWithText(e.what());setApplicationReturnValue(1);}quit();return;}
         if(args.contains("--ui-gallery")){gallery=ui::createGalleryWindow([this]{quit();});return;}
+        // Focused acceptance for the Project Home redesign: runs only the Home smoke
+        // (no Live fixture, no audio), writes juce-home-*.png next to the executable.
+        if(args.contains("--project-home-smoke")){try{ui::projectHomeSmoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("project-home-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}
         if(args.contains("--ara-smoke")){juce::File::getCurrentWorkingDirectory().getChildFile("ara179-gui-failure.txt").deleteFile();try{const auto tokens=juce::StringArray::fromTokens(args,true);ui::araEditorSmoke(juce::File(tokens[tokens.indexOf("--ara-smoke")+1].unquoted()));setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("ara179-gui-failure.txt").replaceWithText(juce::String(e.what()));setApplicationReturnValue(1);}quit();return;}
         if(args.contains("--clip-stretch-smoke")){
             const auto failure=juce::File::getCurrentWorkingDirectory().getChildFile("stretch-gui-failure.txt");failure.deleteFile();
