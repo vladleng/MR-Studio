@@ -13,6 +13,24 @@ struct DesignTokens {
     std::array<juce::uint32,12> colours{0xff212830,0xff212830,0xff2d353e,0xff2f3841,0xff212830,0xffdce3ea,0xff9daabc,0xff3d444d,0xff006dcc,0xff3098ee,0xffd94747,0xffd5b63e};
     std::array<float,10> metrics{14,13,12,14,1.04f,1,6,1,20,12};
     static DesignTokens target(){DesignTokens t;t.uds=true;t.colours={0xff111720,0xff171e28,0xff222c3c,0xff2d394e,0xff192333,0xffdae5f4,0xff7188ab,0xff4b5f7b,0xff91bbee,0xff7ab69e,0xffe68f88,0xffe2c070};return t;}
+    // Redesign profile "Slate", approved 2026-11-18. Adopted screen by screen
+    // (Home first, then shell, then the DAW screens); target() stays the accepted
+    // baseline until that migration slice is finished, so Gallery and the other
+    // screens keep their current values.
+    static DesignTokens slate(){
+        DesignTokens t;
+        t.uds=false;
+        t.colours={0xff1a1e24,0xff22272e,0xff22272e,0xff2c323a,0xff1a1e24,0xffeef2f7,
+                   0xffa3aebc,0xff353c46,0xff6fa9ff,0xff5fc29a,0xffe27a66,0xffe7b964};
+        t.metrics={15.f,13.f,12.f,13.f,1.f,1.f,10.f,1.f,20.f,12.f};
+        return t;
+    }
+    // Auxiliary tones of the same approved Slate palette. They are not part of the
+    // 12 role slots (those stay stable for encoding), but screens need them.
+    static juce::Colour slateHover()      { return juce::Colour(0xff282e36); }
+    static juce::Colour slateLineStrong() { return juce::Colour(0xff46505c); }
+    static juce::Colour slateAccentDim()  { return juce::Colour(0xff283b57); }
+    static juce::Colour slateOnAccent()   { return juce::Colour(0xff0a1018); }
     juce::Colour colour(ColourRole r)const{return juce::Colour(colours[static_cast<std::size_t>(r)]);}
     juce::String name()const{return uds?"MR UDS Preview":"Accepted 0.4f";}
     DesignTokens defaults()const{return uds?target():DesignTokens{};}

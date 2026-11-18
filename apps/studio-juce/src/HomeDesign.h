@@ -14,23 +14,24 @@ namespace ui {
 // text/canvas 14.9, muted/surface 6.7, muted/raised 5.8, accent/canvas 7.0,
 // onAccent/accent 8.0.
 struct HomeDesign {
-    // surface depth
-    static juce::Colour canvas()    { return juce::Colour(0xff1a1e24); }
-    static juce::Colour surface()   { return juce::Colour(0xff22272e); }
-    static juce::Colour raised()    { return juce::Colour(0xff2c323a); }
-    static juce::Colour hover()     { return juce::Colour(0xff282e36); }
-    static juce::Colour line()      { return juce::Colour(0xff353c46); }
-    static juce::Colour lineStrong(){ return juce::Colour(0xff46505c); }
+    // Colours come from the shared "Slate" profile: one definition for every screen
+    // that adopts the redesign instead of a private copy on this screen.
+    static juce::Colour canvas()    { return palette().colour(ColourRole::canvas); }
+    static juce::Colour surface()   { return palette().colour(ColourRole::panel); }
+    static juce::Colour raised()    { return palette().colour(ColourRole::raised); }
+    static juce::Colour hover()     { return DesignTokens::slateHover(); }
+    static juce::Colour line()      { return palette().colour(ColourRole::border); }
+    static juce::Colour lineStrong(){ return DesignTokens::slateLineStrong(); }
     // content
-    static juce::Colour text()      { return juce::Colour(0xffeef2f7); }
-    static juce::Colour muted()     { return juce::Colour(0xffa3aebc); }
-    static juce::Colour accent()    { return juce::Colour(0xff6fa9ff); }
-    static juce::Colour accentDim() { return juce::Colour(0xff283b57); }
-    static juce::Colour onAccent()  { return juce::Colour(0xff0a1018); }
+    static juce::Colour text()      { return palette().colour(ColourRole::text); }
+    static juce::Colour muted()     { return palette().colour(ColourRole::muted); }
+    static juce::Colour accent()    { return palette().colour(ColourRole::focus); }
+    static juce::Colour accentDim() { return DesignTokens::slateAccentDim(); }
+    static juce::Colour onAccent()  { return DesignTokens::slateOnAccent(); }
     // status (never colour-only: pair with a label)
-    static juce::Colour ok()        { return juce::Colour(0xff5fc29a); }
-    static juce::Colour warn()      { return juce::Colour(0xffe7b964); }
-    static juce::Colour error()     { return juce::Colour(0xffe27a66); }
+    static juce::Colour ok()        { return palette().colour(ColourRole::on); }
+    static juce::Colour warn()      { return palette().colour(ColourRole::warning); }
+    static juce::Colour error()     { return palette().colour(ColourRole::error); }
 
     // ---- type scale D -------------------------------------------------------
     // Segoe UI Variable is a single variable font: the Display/Text/Small cuts are
@@ -50,16 +51,14 @@ struct HomeDesign {
 
     // Scoped Theme preview values for this screen (ui::Theme::applyPreview).
     // Same palette roles as ui::DesignTokens, mapped to the Slate surfaces.
-    static DesignTokens tokens() {
-        DesignTokens t;
-        t.uds = false;
-        t.colours = {0xff1a1e24, 0xff22272e, 0xff22272e, 0xff2c323a, 0xff1a1e24, 0xffeef2f7,
-                     0xffa3aebc, 0xff353c46, 0xff6fa9ff, 0xff5fc29a, 0xffe27a66, 0xffe7b964};
-        t.metrics = {15.f, 13.f, 12.f, 13.f, 1.f, 1.f, 10.f, 1.f, 20.f, 12.f};
-        return t;
-    }
+    static DesignTokens tokens() { return DesignTokens::slate(); }
 
 private:
+    static const DesignTokens& palette() {
+        static const DesignTokens value = DesignTokens::slate();
+        return value;
+    }
+
     enum class Role { display, ui, mono };
 
     struct Axes {

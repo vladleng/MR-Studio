@@ -5,7 +5,7 @@ void Desktop::setShellDesign(bool enabled) {
     if (enabled == (shellTheme != nullptr)) return;
     if (enabled) {
         shellTheme = std::make_unique<Theme>();
-        shellTheme->applyPreview(DesignTokens::target());
+        shellTheme->applyPreview(DesignTokens::slate());
     }
     // Keep the Desktop parent, command callbacks, focus order and native owners.
     // Only these components borrow the scoped instance of the existing Theme.
@@ -15,7 +15,7 @@ void Desktop::setShellDesign(bool enabled) {
         &navigationMode,&projectTitle,&contextLabels[0],&contextLabels[1],&contextLabels[2],
         &cpuReadout,&latencyReadout,&shellStatus,&shellTime};
     for (auto* control : controls) control->setLookAndFeel(enabled ? shellTheme.get() : nullptr);
-    const auto tokens = DesignTokens::target();
+    const auto tokens = DesignTokens::slate();
     for (auto* button : {&play,&pause,&stop,&record,&previous,&next,&loop})
         button->getProperties().set("mrShellTransport", enabled);
     for (auto* button : {&play,&pause,&stop,&record}) {
@@ -63,7 +63,7 @@ void Desktop::layoutShell() {
 void Desktop::refreshShell() {
     if (!shellTheme) return;
     const auto head = displayState();
-    const auto tokens = DesignTokens::target();
+    const auto tokens = DesignTokens::slate();
     auto colour = tokens.colour(ColourRole::text);
     juce::String state;
     if (app.engine()->metrics().processing_fault) { state = "PROCESSING FAULT"; colour = tokens.colour(ColourRole::error); }
@@ -85,7 +85,7 @@ void Desktop::refreshShell() {
 }
 
 void Desktop::paintShell(juce::Graphics& g) {
-    const auto tokens = DesignTokens::target();
+    const auto tokens = DesignTokens::slate();
     const int footer = getWidth() < 1500 ? 58 : 42;
     g.setColour(tokens.colour(ColourRole::window));
     g.fillRect(0, 26, getWidth(), 68);
