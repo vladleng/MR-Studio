@@ -10,32 +10,37 @@
 #include "ConceptSkin.h"
 #include "ObjectPalette.h"
 namespace ui {
-constexpr auto background = 0xff212830;
-constexpr auto panel = 0xff212830;
-constexpr auto surface = 0xff212830;
-constexpr auto arrangementCanvas = 0xff262e37;
-constexpr auto outline = 0xff3d444d;
-constexpr auto separatorColour = 0xff343c45;
-constexpr auto contentSurface = 0xff2d353e;
+constexpr auto background = 0xff1a1e24;
+constexpr auto panel = 0xff22272e;
+constexpr auto surface = 0xff22272e;
+constexpr auto arrangementCanvas = 0xff1a1e24;
+constexpr auto outline = 0xff46505c;
+constexpr auto separatorColour = 0xff353c46;
+constexpr auto contentSurface = 0xff282e36;
 // Neutral button RGB components are 5% lighter than the upd9 fill.
-constexpr auto raised = 0xff2f3841;
-constexpr auto primaryText = 0xffdce3ea;
-constexpr auto secondaryText = 0xff9daabc;
+constexpr auto raised = 0xff2c323a;
+constexpr auto primaryText = 0xffeef2f7;
+constexpr auto secondaryText = 0xffa3aebc;
 constexpr float cornerRadius = 6.f;
 constexpr float borderWidth = 1.f;
 inline void drawCard(juce::Graphics& g,juce::Rectangle<float> bounds,juce::Colour fill=juce::Colour(panel)){
     const auto r=bounds.reduced(.5f);g.setColour(fill);g.fillRoundedRectangle(r,cornerRadius);
     g.setColour(juce::Colour(outline));g.drawRoundedRectangle(r,cornerRadius,borderWidth);
 }
+// The Slate accent is light, so text and glyphs drawn on top of it must be dark.
+// Chosen by perceived brightness rather than by palette name, so any accent works.
+inline juce::Colour onAccent(const juce::Colour& fill) {
+    return fill.getPerceivedBrightness() > 0.55f ? juce::Colour(0xff0a1018) : juce::Colours::white;
+}
 constexpr float clipFillAlpha = .72f;
-constexpr auto accent = 0xff006dcc;
+constexpr auto accent = 0xff6fa9ff;
 constexpr auto menuBorder = outline;
 constexpr float popupFillAlpha = .85f; // 15% background transparency; text stays opaque.
 inline void configurePopupColours(juce::LookAndFeel& theme){
     theme.setColour(juce::PopupMenu::backgroundColourId,juce::Colour(surface).withAlpha(popupFillAlpha));
     theme.setColour(juce::PopupMenu::textColourId,juce::Colours::whitesmoke);
     theme.setColour(juce::PopupMenu::highlightedBackgroundColourId,juce::Colour(accent));
-    theme.setColour(juce::PopupMenu::highlightedTextColourId,juce::Colours::white);
+    theme.setColour(juce::PopupMenu::highlightedTextColourId,onAccent(juce::Colour(accent)));
 }
 inline void drawPopupSurface(juce::Graphics& g,int width,int height,float alpha=popupFillAlpha,juce::Colour fill=juce::Colour(surface),juce::Colour border=juce::Colour(menuBorder)){
     g.setColour(fill.withAlpha(alpha));g.fillRoundedRectangle(0,0,static_cast<float>(width),static_cast<float>(height),4.f);g.setColour(border);g.drawRoundedRectangle(.5f,.5f,width-1.f,height-1.f,4.f,1.f);
@@ -75,6 +80,7 @@ public:
         setColour(juce::TextButton::buttonColourId, juce::Colour(raised));
         configurePopupColours(*this);
         setColour(juce::TextButton::buttonOnColourId, juce::Colour(accent));
+        setColour(juce::TextButton::textColourOnId, onAccent(juce::Colour(accent)));
         setColour(juce::TextButton::textColourOffId, role(ColourRole::text,primaryText));
         setColour(juce::Label::textColourId,role(ColourRole::text,primaryText));
         setColour(juce::ComboBox::textColourId,role(ColourRole::text,primaryText));
@@ -87,7 +93,7 @@ public:
     void applyPreview(const DesignTokens& tokens){tokens.validate();preview_=tokens;
         const auto c=[&](ColourRole role){return tokens.colour(role);};
         setColour(juce::TextButton::buttonColourId,c(ColourRole::raised));setColour(juce::TextButton::buttonOnColourId,c(ColourRole::focus));
-        setColour(juce::TextButton::textColourOffId,c(ColourRole::text));setColour(juce::TextButton::textColourOnId,c(tokens.uds?ColourRole::window:ColourRole::text));
+        setColour(juce::TextButton::textColourOffId,c(ColourRole::text));setColour(juce::TextButton::textColourOnId,onAccent(c(ColourRole::focus)));
         setColour(juce::Label::textColourId,c(ColourRole::text));setColour(juce::ComboBox::textColourId,c(ColourRole::text));
         setColour(juce::ComboBox::backgroundColourId,c(ColourRole::deep));setColour(juce::ComboBox::outlineColourId,c(ColourRole::border));
         setColour(juce::TextEditor::textColourId,c(ColourRole::text));setColour(juce::TextEditor::backgroundColourId,c(ColourRole::deep));setColour(juce::TextEditor::outlineColourId,c(ColourRole::border));

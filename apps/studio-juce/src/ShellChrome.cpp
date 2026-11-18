@@ -9,7 +9,7 @@ void Desktop::setShellDesign(bool enabled) {
     }
     // Keep the Desktop parent, command callbacks, focus order and native owners.
     // Only these components borrow the scoped instance of the existing Theme.
-    juce::Component* controls[]{&pointerTool,&knifeTool,&undo,&redo,&split,&duplicate,
+    juce::Component* controls[]{&menu,&pointerTool,&knifeTool,&undo,&redo,&split,&duplicate,
         &zoomIn,&zoomOut,&fit,&snapButton,&clickButton,&countButton,
         &play,&pause,&stop,&record,&previous,&next,&loop,&editButton,&mixButton,&brows,
         &navigationMode,&projectTitle,&contextLabels[0],&contextLabels[1],&contextLabels[2],
