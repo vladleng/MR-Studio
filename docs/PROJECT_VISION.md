@@ -18,4 +18,4 @@
 
 ## Источники решений
 
-[AGENTS.md](../AGENTS.md) — обязательные правила; [ARCHITECTURE.md](ARCHITECTURE.md) — технические границы; [MR Live native integration](MR_LIVE_NATIVE_INTEGRATION.md) — show workflow; [GitHub Issues](https://github.com/vladleng/MR-Studio/issues) — приоритеты, scope, статус. Долгосрочное видение не подтверждает готовность функции.
+[AGENTS.md](../AGENTS.md) — обязательные правила; [ARCHITECTURE.md](ARCHITECTURE.md) — технические границы; [MR Live native integration](MR_LIVE_NATIVE_INTEGRATION.md) — show workflow; DSH Task Manager, проект «MR Studio» — приоритеты, scope, статус и приёмка. [GitHub Issues](https://github.com/vladleng/MR-Studio/issues) — история решений. Долгосрочное видение не подтверждает готовность функции.

@@ -1,10 +1,11 @@
 # MR Studio — статус реализации
 
-**Источник текущего статуса — GitHub Issues и подтверждённый код, не этот Markdown.**
+**Источник текущих требований, статуса и приёмки — DSH Task Manager, проект «MR Studio», не этот Markdown. Реализацию подтверждают локальный код и результаты проверок.**
 
-- [Открытые Issues](https://github.com/vladleng/MR-Studio/issues?q=is%3Aissue%20is%3Aopen) — scope, чек-листы, задачи и пользовательская приёмка.
-- [Pull Requests](https://github.com/vladleng/MR-Studio/pulls) — изменения исходников и отчёты.
-- [GitHub Actions](https://github.com/vladleng/MR-Studio/actions) — результаты конкретных CI запусков, без автоматического вывода о физической ASIO/GUI приёмке.
+- Агент ведёт журнал порученной работы через `tasks_*` по `dsh-task-manager-workflow`: результаты и блокеры — в задаче, готовность к приёмке — `Wait`, `Done` — только после явной пользовательской приёмки. Родитель не завершается автоматически.
+- [GitHub Issues](https://github.com/vladleng/MR-Studio/issues?q=is%3Aissue%20is%3Aopen) — исторический трекинг, не источник текущего статуса.
+- [Pull Requests](https://github.com/vladleng/MR-Studio/pulls) — исторические изменения исходников и отчёты.
+- [GitHub Actions](https://github.com/vladleng/MR-Studio/actions) — исторические результаты конкретных CI запусков, без автоматического вывода о физической ASIO/GUI приёмке.
 - [AGENTS.md](../AGENTS.md) — правила и различие «реализовано / PASS / принято».
 - [Индекс контрактов](README.md) — постоянная архитектура, модели и гарантии.
 

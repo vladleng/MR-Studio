@@ -5,7 +5,7 @@ description: Develop or fix MR Studio native plugin editors, plugin presets, sig
 
 # MR Native Plugin Development
 
-This skill adds **plugin-specific constraints** to `AGENTS.md`. Start with the assigned Issue and actual local source. Current paths to verify (not blindly assume): `apps/studio-juce/src/Editors.cpp`, `CabBrowser.h`, `Settings.h`, `apps/studio-desktop/src/application.cpp`, `core/processing/src`. Do not apply Cab-specific DSP rules to unrelated plugins.
+This skill adds **plugin-specific constraints** to `AGENTS.md`. Start with the assigned DSH task and actual local source; load `dsh-task-manager-workflow` before journal operations. Current paths to verify (not blindly assume): `apps/studio-juce/src/Editors.cpp`, `CabBrowser.h`, `Settings.h`, `apps/studio-desktop/src/application.cpp`, `core/processing/src`. Do not apply Cab-specific DSP rules to unrelated plugins.
 
 ## Shared visual catalog
 
@@ -41,4 +41,4 @@ Separate: (a) sonic parameters, bypass, active source → **project/preset model
 - New loader whose revision counter repeats; failed/missing WAV; Save/Open/Undo and source identity; browser-only edit **does not** mark audio project dirty or rebuild graph.
 - Changed DSP: affected RT/hosting audio checks. Screenshot tests don't prove physical focus, ASIO, listening or CPU. Use synthetic fixtures, keep vendor media untouched. Docs/skill-only edits do not require rebuilding the app.
 
-Use `mr-realtime-audio-safety` for RT changes, `mr-studio-ui-design-system` for nontrivial visual work and `mr-studio-build-test` at the correct validation stage. A skill never independently authorizes GitHub Actions, merge, stage advance or issue closure.
+Use `mr-realtime-audio-safety` for RT changes, `mr-studio-ui-design-system` for nontrivial visual work and `mr-studio-build-test` at the correct validation stage. A skill never independently authorizes GitHub Actions, merge, stage advance or task acceptance.

@@ -9,7 +9,7 @@ Work within the **actual accepted UI** and the user's latest visual request. A d
 
 ## Shared catalog
 
-For visual language and catalog choices, follow `../mr-unified-gui/SKILL.md`. The canonical `assets/ui/mr-uds/` catalog serves DAW and MR-owned native plugins; extend it consistently and keep previews current. A named catalog replacement applies to the requested screen and preserves functional bindings. Keep asset availability, runtime adoption and issue-recorded user acceptance distinct.
+For visual language and catalog choices, follow `../mr-unified-gui/SKILL.md`. The canonical `assets/ui/mr-uds/` catalog serves DAW and MR-owned native plugins; extend it consistently and keep previews current. A named catalog replacement applies to the requested screen and preserves functional bindings. Keep asset availability, runtime adoption and user acceptance recorded in the DSH task distinct.
 
 ## Scope and visual decisions
 

@@ -39,4 +39,4 @@ Merge gate, all true on the latest head: proof covers the full diff, required ch
 
 ## MR Studio override
 
-Read `mr-github-workflow`, `mr-studio-build-test` and current `AGENTS.md` before destructive actions. Local scripts/CMake and `docs/LOCAL_BUILD_POLICY.md` govern normal validation. Inspect current Actions gates only for separately requested remote work. A passing PR does not replace hardware/manual ASIO/MIDI/DPI/user acceptance. Do not close the assigned Issue before acceptance.
+Read current `AGENTS.md` and `mr-studio-build-test`; load `dsh-task-manager-workflow` before journal operations. Destructive actions require their own authorization. Local scripts/CMake and `docs/LOCAL_BUILD_POLICY.md` govern normal validation. Inspect current Actions gates only for separately requested remote work. A passing PR does not replace hardware/manual ASIO/MIDI/DPI/user acceptance. Hand off the assigned DSH task in Wait; Done requires explicit user acceptance and never closes its parent automatically.

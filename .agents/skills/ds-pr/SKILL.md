@@ -33,4 +33,4 @@ Open one real PR whose title and description a busy reviewer can read in ten sec
 
 ## MR Studio / DSH
 
-Use the current GitHub connector/API for an existing branch/PR when `gh` or a terminal is unavailable. Do not claim to have created a PR until the service returns its URL. Base the description on the assigned Issue and actual checks; separate CI PASS, NOT TESTED and user acceptance. A created PR is **not** authorization to merge it or close the Issue. See `mr-github-workflow`.
+Use the current GitHub connector/API for an existing branch/PR when `gh` or a terminal is unavailable. Do not claim to have created a PR until the service returns its URL. Base the description on the assigned DSH task and actual checks; separate CI PASS, NOT TESTED and user acceptance. A created PR is **not** authorization to merge it or mark the task Done. Load `dsh-task-manager-workflow` before journal operations; GitHub Issues are not part of the task workflow.

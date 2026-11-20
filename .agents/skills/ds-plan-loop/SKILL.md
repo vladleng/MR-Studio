@@ -11,7 +11,7 @@ Plan before coding, check the plan once, then build the task one verified step a
 
 1. Restate the goal in one sentence. List the files and commands you expect to touch. Read those files before you plan. Do not plan from memory.
 2. Write a numbered plan. Each step gets one action and one acceptance check that a command or a direct observation can confirm, for example "`npm test -- auth` passes" or "`GET /health` returns 200". Keep each step small enough to verify in a single diff.
-3. In MR Studio keep a concise in-session plan; publish it to the assigned Issue only when Issue updates are part of the task. Do not create PLAN.md/PROGRESS.md by default. In other repositories follow their planning policy.
+3. In MR Studio keep a concise in-session plan; record meaningful steps in the assigned DSH task under `dsh-task-manager-workflow` within the agreed scope. Do not create PLAN.md/PROGRESS.md by default. In other repositories follow their planning policy.
 4. Critique the plan in a fresh pass. Reread only the goal and the plan, as a reviewer who did not write it. If you can, run the critique in a subagent or new session. Answer three questions:
    - Which step is missing (setup, migration, config, tests, cleanup)?
    - Which assumption has not been checked against the code or docs?
@@ -36,4 +36,4 @@ Plan before coding, check the plan once, then build the task one verified step a
 
 ## MR Studio / DSH
 
-Local Git and local checks establish implementation evidence; the assigned Issue holds requirements and acceptance. Publish updates only within the task authorization, otherwise report in chat. Do not create duplicate project journals. Follow `mr-github-workflow` and `AGENTS.md` for publication, closure and merge permissions.
+Local Git and local checks establish implementation evidence; the assigned DSH task holds requirements and acceptance. Load `dsh-task-manager-workflow` before journal operations and record only the agreed work. Do not create duplicate project journals. Follow that skill and `AGENTS.md`: hand off in Wait, use Done only after explicit user acceptance, never close the parent automatically; publication and merge require separate permission.

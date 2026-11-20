@@ -40,4 +40,4 @@ For MR Studio follow `AGENTS.md`: source push, PR creation and Actions each requ
 ## MR Studio status
 
 - A local result or PR can be technically READY but still be **WAITING FOR USER ACCEPTANCE**. CI PASS is not permission to merge. Verify the exact SHA and actual check results.
-- Follow `mr-github-workflow` and `mr-studio-build-test`; generic `ds-ship` wording never authorizes unnecessary full CTest or Windows Release.
+- Follow `AGENTS.md`, `dsh-task-manager-workflow` for the task journal and `mr-studio-build-test`; generic `ds-ship` wording never authorizes unnecessary full CTest or Windows Release.

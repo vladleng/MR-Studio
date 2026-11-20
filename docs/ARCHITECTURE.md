@@ -94,7 +94,7 @@ Command
 - tempo/meter sync;
 - section/marker navigation.
 
-В MR Studio и MR Live применяются общие транспортные контракты, но каждый запущенный документ владеет соответствующим state. Конкретный show/item workflow определяет [MR Live native integration](MR_LIVE_NATIVE_INTEGRATION.md), а текущая реализация проверяется по коду и Issues.
+В MR Studio и MR Live применяются общие транспортные контракты, но каждый запущенный документ владеет соответствующим state. Конкретный show/item workflow определяет [MR Live native integration](MR_LIVE_NATIVE_INTEGRATION.md), а текущая реализация проверяется по локальному коду и результатам проверок. Требования, статус и приёмка находятся в соответствующей задаче DSH Task Manager, проект «MR Studio».
 
 ## 6. Audio Engine
 
@@ -249,7 +249,7 @@ Dm7 | G7 | [ Gmaj7 ] | Em7 | Am7 | D7
 
 Setlist и Item принадлежат **MR Live show-документу** `.mrlive`, а не единой DAW Project Model. Show-state включает порядок items, собственные Playback/stems, performance channels, patch/sub-patch, cues, preflight и recovery. Переиспользуются Core APIs/Graph/Transport, но нельзя создавать прямую ссылку на открытый `.mrsproject` как на Live item по старому сценарию.
 
-При изменении show-state соблюдать стабильность IDs, Undo/Redo, Save/Reopen и realtime safety. Действующие детали: [MR_LIVE_NATIVE_INTEGRATION.md](MR_LIVE_NATIVE_INTEGRATION.md), [#289](https://github.com/vladleng/MR-Studio/issues/289).
+При изменении show-state соблюдать стабильность IDs, Undo/Redo, Save/Reopen и realtime safety. Действующий контракт: [MR_LIVE_NATIVE_INTEGRATION.md](MR_LIVE_NATIVE_INTEGRATION.md); историческая GitHub Issue: [#289](https://github.com/vladleng/MR-Studio/issues/289).
 
 ## 14. AI Layer
 
@@ -331,7 +331,7 @@ docs/                 lasting technical contracts only
 
 ## 19. Development tracks
 
-`[MRS]` — Studio DAW, `[LIVE]` — отдельное MR Live, `[SHARED]` — общий Core. Это **разные приложения**, но один общий engine/backend. Этапы и приёмка отслеживаются в GitHub Issues, а не в Markdown-журнале. См. [DEVELOPMENT_TRACKS.md](DEVELOPMENT_TRACKS.md).
+`[MRS]` — Studio DAW, `[LIVE]` — отдельное MR Live, `[SHARED]` — общий Core. Это **разные приложения**, но один общий engine/backend. Этапы и приёмка отслеживаются в DSH Task Manager, проект «MR Studio», а не в Markdown-журнале. Старые GitHub Issues сохраняются только для истории. См. [DEVELOPMENT_TRACKS.md](DEVELOPMENT_TRACKS.md).
 
 ## 20. Fail-safe модель
 

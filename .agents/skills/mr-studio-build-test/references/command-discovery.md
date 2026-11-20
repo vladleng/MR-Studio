@@ -19,7 +19,7 @@ Keep Studio-only / Live-only / Core scope. Studio defaults to ARA ON; Live stand
 
 ## 3. Record reproducible evidence
 
-Record the actual local branch/HEAD and dirty state, configure/build/test entry points, targets, configuration, SDK pins, commands and PASS/FAIL/NOT TESTED. Include executable/package paths when created and identify hardware checks that remain unperformed. Keep logs outside Git; publish Issue updates only when they are part of the task, otherwise report in chat.
+Record the actual local branch/HEAD and dirty state, configure/build/test entry points, targets, configuration, SDK pins, commands and PASS/FAIL/NOT TESTED. Include executable/package paths when created and identify hardware checks that remain unperformed. Keep logs outside Git; record meaningful results in the assigned DSH task within the agreed scope and report in chat. Load `dsh-task-manager-workflow` before journal operations.
 
 If a historical target or path no longer exists, use the actual local checkout. Missing local tools or SDKs are a validation limitation, not authorization to install dependencies or dispatch Actions.
 
@@ -27,4 +27,4 @@ If a historical target or path no longer exists, use the actual local checkout. 
 
 Source push, PR creation and Actions are outside the normal local process and require an explicit user request. Only then inspect the current workflow inputs, scope and gates. `docs/CLOUD_DEVELOPMENT.md` and older Actions runs are historical evidence; they do not override local rules or validate a different revision.
 
-Merge into local `main` requires separate explicit permission. Passing checks do not establish user/hardware acceptance or authorize Issue closure.
+Merge into local `main` requires separate explicit permission. Passing checks do not establish user/hardware acceptance or authorize marking the DSH task Done.

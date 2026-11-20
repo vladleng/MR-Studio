@@ -9,7 +9,7 @@ Keep a compact, evidence-based handoff so work can continue without relying on a
 
 ## Choose the handoff location
 
-- In MR Studio use the session handoff. The assigned Issue supplies requirements and recorded acceptance; the actual local checkout, Git and logs supply implementation evidence. Update the Issue only when publication is part of the task.
+- In MR Studio use the session handoff. The assigned DSH task supplies requirements and recorded acceptance; the actual local checkout, Git and logs supply implementation evidence. Load `dsh-task-manager-workflow` before journal operations and record meaningful handoff information in the assigned task within the agreed scope.
 - Do not create or commit PROGRESS.md or another task journal in MR Studio by default. Temporary scratch, if needed, stays outside Git and contains no secrets.
 - In other repositories follow their policy; a PROGRESS.md may be appropriate. The steps below apply to either location.
 

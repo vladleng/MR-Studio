@@ -1,6 +1,6 @@
 # MR Studio — направления развития
 
-Это **карта направлений**, не план-график, не статусная таблица и не чек-лист приёмки. Конкретные этапы, очередность и готовность — в [GitHub Issues](https://github.com/vladleng/MR-Studio/issues) и нативных Sub-issues; действующие правила — в [AGENTS.md](../AGENTS.md).
+Это **карта направлений**, не план-график, не статусная таблица и не чек-лист приёмки. Конкретные этапы, очередность и готовность — в задачах и подзадачах DSH Task Manager, проект «MR Studio»; действующие правила — в [AGENTS.md](../AGENTS.md). [GitHub Issues](https://github.com/vladleng/MR-Studio/issues) сохранены для истории.
 
 ## Границы продукта
 
@@ -11,7 +11,9 @@
 
 ## Технические направления
 
-| Направление | Постоянный контракт | Трекинг |
+Текущий трекинг ведётся в DSH Task Manager. Ссылки GitHub в таблице сохранены для истории решений и не определяют текущий статус.
+
+| Направление | Постоянный контракт | Исторический трекинг GitHub |
 | --- | --- | --- |
 | Shared Engine / ASIO / realtime | [Audio Engine](AUDIO_ENGINE.md), [Processing](PROCESSING_RELIABILITY.md) | [Issues](https://github.com/vladleng/MR-Studio/issues) |
 | MIDI, таймлайн, persistence | [Core](CORE_CONTRACTS.md), [Data Model](DATA_MODEL.md), [Persistence](PERSISTENCE.md) | [Issues](https://github.com/vladleng/MR-Studio/issues) |

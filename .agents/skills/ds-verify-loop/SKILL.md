@@ -17,7 +17,7 @@ Prove a change works by running the real check and fixing what it reports, not w
 6. Fix the cause, not the symptom. Do not add a special case for the one input that the test uses.
 7. Rerun the same command. Count this as one iteration.
 8. When the narrow check passes, run the next justified check once, based on changed scope and available infrastructure. For MR Studio follow `mr-studio-build-test`: do not automatically run a full test suite or Windows Release after every edit; current local scripts/CMake determine execution; Actions requires a separate request.
-9. Report the command and actual result concisely. In MR Studio keep full logs outside Git, use the chat handoff, and update the Issue only when authorized; do not create PROGRESS.md by default.
+9. Report the command and actual result concisely. In MR Studio keep full logs outside Git, report in chat and record meaningful results in the assigned DSH task under `dsh-task-manager-workflow` within the agreed scope; do not create PROGRESS.md by default.
 
 ## Stop when
 
@@ -35,6 +35,6 @@ Prove a change works by running the real check and fixing what it reports, not w
 
 ## MR Studio local validation
 
-- Follow `mr-github-workflow`; inspect the assigned Issue when present, local branch HEAD, available tests, scripts and CMake before choosing a check. Never invent a CMake target, workflow input or test command.
+- Follow `AGENTS.md` and load `dsh-task-manager-workflow` before journal operations; inspect the assigned DSH task when present, local branch HEAD, available tests, scripts and CMake before choosing a check. Never invent a CMake target, workflow input or test command.
 - Run checks locally. If the checkout or required tooling is unavailable, report the missing validation as NOT TESTED/BLOCKED and continue independent work; do not substitute Actions without a separate request.
 - Preserve RED → GREEN for bugfixes. Check relevant downstream gates only when justified by `mr-studio-build-test`. CI PASS is not hardware/user acceptance. Never bypass a failing gate.

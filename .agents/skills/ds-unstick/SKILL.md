@@ -17,7 +17,7 @@ When two fixes fail the same way, the problem is usually a wrong belief, not a w
 6. If the assumption holds, list 3 different approaches. "Different" means another mechanism, library, layer or data path, not a tweak of the same edit. Give each approach one line on cost and risk.
 7. Pick one approach and say why in one sentence.
 8. Inspect the diff and remove only your identified failed-attempt edits with targeted changes, preserving pre-existing work. In MR Studio, do not reset, stash, switch branches or discard files without agreement. If ownership is unclear, preserve the changes and report the uncertainty.
-9. Record the false assumption and chosen approach in the session handoff. In MR Studio update the Issue only when that publication is part of the task; do not create PROGRESS.md by default. For other repositories follow their handoff policy.
+9. Record the false assumption and chosen approach in the session handoff. In MR Studio record meaningful findings in the assigned DSH task within the agreed scope; load `dsh-task-manager-workflow` before journal operations; do not create PROGRESS.md by default. For other repositories follow their handoff policy.
 10. Return to ds-verify-loop with the new approach.
 
 ## Stop when

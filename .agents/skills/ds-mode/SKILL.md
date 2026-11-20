@@ -6,7 +6,7 @@ description: "Always-on working style for DeepSeek agents: restate the task, rea
 # DeepSeek working mode
 
 ## MR Studio / DSH adapter
-For MR Studio or MR Live, read root `AGENTS.md` and `mr-github-workflow` first. Project `mr-*` skills override generic DeepSeek Stack workflows for CI selection, Windows build policy, user acceptance, merge authorization and issue-first progress. The name "always-on" is not a DSH startup hook: explicitly load this instruction for the session when needed.
+For MR Studio or MR Live, read root `AGENTS.md` first; load `dsh-task-manager-workflow` before using the DSH task journal. Project `mr-*` skills override generic DeepSeek Stack workflows for CI selection, Windows build policy, user acceptance, merge authorization and DSH task progress. The name "always-on" is not a DSH startup hook: explicitly load this instruction for the session when needed.
 
 Apply this on every task. It keeps the loop tight and the claims honest.
 

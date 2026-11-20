@@ -8,14 +8,14 @@ description: "Use for the approved MR Studio-wide GUI visual style, native JUCE 
 ## When to use
 A task concerns new/redesigned MR Studio screens (Arrange, Mixer, Browser, Inspector, Live, host chrome), native plugin GUI (MR Rig, MR Reverb, MR Strip, Spatial, Saturator, Harma Waves), JUCE controls, icons/SVGs, theme, DPI, or visual acceptance.
 
-This skill is **not execution permission**; use only the assigned issue and phase. Do not start a redesign just because a feature names a plugin.
+This skill is **not execution permission**; use only the assigned DSH task and phase. Do not start a redesign just because a feature names a plugin.
 
 ## Minimal reading (do NOT load entire docs or all skills)
-1. Assigned GitHub issue; root AGENTS.md; verify local git status, current branch and HEAD.
+1. Root AGENTS.md and assigned DSH task; load `dsh-task-manager-workflow` before journal operations; verify local git status, current branch and HEAD.
 2. docs/MR_UNIFIED_DESIGN_SYSTEM.md — sections 1–5: **approved visual target**.
 3. docs/MR_UI_KIT.md + docs/MR_UI_KIT_ROADMAP.md **only for shared components/LookAndFeel/Gallery** (#189, #190–195).
 4. Read **one relevant product document**, e.g. docs/MR_RIG_GUI.md, docs/MR_REVERB.md, docs/UI_UX_CONCEPT.md, or exact DAW UI module document.
-5. Search actual local code for current ui::Theme, Controls.h, editor lifetime and parameter-binding APIs; follow existing docs/UI_REFERENCE_UPD9.md and approved #145/#146 as the **as-built** baseline. Do not assume GitHub spec means code already migrated.
+5. Search actual local code for current ui::Theme, Controls.h, editor lifetime and parameter-binding APIs; follow existing docs/UI_REFERENCE_UPD9.md and approved #145/#146 as the **as-built** baseline. Do not assume a specification means code already migrated.
 6. If a local mr-studio-ui-design-system skill exists, read it only when needed, reconcile overlap without creating a second Theme implementation. This skill owns **approved style**; MR UI Kit owns **implementation**.
 
 ## Design language
@@ -33,7 +33,7 @@ This skill is **not execution permission**; use only the assigned issue and phas
 - Keep **`tokens/` directory, `manifest.json`, `build_kit.py` and the asset-kit `README.md` at the root `assets/ui/mr-uds/`** (not in `.codex/skills/`, not in `docs/`). This keeps the generator's relative paths together. Do not run `build_kit.py` automatically: first inspect its dependencies, output paths and overwritten files in the task checkout.
 - First inspect `assets/ui/mr-uds/manifest.json` and matching `svg/` files, then `assets/ui/icons/transport/` for existing transport assets; reuse before drawing. Do not silently move/overwrite existing transport icons.
 - Treat this as the canonical tracked repository path. If missing, inspect the current local branch and Git history; do not invent asset filenames or pretend to have previews.
-- All new art should be added to the same library and its manifest, with original/license notes and size/state variants. Source/assets are versioned in local Git; builds and artifacts follow the local policy in AGENTS.md. GitHub is used for Issues only.
+- All new art should be added to the same library and its manifest, with original/license notes and size/state variants. Source/assets are versioned in local Git; builds and artifacts follow the local policy in AGENTS.md. Tasks and acceptance are tracked in DSH Task Manager.
 
 ## Shared DAW and native-plugin catalog
 
@@ -41,7 +41,7 @@ This skill is **not execution permission**; use only the assigned issue and phas
 - A user can select an element by name or screenshot and request replacement in a specific screen. Adapt visible size and layout while preserving actual parameter mapping, gestures, Undo, keyboard focus and accessibility. Catalog inclusion does not mean runtime adoption or acceptance of every screen.
 - Keep previews, manifest and catalog entries consistent when changing assets. For the concept extension use `build_concept_pack.py`, `validate_concept_pack.py` and `render_concept_pack.cjs`; inspect their write scope first. Legacy `build_kit.py` overwrites base library files and must not rebuild the extension.
 - Static meter/waveform examples are design references; runtime displays must reflect actual host data. Follow `docs/MR_SVG_RUNTIME.md` for current adoption boundaries. Catalog expansion and plugin-editor adoption are separate slices (#208 assets, #206 native editors, #205 DAW); a future direction does not start all three.
-- Record dated acceptance and exact source/package scope in the relevant issue, not as a growing history in this skill. Preserve accepted visual changes in later work unless the user requests replacement.
+- Record dated acceptance and exact source/package scope in the relevant DSH task, not as a growing history in this skill. Preserve accepted visual changes in later work unless the user requests replacement.
 
 ## Fast path — cosmetic-only changes (V1)
 
@@ -60,7 +60,7 @@ For isolated changes to background, color, contour stroke width or icon tint **w
 4. **For SVG**: original vector with viewBox and transparent background, consistent line weight and palette, no image/font/link/script embedding. Icons 24x24 (compact 16/20 LOD when needed); equipment 320x200; stable snake_case asset id and provenance. Confirm existing kit is physically in local workspace before using it; earlier conversation ZIP is not in GitHub.
 5. **Functional integrity**: real parameter metadata/units/default/range, one Undo action per gesture, keyboard/fine/reset, automation and persistence. Maintain native window owner/reopen/focus/Space behavior; do not paint in audio callback or alter DSP/graph/PDC for appearance.
 6. **Compare and validate proportionally**: for cosmetic-only V1 use the fast path above. For a new/changed geometry, significant component/screen redesign or explicitly agreed milestone, check before/after screenshots, Gallery if ready, software 100/125/150/200%, min/nominal/max windows, legible text/contrast/focus, mouse/keyboard, zoom, editor close/reopen/presets and affected regressions. Actual hardware mixed-DPI and ASIO explicitly NOT TESTED unless run.
-7. **Report**: exact implemented/simulated parts, test PASS/FAIL/NOT TESTED, source/asset rights, visual differences and user acceptance pending; update the assigned Issue only when that update is part of the task, otherwise report in chat. Stop before next slice.
+7. **Report**: exact implemented/simulated parts, test PASS/FAIL/NOT TESTED, source/asset rights, visual differences and user acceptance pending; record meaningful results in the assigned DSH task within the agreed scope and report in chat. Stop before next slice.
 
 ## Product-specific cautions
 - **MR Rig**: PRE FX → Rig Core → POST FX; one selected module inspector; don't draw non-existent dynamic-amp controls for static WAV, or suggest NAM sounds before NAM backend exists. #197/#200 control the product implementation.
@@ -79,7 +79,7 @@ For isolated changes to background, color, contour stroke width or icon tint **w
 - [ ] source/license for SVG/icon noted; original and redistributable
 - [ ] checks proportional to V1/component/release gate recorded; user signoff pending until explicitly given
 
-**Local Git owns source/docs/assets/skills; GitHub is for Issues. Publication and merge require separate authorization under AGENTS.md.**
+**Local Git owns source/docs/assets/skills; DSH Task Manager owns task requirements, status and acceptance. Publication and merge require separate authorization under AGENTS.md.**
 
 ## MR Fader visual selection (2026-10-16)
 

@@ -5,7 +5,7 @@ description: Choose proportionate local MR Studio / MR Live builds and tests, di
 
 # MR Studio Local Build & Test
 
-Development, builds, tests and artifacts run on the local Windows PC (user decision 2026-11-16). GitHub is used for Issues and task discussion only. Follow root `AGENTS.md` and [local policy](../../../docs/LOCAL_BUILD_POLICY.md). Do not push source/rules, create PRs or dispatch Actions automatically. Preserve local Git history, SDKs, accepted packages and user projects.
+Development, builds, tests and artifacts run on the local Windows PC (user decision 2026-11-16). Tasks, status and acceptance live in DSH Task Manager; load `dsh-task-manager-workflow` before journal operations. Follow root `AGENTS.md` and [local policy](../../../docs/LOCAL_BUILD_POLICY.md). Do not push source/rules, create PRs or dispatch Actions automatically. Preserve local Git history, SDKs, accepted packages and user projects.
 
 **Never invent preset/target/path/test commands.** Discover scripts, CMake presets and targets in the actual checkout. Installed tooling does not prove that SDKs, configuration or compilation work.
 
@@ -29,7 +29,7 @@ A cosmetic edit does not justify full rebuild, all-target build, full CTest, pac
 4. `tools/ci/Prepare-Sdks.ps1` and `tools/ci/sdk-lock.json` provide pinned SDK preparation. Their location under `tools/ci` does not require Actions. Downloads/installations are a separate environment-preparation step, never part of docs-only validation. Check pinned SDK files before execution; the local build script does not download them.
 5. If scripts cannot express the scope, derive scoped CMake commands from the actual configured tree and target definitions. Reconfigure only when required; preserve existing build trees. Use conservative job counts; if parallel MSBuild dies without a useful error, retry once with one job and inspect resource pressure.
 6. On failure read the first substantive configure/compiler/link/test error, form a new hypothesis, change one cause and rerun affected checks. Never weaken tests or delete unrelated build trees to obtain PASS.
-7. Record branch/HEAD, dirty state, exact commands, configuration, SDK pins and PASS/FAIL/NOT TESTED. Keep logs outside Git; put durable task evidence in the assigned Issue when authorized. A check on a different revision does not validate current code.
+7. Record branch/HEAD, dirty state, exact commands, configuration, SDK pins and PASS/FAIL/NOT TESTED. Keep logs outside Git; record meaningful task evidence in the assigned DSH task within the agreed scope. A check on a different revision does not validate current code.
 
 Visual Studio 18 Community may supply CMake/Ninja outside PATH; use its developer shell or verified absolute paths. Machine-specific paths are examples, not proof of availability. [Windows/JUCE notes](references/windows-juce-validation.md) are optional troubleshooting material.
 
@@ -37,6 +37,6 @@ Visual Studio 18 Community may supply CMake/Ninja outside PATH; use its develope
 
 - Before assigning a build version or preparing a package, read [versioning rules](../../../docs/VERSIONING.md). Prepare acceptance packages outside checkout with matching component version, manifest and symbols; preserve earlier versions. Exclude SDKs, fixtures, secrets, proprietary plugins and user files.
 - Check startup/editor lifetime and Save/Open/Undo when affected. Report listening, ASIO/MIDI, physical DPI and vendor checks only when actually performed; unavailable hardware remains NOT TESTED.
-- READY requires necessary checks; READY WITH MANUAL CHECK means only stated user/hardware checks remain; otherwise report NOT VALIDATED or BLOCKED. Build PASS is not acceptance, Issue closure or permission to merge into local `main`.
+- READY requires necessary checks; READY WITH MANUAL CHECK means only stated user/hardware checks remain; otherwise report NOT VALIDATED or BLOCKED. Build PASS is not acceptance, marking the DSH task Done or permission to merge into local `main`.
 - Historical CI configuration is retained but is not a required local gate. Actions or remote publication require a separate request; then inspect real workflows rather than bypassing gates.
 - Optional [report template](assets/build-report-template.md), [matrix](assets/validation-matrix-template.md) and [stage checklist](assets/stage-acceptance-checklist.md) are aids, not parallel status journals; root policy overrides historical CI wording in them.
