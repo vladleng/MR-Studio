@@ -74,7 +74,7 @@ void trackFolderSmoke(){
     check(view.folderRows.size()==1&&view.trackY(0)==36&&view.rows[0]->getY()==36,"folder creation immediately lays out Arrange rows");
     check(d.mixerFolders.size()==1,"unlinked mixer folder exists");auto* channelBody=d.mixerFolders.front()->getParentComponent();const auto arrangeBounds=view.getBounds(),mixBounds=channelBody->getBounds();
     check(d.mixerFolders.size()==1&&d.mixerColumnCount==4&&d.mixerColumns[0]==1&&d.mixerColumns[1]==2,"unlinked folder is a compact mixer channel before its members");
-    check(!d.mixerFolders[0]->gain.isEnabled()&&!d.mixerFolders[0]->pan.isEnabled(),"unlinked folder audio controls are disabled");
+    check(!d.mixerFolders[0]->gain.isEnabled()&&!d.mixerFolders[0]->pan.isEnabled()&&!d.mixerFolders[0]->findChildWithID("mixer-add-insert")->isVisible()&&!d.mixerFolders[0]->findChildWithID("mixer-sends")->isVisible(),"unlinked folder has no active audio, insert or send controls");
     const auto master=d.project()->master_gain;const auto revision=d.app.services().projects->state().revision;d.mixerFolders[0]->gain.commit(.2);check(d.project()->master_gain==master&&d.app.services().projects->state().revision==revision,"unlinked folder cannot edit Master gain");
     check(view.trackAt(static_cast<float>(view.headerHeight()+10))==-1,"folder header is not an audio destination");
     const auto p=d.project();const auto stored=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& item){return item.id==clip;});
@@ -88,8 +88,25 @@ void trackFolderSmoke(){
     check(view.trackAt(view.clipRect(*stored).getCentreY())==2,"collapsed lanes do not shift clip target to hidden track");
     d.action(10);check(!d.project()->folders.back().collapsed&&view.rows[0]->isVisible()&&d.mixer[0]->isVisible()&&d.mixerColumnCount==4,"Undo immediately restores both folder views");
     d.app.link_folder_bus(id,{},true);d.refresh();const auto linkedProject=d.project();const auto bus=*linkedProject->folders.back().bus;const auto busIndex=static_cast<std::size_t>(std::find_if(linkedProject->tracks.begin(),linkedProject->tracks.end(),[&](const auto& track){return track.id==bus;})-linkedProject->tracks.begin());
-    check(d.mixerFolders.empty()&&d.mixer[busIndex]->folder==id&&d.mixerColumns[busIndex]==0&&d.mixerColumnCount==4,"linked Bus becomes the simplified folder channel without duplicate strip");
-    check(d.mixer[busIndex]->gain.isEnabled()&&d.mixer[busIndex]->pan.isEnabled()&&!d.mixer[busIndex]->findChildWithID("mixer-add-insert")->isVisible(),"linked folder retains audio controls and omits insert UI");
+    check(d.mixerFolders.empty()&&d.mixer[busIndex]->folder==id&&d.mixerColumns[busIndex]==0&&d.mixerColumnCount==4,"linked Bus becomes the folder channel without a duplicate strip");
+    const auto checkBusFx=[&]{
+        const auto& strip=*d.mixer[busIndex];
+        auto* insert=strip.findChildWithID("mixer-add-insert");
+        auto* sends=dynamic_cast<juce::Viewport*>(strip.findChildWithID("mixer-sends"));
+        auto* addSend=sends?sends->getViewedComponent()->findChildWithID("mixer-add-send"):nullptr;
+        check(strip.gain.isEnabled()&&strip.pan.isEnabled()&&insert&&insert->isVisible()&&addSend&&addSend->isVisible()&&sends->isVisible()&&!sends->getBounds().isEmpty(),"Bus strip exposes inserts and sends");
+    };
+    checkBusFx();
+    {
+        auto& strip=*d.mixer[busIndex];
+        auto* inserts=strip.findChildWithID("mixer-inserts");
+        auto* sends=strip.findChildWithID("mixer-sends");
+        for(const auto* controlId:{"mixer-folder-toggle","mixer-folder-menu"}){
+            auto* button=strip.findChildWithID(controlId);
+            check(button&&button->isVisible()&&!button->getBounds().intersects(inserts->getBounds())&&!button->getBounds().intersects(sends->getBounds()),"folder actions do not cover FX controls");
+        }
+        check(strip.isInterestedInDragSource({juce::String("vst3:0"),nullptr,{}})&&!strip.isInterestedInDragSource({juce::String("mrs-track:")+juce::String(a.value),nullptr,{}}),"linked folder accepts FX drops, not track reorder drops");
+    }
     const auto capture=[&](const juce::String& state){for(float scale:{1.f,1.25f,1.5f,2.f}){const auto file=juce::File::getCurrentWorkingDirectory().getChildFile("juce-folder-mixer-"+state+"-"+juce::String(static_cast<int>(scale*100))+".png");auto output=file.createOutputStream();check(output&&output->setPosition(0)&&output->truncate().wasOk()&&juce::PNGImageFormat().writeImageToStream(channelBody->createComponentSnapshot({0,0,d.mixerColumnCount*88,channelBody->getHeight()},true,scale,juce::SoftwareImageType{}),*output),"folder mixer DPI preview export");}};
     capture("expanded");
     d.mixer[busIndex]->gain.commit(.7);check(std::abs(d.project()->tracks[busIndex].mix.gain-std::pow(10.f,(-60.f+72.f*.7f)/20.f))<.0001f&&d.project()->master_gain==master,"folder gain controls actual Bus only");
@@ -114,6 +131,25 @@ void trackFolderSmoke(){
     d.selectTrack(a,{});d.selectTrack(bus,juce::ModifierKeys(juce::ModifierKeys::shiftModifier));
     d.action(23);check(d.project()->tracks.empty()&&d.project()->clips.empty(),"Shift range deletion includes MIDI clips and buses");
     d.action(10);check(*d.project()==beforeDelete,"Undo all-channel deletion restores stable clip and channel IDs");
+
+    checkBusFx(); // Standalone Bus uses the same controls.
+    const auto fxFolder=d.app.create_track_folder("FX group",{a,b});
+    d.app.link_folder_bus(fxFolder,bus);d.refresh();checkBusFx();
+    const mrs::NativeInsert effect{mrs::new_id(),mrs::InsertKind::gain};
+    d.applyChain(bus,{effect});
+    d.run([&]{d.applySendChoice(bus,{},1,{});});
+    const auto afterFx=d.project();const auto& busTrack=afterFx->tracks[busIndex];
+    check(busTrack.id==bus&&busTrack.inserts.size()==1&&busTrack.inserts.front().id==effect.id&&busTrack.sends.size()==1&&afterFx->tracks.back().id==busTrack.sends.front().bus&&afterFx->tracks.back().fx_channel,"insert and send edit the linked Bus");
+    const auto checkFxRows=[&]{
+        const auto& strip=*d.mixer[busIndex];
+        auto* inserts=dynamic_cast<juce::Viewport*>(strip.findChildWithID("mixer-inserts"));
+        auto* sends=dynamic_cast<juce::Viewport*>(strip.findChildWithID("mixer-sends"));
+        check(inserts&&inserts->getViewedComponent()->findChildWithID("mixer-insert:"+juce::String(effect.id.value))&&sends&&sends->getViewedComponent()->findChildWithID("mixer-send:"+juce::String(busTrack.sends.front().bus.value)),"Bus strip displays the actual insert and send");
+    };
+    checkFxRows();
+    d.app.link_folder_bus(fxFolder,{});d.refresh();
+    check(!d.mixer[busIndex]->folder&&d.project()->tracks[busIndex]==busTrack,"detach keeps Bus FX and sends intact");
+    checkBusFx();checkFxRows();
 }
 void arrangeAudioSmoke(){
     const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
@@ -1127,6 +1163,68 @@ void externalMidiSmoke(){
     for(float scale:{1.f,1.5f}){auto image=d.createComponentSnapshot(d.getLocalBounds(),true,scale,juce::SoftwareImageType{});auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-external-midi-"+juce::String(static_cast<int>(scale*100))+"-preview.png").createOutputStream();check(stream!=nullptr,"external MIDI preview stream");stream->setPosition(0);stream->truncate();check(juce::PNGImageFormat().writeImageToStream(image,*stream),"external MIDI preview");}
     d.app.midi_panic();d.app.disconnect();
 }
+void mixerPanSmoke(){
+    const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+    Desktop d(true);d.app.disconnect();d.app.new_project();
+    const auto track=d.app.add_audio_track("Pan"),bus=d.app.add_bus("Return");
+    mrs::NativeInsert effect;effect.id=mrs::new_id();effect.kind=mrs::InsertKind::gain;d.app.set_inserts(track,{effect});
+    d.app.set_track_sends(track,{{bus,.5f,false}});
+    d.setSize(1200,900);d.setWorkspace(mrs::desktop::Workspace::mix);d.refresh(true);
+    auto& strip=*d.mixer[0];
+    check(strip.pan.rotary,"Mixer pan is drawn as a rotary knob");
+    const auto knob=strip.pan.knob();
+    check(std::abs(knob.getWidth()-knob.getHeight())<.01f,"Pan knob is circular");
+    check(std::abs(knob.getWidth()-static_cast<float>(strip.getWidth()/3))<=1.01f,"Pan knob spans a third of the channel width");
+    check(strip.getLocalBounds().contains(strip.pan.getBounds()),"Pan knob stays inside the channel strip");
+    auto* sends=dynamic_cast<juce::Viewport*>(strip.findChildWithID("mixer-sends"));
+    auto* inserts=dynamic_cast<juce::Viewport*>(strip.findChildWithID("mixer-inserts"));
+    check(sends&&inserts&&inserts->getHeight()>0&&sends->getHeight()>0&&sends->getBottom()<=strip.pan.getY()&&!strip.pan.getBounds().intersects(strip.gain.getBounds())&&strip.gain.getY()>strip.pan.getY(),"Pan knob sits between sends and the fixed fader");
+    auto makeEvent=[&](juce::Component& target,juce::Point<float> point,int clicks){return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),point,juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier),1,0,0,0,0,&target,&target,juce::Time::getCurrentTime(),point,juce::Time::getCurrentTime(),clicks,true);};
+    auto event=[&](juce::Point<float> point,int clicks){return makeEvent(strip.pan,point,clicks);};
+    const auto baseline=d.project()->tracks.front().mix.pan;const auto revision=d.app.services().projects->state().revision;
+    const auto centre=strip.pan.knob().getCentre();
+    strip.pan.mouseDown(event(centre,1));strip.pan.mouseDrag(event(centre.translated(48,0),1));
+    check(d.project()->tracks.front().mix.pan==baseline&&d.app.services().projects->state().revision==revision&&strip.pan.dragging(),"Pan drag previews without touching the model");
+    strip.pan.mouseUp(event(centre.translated(48,0),1));
+    const auto moved=d.project()->tracks.front().mix.pan;
+    check(moved>baseline+.05f&&d.app.services().projects->state().revision==revision+1,"Pan drag commits one history entry to the right");
+    d.action(10);check(std::abs(d.project()->tracks.front().mix.pan-baseline)<1.e-6f,"Pan gesture Undo restores the model");
+    {
+        const auto grab=[&](juce::Point<float> p){strip.pan.mouseDown(event(p,1));};
+        const auto dragTo=[&](juce::Point<float> p){strip.pan.mouseDrag(event(p,1));};
+        const auto release=[&](juce::Point<float> p){strip.pan.mouseUp(event(p,1));};
+        const auto sensitivity=[&](juce::Point<float> from,juce::Point<float> to){
+            const auto start=strip.pan.value;grab(from);dragTo(to);const auto movedValue=strip.pan.value;release(to);d.action(10);strip.pan.value=start;return movedValue-start;};
+        const auto horizontal=sensitivity(centre,centre.translated(60,0));
+        const auto upward=sensitivity(centre,centre.translated(0,-60));
+        const auto downward=sensitivity(centre,centre.translated(0,60));
+        const auto diagonal=sensitivity(centre,centre.translated(30,-30));
+        check(horizontal>.2f&&std::abs(upward-horizontal)<1.e-4f&&std::abs(downward+horizontal)<1.e-4f,"Vertical drag turns the knob exactly like horizontal");
+        check(std::abs(diagonal-horizontal)<1.e-4f,"Diagonal drag is not accelerated");
+    }
+    {
+        // The same gesture change must leave the vertical gain fader untouched.
+        auto& gain=strip.gain;const auto gainBefore=d.project()->tracks.front().mix.gain;const auto centreGain=gain.knob().getCentre();
+        gain.mouseDown(makeEvent(gain,centreGain,1));gain.mouseDrag(makeEvent(gain,centreGain.translated(0,-40),1));gain.mouseUp(makeEvent(gain,centreGain.translated(0,-40),1));
+        check(d.project()->tracks.front().mix.gain>gainBefore,"Vertical gain fader still follows upward pointer movement");
+        d.action(10);check(std::abs(d.project()->tracks.front().mix.gain-gainBefore)<1.e-6f,"Gain fader Undo after vertical drag");
+        gain.mouseDown(makeEvent(gain,centreGain,1));gain.mouseDrag(makeEvent(gain,centreGain.translated(40,0),1));gain.mouseUp(makeEvent(gain,centreGain.translated(40,0),1));
+        check(std::abs(d.project()->tracks.front().mix.gain-gainBefore)<1.e-6f,"Horizontal movement does not move the vertical gain fader");
+    }
+    strip.pan.mouseDown(event(knob.getTopLeft(),1));check(!strip.pan.dragging(),"Click outside the round knob does not start a pan gesture");
+    for(const bool skin:{false,true}){
+        d.setAssetDesign(skin);d.refresh(true);
+        auto& control=d.mixer[0]->pan;const auto area=control.knob().getSmallestIntegerContainer();
+        control.value=0.;const auto left=control.createComponentSnapshot(control.getLocalBounds());
+        control.value=1.;const auto right=control.createComponentSnapshot(control.getLocalBounds());
+        control.value=.5;
+        int changed=0;for(int y=area.getY();y<area.getBottom();++y)for(int x=area.getX();x<area.getRight();++x)if(left.getPixelAt(x,y)!=right.getPixelAt(x,y))++changed;
+        check(area.getWidth()>=12&&changed>=6,"Pan knob indicator and arc follow the value");
+    }
+    d.setAssetDesign(false);d.refresh(true);
+    for(float scale:{1.f,1.5f}){auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-mixer-pan-350-"+juce::String(static_cast<int>(scale*100))+".png").createOutputStream();check(stream!=nullptr,"Pan preview stream");check(juce::PNGImageFormat().writeImageToStream(strip.createComponentSnapshot(strip.getLocalBounds(),true,scale),*stream),"Pan preview image");}
+    d.removeFromDesktop();
+}
 void trackRenameSmoke(){
     const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
     auto pump=[](){for(int pass=0;pass<12;++pass){MSG msg{};int limit=0;while(limit++<200&&PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}juce::Thread::sleep(1);}};
@@ -1136,14 +1234,37 @@ void trackRenameSmoke(){
     const auto folder=juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("mrs-rename-ui","",false);check(folder.createDirectory(),"rename fixture directory");
     const auto file=std::filesystem::path(folder.getChildFile("Rename.mrsproject").getFullPathName().toWideCharPointer());
     auto name=[&](mrs::Id id){const auto p=d.project();return std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==id;})->name;};
-    auto event=[](Strip& strip,juce::Point<float> point,int mods,int clicks){return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),point,juce::ModifierKeys(mods),1,0,0,0,0,&strip,&strip,juce::Time::getCurrentTime(),point,juce::Time::getCurrentTime(),clicks,false);};
+    auto event=[](juce::Component& component,juce::Point<float> point,int mods,int clicks){return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),point,juce::ModifierKeys(mods),1,0,0,0,0,&component,&component,juce::Time::getCurrentTime(),point,juce::Time::getCurrentTime(),clicks,false);};
+    const auto waitForClicks=[&]{const auto until=juce::Time::getMillisecondCounter()+static_cast<unsigned>(juce::MouseEvent::getDoubleClickTimeout()+60);while(juce::Time::getMillisecondCounter()<until)pump();};
+    const auto clickColor=[&](Strip& strip,int clicks){
+        auto* field=strip.findChildWithID("channel-color");
+        check(field&&field->isVisible()&&field->getBounds().contains(strip.nameBounds())&&field->getBottom()==strip.getHeight(),"name sits inside the lower color field");
+        const auto e=event(*field,field->getLocalBounds().getCentre().toFloat(),juce::ModifierKeys::leftButtonModifier,clicks);
+        field->mouseDown(e);field->mouseUp(e);if(clicks>1)field->mouseDoubleClick(e);
+    };
+    const auto modal=[] {return juce::ModalComponentManager::getInstance()->getNumModalComponents();};
+    auto& firstMixer=*d.mixer[0];
+    d.toFront(true);d.grabKeyboardFocus();pump();
+    auto* colorButton=dynamic_cast<juce::Button*>(firstMixer.findChildWithID("channel-color"));
+    check(colorButton&&colorButton->isShowing()&&colorButton->isEnabled(),"color field shown and enabled");
+    const auto showPalette=colorButton->onClick;
+    int colorClicks=0;bool paletteOpened=false;
+    colorButton->onClick=[&]{++colorClicks;showPalette();paletteOpened=modal()>0;};
+    clickColor(firstMixer,1);check(!modal()&&colorClicks==0,"first release waits for a possible double click");
+    const auto deadline=juce::Time::getMillisecondCounter()+static_cast<unsigned>(juce::MouseEvent::getDoubleClickTimeout()+500);
+    while(colorClicks==0&&juce::Time::getMillisecondCounter()<deadline){pump();juce::Timer::callPendingTimersSynchronously();}
+    check(colorClicks==1,"single click dispatches the color action exactly once");
+    check(paletteOpened,"color action opens the palette");juce::PopupMenu::dismissAllActiveMenus();pump();
+    colorButton->onClick=showPalette;
+    const auto preview=juce::File::getCurrentWorkingDirectory().getChildFile("juce-mixer-names-350.png");
+    {auto stream=preview.createOutputStream();check(stream&&stream->setPosition(0)&&stream->truncate().wasOk()&&juce::PNGImageFormat().writeImageToStream(firstMixer.getParentComponent()->createComponentSnapshot({0,0,264,firstMixer.getHeight()}),*stream),"mixer name preview");}
     juce::Component::SafePointer<juce::TextEditor> editor;
     auto finish=[&](juce::String text,bool accept){check(editor&&editor->isVisible(),"inline editor active");const auto revision=d.app.services().projects->state().revision;editor->setText(text);check(d.app.services().projects->state().revision==revision,"typing does not edit model");check(static_cast<juce::Component*>(editor.getComponent())->keyPressed(juce::KeyPress(accept?juce::KeyPress::returnKey:juce::KeyPress::escapeKey)),"rename Enter/Escape handled");pump();check(!editor||!editor->isVisible(),"inline editor closes");};
-    auto open=[&](Strip& strip){const auto e=event(strip,strip.nameBounds().getCentre().toFloat(),juce::ModifierKeys::leftButtonModifier,2);strip.mouseDown(e);strip.mouseDoubleClick(e);check(!d.isDragAndDropActive(),"double click does not reorder track");editor=dynamic_cast<juce::TextEditor*>(strip.findChildWithID("track-name-editor"));check(editor&&editor->isVisible()&&editor->getBounds()==strip.nameBounds(),"inline editor stays in name field");check(!d.shortcutAllowedFor(editor.getComponent()),"typing blocks transport/delete shortcuts");check(!juce::ModalComponentManager::getInstance()->getNumModalComponents(),"rename opens no dialog");};
+    auto open=[&](Strip& strip){if(strip.getParentComponent()==d.mixer.front()->getParentComponent()){clickColor(strip,1);clickColor(strip,2);}else{const auto e=event(strip,strip.nameBounds().getCentre().toFloat(),juce::ModifierKeys::leftButtonModifier,2);strip.mouseDown(e);strip.mouseDoubleClick(e);}check(!d.isDragAndDropActive(),"double click does not reorder track");editor=dynamic_cast<juce::TextEditor*>(strip.findChildWithID("track-name-editor"));check(editor&&editor->isVisible()&&editor->getBounds()==strip.nameBounds(),"inline editor stays in name field");check(!d.shortcutAllowedFor(editor.getComponent()),"typing blocks transport/delete shortcuts");check(!juce::ModalComponentManager::getInstance()->getNumModalComponents(),"rename opens no dialog");};
     const auto initial=d.app.services().projects->state().revision;auto& first=*d.arrangement->rows[0];first.mouseDown(event(first,first.nameBounds().getCentre().toFloat(),juce::ModifierKeys::leftButtonModifier,1));check(d.selectedTrack==audio&&!juce::ModalComponentManager::getInstance()->getNumModalComponents(),"single click only selects track");first.mouseDoubleClick(event(first,first.nameBounds().getCentre().toFloat(),juce::ModifierKeys::rightButtonModifier,2));check(!juce::ModalComponentManager::getInstance()->getNumModalComponents(),"right double click ignored");open(first);check(editor->getText()=="Original","current name initialized");finish("Ignored",false);check(name(audio)=="Original"&&d.app.services().projects->state().revision==initial,"Escape leaves model/history intact");
     open(*d.arrangement->rows[0]);finish(juce::String::fromUTF8("Дорожка — длинное имя 123456789"),true);check(name(audio)!= "Original"&&d.app.services().projects->state().revision==initial+1,"Enter commits one shared rename command");check(d.mixer[0]->gain.getTitle().contains(juce::String::fromUTF8("Дорожка")),"Mix follows Arrange rename");
     d.action(10);check(name(audio)=="Original","rename Undo");d.action(11);const auto renamed=name(audio);check(renamed!="Original","rename Redo");
-    open(*d.mixer[1]);finish("New Keys",true);check(name(keys)=="New Keys"&&d.arrangement->rows[1]->gain.getTitle().contains("New Keys"),"Arrange follows Mix instrument rename");open(*d.mixer[2]);finish("New Bus",true);check(name(bus)=="New Bus","bus name editable");
+    open(*d.mixer[1]);waitForClicks();check(!modal()&&editor&&editor->isVisible(),"double click cancels the pending palette and keeps the editor open");finish("New Keys",true);check(name(keys)=="New Keys"&&d.arrangement->rows[1]->gain.getTitle().contains("New Keys"),"Arrange follows Mix instrument rename");open(*d.mixer[2]);finish("New Bus",true);check(name(bus)=="New Bus","bus name editable");
     const auto unchanged=d.app.services().projects->state().revision;open(*d.mixer[2]);finish("New Bus",true);check(d.app.services().projects->state().revision==unchanged,"unchanged rename is no-op");
     open(*d.mixer[2]);finish("  ",true);check(name(bus)=="New Bus"&&d.app.services().projects->state().revision==unchanged,"empty name cancels");
     d.renameTrack(bus);editor=dynamic_cast<juce::TextEditor*>(d.mixer[2]->findChildWithID("track-name-editor"));check(editor&&editor->isVisible(),"menu also edits inline");editor->setText("Focus Bus");editor->onFocusLost();pump();check(name(bus)=="Focus Bus","click outside commits");d.action(10);

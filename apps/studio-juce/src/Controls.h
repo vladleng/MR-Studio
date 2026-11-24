@@ -382,7 +382,7 @@ public:
             juce::AccessibilityActions{},juce::AccessibilityHandler::Interfaces(std::make_unique<Value>(*this)));
     }
     juce::Rectangle<float> knob() const {
-        if(rotary){const float side=static_cast<float>(juce::jmin(getWidth(),getHeight())-8);return getLocalBounds().toFloat().withSizeKeepingCentre(side,side);}
+        if(rotary){const float side=static_cast<float>(juce::jmin(getWidth(),getHeight())-4);return getLocalBounds().toFloat().withSizeKeepingCentre(side,side);}
         if(compact&&!vertical_)return {12.f+static_cast<float>(value)*travel()-9.f,0,18.f,static_cast<float>(getHeight())};
         if (vertical_) return {static_cast<float>(getWidth()/2-8), 12.f + static_cast<float>(1-value) * travel(),
                                16.f, 18.f};
@@ -418,12 +418,13 @@ public:
         if(e.mods.isLeftButtonDown()){pointerFocus_=true;repaint();}
         if (!e.mods.isLeftButtonDown() || !knob().contains(e.position)) return;
         if(rotary && e.position.getDistanceFrom(knob().getCentre())>knob().getWidth()/2)return;
-        pointerFocus_=true;grabKeyboardFocus(); active=true; origin=value; last=vertical_ ? e.position.y : e.position.x;
+        pointerFocus_=true;grabKeyboardFocus(); active=true; origin=value; lastX=e.position.x; lastY=e.position.y;
     }
     void mouseDrag(const juce::MouseEvent& e) override {
         if (!active) return;
-        const auto position=vertical_ ? e.position.y : e.position.x;
-        const auto delta=(position-last)*(vertical_ ? -1.f : 1.f); last=position;
+        const auto dx=e.position.x-lastX,dy=e.position.y-lastY;lastX=e.position.x;lastY=e.position.y;
+        // Rotary knobs follow both axes: up/right raise the value, down/left lower it.
+        const auto delta=rotary ? dx-dy : (vertical_ ? -dy : dx);
         value=juce::jlimit(0.,1.,value+delta/travel()*(e.mods.isCtrlDown() ? .1 : 1.));
         if(preview) preview(value); repaint();
     }
@@ -452,7 +453,7 @@ private:
     void abort() { if(active) {active=false; value=origin; if(cancel)cancel(); repaint();} }
     bool vertical_, active{},pointerFocus_{};
     double origin{};
-    float last{};
+    float lastX{},lastY{};
 };
 
 class InlineNameEditor final:public juce::TextEditor {

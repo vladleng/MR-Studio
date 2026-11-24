@@ -143,6 +143,18 @@ public:
             catch(const std::exception& e){failure.replaceWithText(e.what());setApplicationReturnValue(1);}
             quit();return;
         }
+        if(args.contains("--mixer-pan-smoke")){
+            const auto failure=juce::File::getCurrentWorkingDirectory().getChildFile("mixer-pan-failure.txt");failure.deleteFile();
+            try{ui::mixerPanSmoke();setApplicationReturnValue(0);}
+            catch(const std::exception& e){failure.replaceWithText(e.what());setApplicationReturnValue(1);}
+            quit();return;
+        }
+        if(args.contains("--track-rename-smoke")){
+            const auto failure=juce::File::getCurrentWorkingDirectory().getChildFile("track-rename-failure.txt");failure.deleteFile();
+            try{ui::trackRenameSmoke();setApplicationReturnValue(0);}
+            catch(const std::exception& e){failure.replaceWithText(e.what());setApplicationReturnValue(1);}
+            quit();return;
+        }
         if(args.contains("--track-folders-smoke")){
             const auto failure=juce::File::getCurrentWorkingDirectory().getChildFile("folders266-failure.txt");failure.deleteFile();
             try{ui::trackFolderSmoke();setApplicationReturnValue(0);}

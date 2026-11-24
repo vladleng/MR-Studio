@@ -631,12 +631,18 @@ private:
     void finishNameEdit(bool);
     juce::TextButton mute{"M"},solo{"S"},arm{"R"},monitor{"I"},input{"Input"},
         output{"Out: Master"},sends{"+ Send"},add{"+"},instrument{"Instrument"},piano{""};
-    class ColorField final:public juce::TextButton{
-    public:std::uint32_t rgb{ObjectPalette::defaultClip};
-        void paintButton(juce::Graphics& g,bool hover,bool down)override{
-            g.setColour(juce::Colour(0xff000000|rgb).withAlpha(isEnabled()?1.f:.35f).withMultipliedBrightness(down?.8f:hover?1.15f:1.f));g.fillRoundedRectangle(getLocalBounds().toFloat().reduced(1),2);
-            if(hasKeyboardFocus(true)){g.setColour(juce::Colours::white);g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(.5f),2,1);}
-        }
+    class ColorField final:public juce::TextButton,private juce::Timer{
+    public:
+        ColorField();
+        std::uint32_t rgb{ObjectPalette::defaultClip};
+        juce::String channelName;
+        std::function<void()> chooseColor,rename;
+        void mouseDown(const juce::MouseEvent&) override;
+        void mouseUp(const juce::MouseEvent&) override;
+        void mouseDoubleClick(const juce::MouseEvent&) override;
+        void paintButton(juce::Graphics&,bool hover,bool down) override;
+    private:
+        void timerCallback() override;
     } colorField;
     InsertPowerButton allPower;
     std::vector<std::unique_ptr<MixerInsert>> insertButtons;
@@ -814,6 +820,8 @@ private:
     std::unique_ptr<juce::TreeViewItem> root;
 };
 void trackFolderSmoke();
+void trackRenameSmoke();
+void mixerPanSmoke();
 void wavDrop263Smoke();
 void j2Smoke(Desktop&,const juce::File& fixture={});
 void j2PluginSmoke(Desktop&,const juce::File&);

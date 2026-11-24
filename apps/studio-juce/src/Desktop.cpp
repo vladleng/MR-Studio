@@ -26,6 +26,7 @@
 
 namespace ui {
 namespace {
+constexpr int mixerNameExtra=18;
 class StudioAlertWindow final : public juce::AlertWindow {
 public:
     StudioAlertWindow(Desktop& owner,const juce::String& title,const juce::String& message,juce::MessageBoxIconType icon)
@@ -552,11 +553,11 @@ void Desktop::resized(){if(homeVisible&&home){for(auto* child:getChildren())if(c
     const bool instrumentChannels=std::any_of(project()->tracks.begin(),project()->tracks.end(),[](const auto& track){return track.kind==mrs::TrackKind::instrument;});
     const int footerHeight=getWidth()<1500?58:42;
     const bool araDock=showEdit&&static_cast<bool>(dockedEditor->getProperties()["mrs-ara-editor"]);
-    const int maxHeight=araDock?juce::jmax(0,getHeight()-94-footerHeight):juce::jmax(instrumentChannels?436:260,getHeight()-292);
+    const int maxHeight=araDock?juce::jmax(0,getHeight()-94-footerHeight):juce::jmax(instrumentChannels?436+(showMix?mixerNameExtra:0):260,getHeight()-292);
     const int insertHeight=mixerInsertHeight();
     // mixerHeight remains the legacy base height, not the total dock height.
     // Keep the fixed fader/pan and lower controls; reserve one visible send row on tracks.
-    const int baseHeight=juce::jmax(juce::jmax(260,(project()->tracks.empty()?352:instrumentChannels?436:380)-insertHeight),view.mixerHeight);
+    const int baseHeight=juce::jmax(juce::jmax(260,(project()->tracks.empty()?352:instrumentChannels?436:380)+mixerNameExtra-insertHeight),view.mixerHeight);
     const int mixerHeight=showEdit?juce::jmin(maxHeight,view.editorHeight):showMix ? juce::jmin(maxHeight,baseHeight+insertHeight) : 0;
     const int mixerShift=showMix?14:0; // Move the whole mixer down, keeping strip/fader dimensions.
     arrangeArea={8,94,available,getHeight()-94-footerHeight-mixerHeight+mixerShift};arrangement->setBounds(arrangeArea);
@@ -627,7 +628,7 @@ void Desktop::resizeMixer(int height){
     else {
         const int inserts=mixerInsertHeight();
         const bool instrumentChannels=std::any_of(project()->tracks.begin(),project()->tracks.end(),[](const auto& track){return track.kind==mrs::TrackKind::instrument;});
-        const int minimum=juce::jmax(260,(project()->tracks.empty()?352:instrumentChannels?436:380)-inserts);
+        const int minimum=juce::jmax(260,(project()->tracks.empty()?352:instrumentChannels?436:380)+mixerNameExtra-inserts);
         const int maximum=juce::jmax(minimum,getHeight()-292-inserts);
         view.mixerHeight=juce::jlimit(minimum,maximum,height);
     }
@@ -877,8 +878,36 @@ void Desktop::pollTrackHeaderLayout(){
     repaint();
 }
 
+Strip::ColorField::ColorField(){onClick=[this]{stopTimer();if(chooseColor)chooseColor();};}
+void Strip::ColorField::mouseDown(const juce::MouseEvent& e){
+    if(rename){if(!e.mods.isLeftButtonDown()||e.mods.isPopupMenu())return;if(e.getNumberOfClicks()>1)stopTimer();}
+    juce::TextButton::mouseDown(e);
+}
+void Strip::ColorField::mouseUp(const juce::MouseEvent& e){
+    if(!rename){juce::TextButton::mouseUp(e);return;}
+    if(!e.mods.isLeftButtonDown()||e.mods.isPopupMenu())return;
+    const bool inside=getLocalBounds().contains(e.getPosition());
+    setState(inside?buttonOver:buttonNormal);
+    // Pointer releases are handled here rather than by Button's immediate click.
+    if(isEnabled()&&e.getNumberOfClicks()==1&&inside&&!e.mouseWasDraggedSinceMouseDown())
+        startTimer(juce::MouseEvent::getDoubleClickTimeout());
+}
+void Strip::ColorField::mouseDoubleClick(const juce::MouseEvent& e){
+    if(!rename||!isEnabled()||!e.mods.isLeftButtonDown()||e.mods.isPopupMenu()||!getLocalBounds().contains(e.getPosition())||e.mouseWasDraggedSinceMouseDown())return;
+    stopTimer();rename();
+}
+void Strip::ColorField::timerCallback(){stopTimer();if(isShowing()&&isEnabled()&&onClick)onClick();}
+void Strip::ColorField::paintButton(juce::Graphics& g,bool hover,bool down){
+    const auto fill=juce::Colour(0xff000000|rgb).withMultipliedBrightness(down?.8f:hover?1.12f:1.f);
+    const auto bounds=getLocalBounds();g.setColour(fill.withAlpha(isEnabled()?1.f:.55f));g.fillRoundedRectangle(bounds.toFloat().reduced(1),2);
+    const auto ink=fill.getPerceivedBrightness()>.58f?juce::Colours::black:juce::Colours::white;
+    if(channelName.isNotEmpty()){g.setColour(ink);g.setFont(ui::Theme::stripFont());g.drawText(channelName,bounds.reduced(5,0),juce::Justification::centred,true);}
+    if(hasKeyboardFocus(true)){g.setColour(ink);g.drawRoundedRectangle(bounds.toFloat().reduced(1.5f),2,1);}
+}
+
 Strip::Strip(Desktop& d,std::optional<mrs::Id> id,bool small,std::optional<mrs::Id> folderId):gain(!small),target(id),folder(std::move(folderId)),owner(d),mini(small){
-    addChildComponent(folderToggle);addChildComponent(folderMenuButton);folderToggle.setComponentID("mixer-folder-toggle");folderMenuButton.setComponentID("mixer-folder-menu");
+    for(auto* button:{&folderToggle,&folderMenuButton}){button->getProperties().set("stripFont",true);button->getProperties().set("flatMixerButton",!mini);addChildComponent(*button);}
+    folderToggle.setComponentID("mixer-folder-toggle");folderMenuButton.setComponentID("mixer-folder-menu");
     folderToggle.onClick=[this]{if(!folder)return;const auto p=owner.project();const auto f=std::find_if(p->folders.begin(),p->folders.end(),[&](const auto& item){return item.id==*folder;});if(f==p->folders.end())return;const auto value=*f;owner.run([&]{owner.app.update_track_folder(value.id,value.name,!value.collapsed);});};
     folderMenuButton.onClick=[this]{if(folder)owner.showFolderMenu(*folder,folderMenuButton.getScreenBounds().getBottomLeft());};
     addChildComponent(nameEditor);nameEditor.setComponentID("track-name-editor");nameEditor.setTitle("Track name");
@@ -887,7 +916,7 @@ Strip::Strip(Desktop& d,std::optional<mrs::Id> id,bool small,std::optional<mrs::
     nameEditor.setColour(juce::TextEditor::focusedOutlineColourId,juce::Colour(accent));
     nameEditor.onReturnKey=[this]{finishNameEdit(true);};nameEditor.onEscapeKey=[this]{finishNameEdit(false);};
     nameEditor.onFocusLost=[this]{finishNameEdit(true);};
-    pan.rotary=mini;gain.setTitle("Channel gain");pan.setTitle("Channel pan");
+    pan.rotary=true;gain.setTitle("Channel gain");pan.setTitle("Channel pan");
     gain.setDescription("Arrow keys adjust gain; Ctrl for fine adjustment");pan.setDescription("Arrow keys adjust pan; Ctrl for fine adjustment");
     mute.setTitle("Mute");solo.setTitle("Solo");arm.setTitle("Arm recording");monitor.setTitle("Input monitoring");
     for(auto* c:{static_cast<juce::Component*>(&gain),static_cast<juce::Component*>(&pan)})addAndMakeVisible(c);
@@ -906,7 +935,9 @@ Strip::Strip(Desktop& d,std::optional<mrs::Id> id,bool small,std::optional<mrs::
     instrument.getProperties().set("stripFont",true);instrument.getProperties().set("flatMixerButton",true);
     // The instrument shortcut uses the same flat mixer chrome in normal mode.
     piano.getProperties().set("stripFont",true);piano.getProperties().set("flatMixerButton",true);
-    colorField.setComponentID("channel-color");colorField.setTitle("Channel color");colorField.setTooltip("Choose channel color (32 colors)");addAndMakeVisible(colorField);colorField.onClick=[this]{colorMenu();};
+    colorField.setComponentID("channel-color");colorField.setTitle("Channel color");colorField.setTooltip(mini?"Choose channel color (32 colors)":"Click to choose channel color; double-click to rename");addAndMakeVisible(colorField);colorField.chooseColor=[this]{colorMenu();};
+    colorField.getProperties().set("stripFont",true);
+    if(!mini)colorField.rename=[this]{beginNameEdit();};
     output.onClick=[this]{if(target)owner.routeMenu(*target);else owner.textDialog("Master hardware outputs (1,2...)","1,2",[this](auto s){owner.app.set_hardware_output({},mrs::desktop::parse_outputs(s.toStdString()));});};
     sends.getProperties().set("stripFont",true);sends.getProperties().set("flatMixerButton",true);
     sends.setComponentID("mixer-add-send");sends.setTooltip("Add send; choose destination");sendBody.addAndMakeVisible(sends);
@@ -924,8 +955,8 @@ Strip::Strip(Desktop& d,std::optional<mrs::Id> id,bool small,std::optional<mrs::
 }
 const mrs::Track& Strip::track() const{trackSnapshot=owner.project();if(target)for(const auto& t:trackSnapshot->tracks)if(t.id==target)return t;static const mrs::Track master;return master;}
 juce::Rectangle<int> Strip::nameBounds() const{
-    if(folder)return {6,3,juce::jmax(0,getWidth()-12),21};
-    if (mini && target) if (const auto* layout = owner.trackLayout())
+    if(!mini)return {6,getHeight()-mixerNameExtra-5,juce::jmax(0,getWidth()-12),mixerNameExtra+3};
+    if (target) if (const auto* layout = owner.trackLayout())
         if (const auto* item = layout->find(getHeight(), "name"))
             return layout->rectangle(getHeight(), getWidth(), *item, "name");
     if(owner.assetSkin()&&mini)return {32,3,juce::jmax(0,getWidth()-144),21};
@@ -936,23 +967,29 @@ void Strip::mouseDown(const juce::MouseEvent& e){
     if(e.eventComponent==&sendDivider&&e.mods.isLeftButtonDown()){resizingSends=true;sendDragY=e.getScreenY();sendDragHeight=sendViewport.getHeight();return;}
     if(target)owner.selectTrack(*target,e.mods);else owner.selectedTrack.reset();dragTitle=target&&!folder&&!owner.app.recording()&&e.mods.isLeftButtonDown()&&e.getNumberOfClicks()==1&&(e.eventComponent==this||e.eventComponent==&insertBody||e.eventComponent==&sendBody||e.eventComponent==&insertViewport);owner.refresh();
 }
-void Strip::mouseDoubleClick(const juce::MouseEvent& e){dragTitle=false;if(folder){owner.showFolderMenu(*folder,e.getScreenPosition());return;}if(target&&e.mods.isLeftButtonDown()&&nameBounds().contains(e.getPosition()))beginNameEdit();}
+void Strip::mouseDoubleClick(const juce::MouseEvent& e){dragTitle=false;if(target&&e.mods.isLeftButtonDown()&&nameBounds().contains(e.getPosition()))beginNameEdit();else if(folder)owner.showFolderMenu(*folder,e.getScreenPosition());}
 void Strip::beginNameEdit(){
-    if(!target||folder||owner.app.recording()||editingName)return;
+    if(!target||owner.app.recording()||editingName)return;
     owner.selectedTrack=target;dragTitle=false;editingName=true;
-    nameEditor.setText(label(track().name),false);nameEditor.setBounds(nameBounds());nameEditor.setVisible(true);
+    nameEditor.setText(mini?label(track().name):colorField.channelName,false);nameEditor.setBounds(nameBounds());nameEditor.setVisible(true);nameEditor.toFront(false);
     nameEditor.grabKeyboardFocus();nameEditor.selectAll();repaint();
 }
 void Strip::finishNameEdit(bool accept){
     if(!editingName)return;editingName=false;
-    const auto text=nameEditor.getText();const auto id=target;const auto store=owner.app.services().projects;
+    const auto text=nameEditor.getText();const auto id=target;const auto folderId=folder;const auto store=owner.app.services().projects;
     nameEditor.setVisible(false);repaint();
     if(!accept||!id||text.trim().isEmpty())return;
     juce::Component::SafePointer<Strip> safe(this);
     // Refresh may replace strips: leave the TextEditor callback before committing.
-    juce::MessageManager::callAsync([safe,store,id,text]{
-        if(!safe||safe->owner.app.services().projects!=store||safe->owner.app.recording())return;
-        const auto p=safe->owner.project();const auto at=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==id;});
+    juce::MessageManager::callAsync([safe,store,id,folderId,text]{
+        if(!safe||safe->owner.app.services().projects!=store||safe->owner.app.recording()||safe->folder!=folderId)return;
+        const auto p=safe->owner.project();
+        if(folderId){
+            const auto at=std::find_if(p->folders.begin(),p->folders.end(),[&](const auto& f){return f.id==folderId&&f.bus==id;});
+            if(at!=p->folders.end()&&text!=label(at->name))safe->owner.run([&]{safe->owner.app.update_track_folder(*folderId,text.toStdString(),at->collapsed);});
+            return;
+        }
+        const auto at=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==id;});
         if(at==p->tracks.end()||text==label(at->name))return;
         safe->owner.run([&]{safe->owner.app.rename_track(*id,text.toStdString());});
     });
@@ -968,10 +1005,12 @@ void Strip::syncFolderPresentation(){
     if(!isFolder)return;
     if(!folderIcon)folderIcon=juce::Drawable::createFromImageData(MRConceptAssets::folder_svg,MRConceptAssets::folder_svgSize);
     setComponentID("mixer-folder-"+label(folder->value));
-    for(auto* component:{static_cast<juce::Component*>(&insertViewport),static_cast<juce::Component*>(&sendViewport),static_cast<juce::Component*>(&sendDivider),static_cast<juce::Component*>(&allPower),static_cast<juce::Component*>(&add),static_cast<juce::Component*>(&sends),static_cast<juce::Component*>(&input),static_cast<juce::Component*>(&output),static_cast<juce::Component*>(&arm),static_cast<juce::Component*>(&monitor),static_cast<juce::Component*>(&instrument),static_cast<juce::Component*>(&piano),static_cast<juce::Component*>(&colorField)})component->setVisible(false);
-    gain.setVisible(true);pan.setVisible(true);mute.setVisible(true);solo.setVisible(true);
-    for(auto* component:{static_cast<juce::Component*>(&gain),static_cast<juce::Component*>(&pan),static_cast<juce::Component*>(&mute),static_cast<juce::Component*>(&solo)})component->setEnabled(target.has_value());
-    const auto p=owner.project();for(const auto& f:p->folders)if(f.id==*folder){folderToggle.setButtonText(f.collapsed?">":"v");folderToggle.setTitle(f.collapsed?"Expand folder":"Collapse folder");folderToggle.setTooltip(folderToggle.getTitle());setTooltip(label(f.name)+(target?" — linked Bus controls":" — link a Bus to enable channel controls"));break;}
+    // A linked folder is the Bus strip; only a folder without a Bus hides channel controls.
+    if(!target){
+        for(auto* component:{static_cast<juce::Component*>(&insertViewport),static_cast<juce::Component*>(&sendViewport),static_cast<juce::Component*>(&sendDivider),static_cast<juce::Component*>(&allPower),static_cast<juce::Component*>(&add),static_cast<juce::Component*>(&sends),static_cast<juce::Component*>(&input),static_cast<juce::Component*>(&output),static_cast<juce::Component*>(&arm),static_cast<juce::Component*>(&monitor),static_cast<juce::Component*>(&instrument),static_cast<juce::Component*>(&piano),static_cast<juce::Component*>(&colorField)})component->setVisible(false);
+        for(auto* component:{static_cast<juce::Component*>(&gain),static_cast<juce::Component*>(&pan),static_cast<juce::Component*>(&mute),static_cast<juce::Component*>(&solo)}){component->setVisible(true);component->setEnabled(false);}
+    }
+    const auto p=owner.project();for(const auto& f:p->folders)if(f.id==*folder){if(target)colorField.channelName=label(f.name);folderToggle.setButtonText(f.collapsed?">":"v");folderToggle.setTitle(f.collapsed?"Expand folder":"Collapse folder");folderToggle.setTooltip(folderToggle.getTitle());setTooltip(label(f.name)+(target?" — Bus: "+label(track().name):" — link a Bus to enable channel controls"));break;}
     folderMenuButton.setTitle("Track folder menu");folderToggle.setEnabled(!owner.app.recording());folderMenuButton.setEnabled(!owner.app.recording());
 }
 void Strip::sync(){
@@ -983,6 +1022,7 @@ void Strip::sync(){
     if(editingName&&owner.app.recording())finishNameEdit(false);
     if(!gain.dragging())gain.value=juce::jlimit(0.,1.,(20*std::log10(juce::jmax(.001f,v))+60)/72.);if(!pan.dragging())pan.value=(mix.pan+1)/2.;
     gain.setTooltip(juce::String(-60+gain.value*72,1)+" dB — drag the fill endpoint; Ctrl fine; arrows; compact double-click resets 0 dB");
+    {const int percent=juce::roundToInt(pan.value*200-100);pan.setTooltip((percent==0?"Pan centre":percent<0?"Pan L "+juce::String(-percent)+"%":"Pan R "+juce::String(percent)+"%")+" — drag up/down or sideways; Ctrl fine; arrows");}
     mute.setVisible(target.has_value());solo.setVisible(target.has_value());pan.setVisible(target.has_value());
     arm.setVisible(target&&(t.kind==mrs::TrackKind::audio||t.kind==mrs::TrackKind::instrument));monitor.setVisible(arm.isVisible());input.setVisible(monitor.isVisible()&&(mini||t.kind==mrs::TrackKind::instrument));instrument.setVisible(!mini&&target&&t.kind==mrs::TrackKind::instrument);piano.setVisible(target&&t.kind==mrs::TrackKind::instrument);colorField.setVisible(target.has_value());colorField.setEnabled(!owner.app.recording());colorField.rgb=t.color.value_or(ObjectPalette::defaultClip);colorField.repaint();const auto insertSnapshot=owner.project();const auto& instrumentChain=target?t.inserts:insertSnapshot->master_inserts;instrument.setButtonText(instrumentChain.empty()?"Choose instrument":insertName(instrumentChain.front()));instrument.setTooltip(instrumentChain.empty()?"No instrument — choose from instrument browser":label(owner.app.midi_status(t.id))+" — "+instrument.getButtonText());
     add.setVisible(!mini);output.setVisible(!mini);sends.setVisible(!mini&&target.has_value());
@@ -1000,7 +1040,8 @@ void Strip::sync(){
     output.setButtonText(target?out:channels.isEmpty()?"Out: Default":out);
     output.setTooltip((target?label(t.name):juce::String("Master"))+" → "+(target?out:channels.isEmpty()?juce::String("first selected hardware outputs"):out)+"; click to choose output");
     output.setTitle(output.getTooltip());
-    sendViewport.setVisible(!mini&&target.has_value());insertList();sendList();syncFolderPresentation();resized();repaint();gain.repaint();pan.repaint();
+    colorField.channelName=mini?juce::String{}:label(t.name);
+    sendViewport.setVisible(!mini&&target.has_value());insertList();sendList();syncFolderPresentation();colorField.repaint();resized();repaint();gain.repaint();pan.repaint();
 }
 void Strip::insertList(){const auto insertSnapshot=owner.project();const auto& chain=target?track().inserts:insertSnapshot->master_inserts;
     const auto start=target&&track().kind==mrs::TrackKind::instrument?std::min(std::size_t{1},chain.size()):0;
@@ -1050,12 +1091,15 @@ void Strip::sendList(){
     const auto p=owner.project();for(std::size_t i=0;i<t.sends.size();++i){juce::String name="Missing send";for(const auto& bus:p->tracks)if(bus.id==t.sends[i].bus)name=label(bus.name);sendButtons[i]->sync(name,t.sends[i].gain,t.sends[i].bypass);}
     sends.setEnabled(t.sends.size()<8);
 }
-void Strip::resized(){const int w=getWidth(),h=getHeight();if(mini){mute.setBounds(w-132,4,28,24);solo.setBounds(w-102,4,28,24);arm.setBounds(w-72,4,28,24);monitor.setBounds(w-42,4,28,24);
+void Strip::resized(){const int w=getWidth(),h=getHeight()-(mini?0:mixerNameExtra);if(mini){mute.setBounds(w-132,4,28,24);solo.setBounds(w-102,4,28,24);arm.setBounds(w-72,4,28,24);monitor.setBounds(w-42,4,28,24);
         gain.setBounds(8,32,w-70,36);pan.setBounds(w-64,34,58,32);input.setBounds(8,h-30,w-18,24);}
     else {allPower.setBounds(8,7,13,13);add.setBounds(w-26,4,20,19);
         const int top=h-108-owner.faderHeight;
-        gain.setBounds(37,top,34,owner.faderHeight);pan.setBounds(6,top-27,w-12,23);
-        const bool hasInstrument=target&&track().kind==mrs::TrackKind::instrument;const int areaHeight=juce::jmax(0,top-56-(hasInstrument?48:0)),sendContent=static_cast<int>(sendButtons.size())*24+20;
+        // Circular pan knob one third of the channel width; the hit box keeps the
+        // same number of pixels free above the fader as the former bar.
+        const int panSize=juce::jlimit(18,32,w/3),panBox=panSize+4;
+        gain.setBounds(37,top,34,owner.faderHeight);pan.setBounds((w-panBox)/2,top-panBox-1,panBox,panBox);
+        const bool hasInstrument=target&&track().kind==mrs::TrackKind::instrument;const int areaHeight=juce::jmax(0,top-28-panBox-(hasInstrument?48:0)),sendContent=static_cast<int>(sendButtons.size())*24+20;
         const int gap=juce::jmin(8,areaHeight);
         const int maximum=juce::jmax(0,areaHeight-gap-24),minimum=juce::jmin(24,maximum);
         const int sendHeight=juce::jlimit(minimum,maximum,owner.sendAreaHeight<0?areaHeight/3:owner.sendAreaHeight);
@@ -1101,17 +1145,17 @@ void Strip::resized(){const int w=getWidth(),h=getHeight();if(mini){mute.setBoun
         const auto* outputItem = layout->find(h, "output");
         output.setVisible(target.has_value() && outputItem && outputItem->visible);
     }
-    if(folder){folderToggle.setBounds(6,30,24,24);folderMenuButton.setBounds(getWidth()-30,30,24,24);}
-    colorField.setBounds(mini?juce::Rectangle<int>(w-6,2,6,h-4):juce::Rectangle<int>(2,h-6,w-4,6));piano.setBounds(mini?juce::Rectangle<int>(6,2,22,22):juce::Rectangle<int>(7,h-107,20,18));nameEditor.setBounds(nameBounds());
+    if(folder){const int y=target?arm.getY():30;folderToggle.setBounds(6,y,24,24);folderMenuButton.setBounds(w-30,y,24,24);}
+    colorField.setBounds(mini?juce::Rectangle<int>(w-6,2,6,h-4):juce::Rectangle<int>(2,h-6,w-4,mixerNameExtra+6));piano.setBounds(mini?juce::Rectangle<int>(6,2,22,22):juce::Rectangle<int>(7,h-107,20,18));nameEditor.setBounds(nameBounds());
 }
-void Strip::paint(juce::Graphics& g){const bool selected=target&&(owner.selectedTrack==target||owner.selectedTracks.contains(target->value));
+void Strip::paint(juce::Graphics& g){const int footerBase=getHeight()-(mini?0:mixerNameExtra);const bool selected=target&&(owner.selectedTrack==target||owner.selectedTracks.contains(target->value));
     const auto* trackDesign = (mini && target) ? owner.trackLayout() : nullptr;
     const auto* skin=owner.assetSkin();const auto base=juce::Colour(skin?ConceptSkin::channel:panel);
     drawCard(g,getLocalBounds().toFloat(),base);if(selected){g.setColour(owner.selectionColour());g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(.5f),cornerRadius,borderWidth);}
     if(!mini){g.setColour(skin?base.interpolatedWith(owner.selectionColour(),selected?.08f:0.f):juce::Colour(selected?raised:panel));g.fillRoundedRectangle(juce::Rectangle<float>(1,1,static_cast<float>(getWidth()-2),22),cornerRadius);
         g.setColour(juce::Colour(separatorColour));g.fillRect(0,24,getWidth(),1);
-        g.fillRect(6,getHeight()-88,getWidth()-12,1);
-        if(!folder){const auto split=sendDivider.getBounds();g.setColour(base);g.fillRect(split);
+        g.fillRect(6,footerBase-88,getWidth()-12,1);
+        if(sendDivider.isVisible()){const auto split=sendDivider.getBounds();g.setColour(base);g.fillRect(split);
         g.setColour(juce::Colour(separatorColour));g.fillRect(split.getX(),split.getCentreY(),split.getWidth(),1);}}
     if(trackHover){g.setColour(owner.selectionColour());if(mini)g.fillRect(0,dropBefore?0:getHeight()-3,getWidth(),3);else g.fillRect(dropBefore?0:getWidth()-3,0,3,getHeight());}
     const auto& t=track();g.setFont(ui::Theme::stripFont());g.setColour(target||folder?juce::Colours::whitesmoke:juce::Colours::gold);
@@ -1126,8 +1170,11 @@ void Strip::paint(juce::Graphics& g){const bool selected=target&&(owner.selected
         const auto icon=!target?"track_master":t.kind==mrs::TrackKind::bus?"bus":t.kind==mrs::TrackKind::audio?"wave":"track_synth";
         skin->draw(g,icon,{static_cast<float>(mini?8:6),5,16,16});}
     juce::String channelName=target?label(t.name):"MASTER";if(folder)for(const auto& f:owner.project()->folders)if(f.id==*folder){channelName=label(f.name);break;}
-    if(!editingName)g.drawText(channelName,nameBounds(),juce::Justification::left,true);
-    if(folder){if(folderIcon)folderIcon->drawWithin(g,{static_cast<float>(getWidth()/2-10),32.f,20.f,20.f},juce::RectanglePlacement::centred,1.f);g.setColour(juce::Colour(secondaryText));const int captionHeight=juce::jlimit(0,32,pan.getY()-64);if(captionHeight>=12)g.drawFittedText(target?"Bus: "+label(t.name):"Link Bus",6,60,getWidth()-12,captionHeight,juce::Justification::centred,2);}
+    if(mini){if(!editingName)g.drawText(channelName,nameBounds(),juce::Justification::left,true);}
+    else if(!target){g.setColour(juce::Colour(raised));g.fillRoundedRectangle(nameBounds().toFloat().expanded(3,0),2.f);g.setColour(folder?juce::Colours::whitesmoke:juce::Colours::gold);g.drawText(channelName,nameBounds(),juce::Justification::centred,true);}
+    else{g.setColour(juce::Colour(secondaryText));g.drawText("Inserts",25,3,juce::jmax(0,getWidth()-53),21,juce::Justification::left,true);}
+    if(folder){if(folderIcon)folderIcon->drawWithin(g,{static_cast<float>(getWidth()/2-10),static_cast<float>(folderToggle.getY()+2),20.f,20.f},juce::RectanglePlacement::centred,1.f);
+        if(!target){g.setColour(juce::Colour(secondaryText));const int captionHeight=juce::jlimit(0,32,pan.getY()-64);if(captionHeight>=12)g.drawFittedText("Link Bus",6,60,getWidth()-12,captionHeight,juce::Justification::centred,2);}}
     mrs::audio::StereoPeak p=folder&&!target?mrs::audio::StereoPeak{}:owner.masterPeak;if(target){const auto tracks=owner.project()->tracks;for(std::size_t i=0;i<tracks.size();++i)if(tracks[i].id==target)p=owner.peaks[i];}
     for(int i=0;i<2;++i){const float peak=i==0?p.left:p.right;const auto level=juce::jlimit(0.f,1.f,(20.f*std::log10(juce::jmax(.000001f,peak))+60.f)/60.f);
         if (trackDesign && !trackDesign->find(getHeight(), "meter")) continue;
@@ -1144,7 +1191,7 @@ void Strip::paint(juce::Graphics& g){const bool selected=target&&(owner.selected
         g.setColour(juce::Colour(0xff111518));g.fillRect(r);g.setColour(peak>.95f?juce::Colours::orange:juce::Colour(0xff38cbbf));
         if(mini)g.fillRect(r.withWidth(static_cast<int>(r.getWidth()*level)));else g.fillRect(r.withTop(r.getBottom()-static_cast<int>(r.getHeight()*level)));
     }
-    const auto valueBounds=juce::Rectangle<int>(mini?10:6,mini?(skin?(getHeight()<124?52:80):82):getHeight()-107,mini?100:getWidth()-12,skin&&mini?14:18);
+    const auto valueBounds=juce::Rectangle<int>(mini?10:6,mini?(skin?(getHeight()<124?52:80):82):footerBase-107,mini?100:getWidth()-12,skin&&mini?14:18);
     if(skin&&!mini&&t.kind!=mrs::TrackKind::instrument){const auto icon=!target?"track_master":t.kind==mrs::TrackKind::bus?"bus":t.kind==mrs::TrackKind::audio?"wave":"track_synth";
         skin->draw(g,icon,{static_cast<float>(valueBounds.getX()+3),static_cast<float>(valueBounds.getY()+2),14,14});}
     auto textBounds=skin?valueBounds.reduced(5,0):valueBounds;if(skin&&!mini)textBounds.removeFromLeft(16);
@@ -1193,7 +1240,13 @@ juce::PopupMenu m;m.addItem(1,"Default");m.addItem(2,"Off");const auto names=own
     for(std::size_t i=0;i<names.size();++i){m.addItem(10+static_cast<int>(i),"Mono "+label(names[i]));if(i+1<names.size())m.addItem(100+static_cast<int>(i),"Stereo "+label(names[i])+" / "+label(names[i+1]));}
     m.setLookAndFeel(&owner.theme);juce::Component::SafePointer<Strip> safe(this);m.showMenuAsync(popup(&input),[safe](int n){if(safe&&n)safe->owner.run([&]{safe->owner.app.set_track_input(*safe->target,n==1?-2:n==2?-1:n>=100?n-100:n-10,n>=100);safe->sync();});});
 }
-bool Strip::isInterestedInDragSource(const SourceDetails& s){if(folder)return false;const auto text=s.description.toString();if(text.startsWith("mrs-insert:"))return !mini&&owner.insertDrag.has_value();if(text=="mrs-sample-files"){const auto files=owner.browser->selectedSamples();return target&&track().kind==mrs::TrackKind::instrument&&!files.isEmpty()&&juce::File(files[0]).hasFileExtension("mid;midi");}if(text.startsWith("mrs-track:"))return target.has_value();const auto number=text.substring(5);return text.startsWith("vst3:")&&!number.isEmpty()&&number.containsOnly("0123456789");}
+bool Strip::isInterestedInDragSource(const SourceDetails& s){
+    if(folder&&!target)return false;
+    const auto text=s.description.toString();if(text.startsWith("mrs-insert:"))return !mini&&owner.insertDrag.has_value();
+    if(text=="mrs-sample-files"){const auto files=owner.browser->selectedSamples();return target&&track().kind==mrs::TrackKind::instrument&&!files.isEmpty()&&juce::File(files[0]).hasFileExtension("mid;midi");}
+    if(text.startsWith("mrs-track:"))return target.has_value()&&!folder;
+    const auto number=text.substring(5);return text.startsWith("vst3:")&&!number.isEmpty()&&number.containsOnly("0123456789");
+}
 std::size_t Strip::pluginInsertionAt(juce::Point<int> point) const {
     const auto count=insertButtons.size();const auto offset=target&&track().kind==mrs::TrackKind::instrument&&!track().inserts.empty()?std::size_t{1}:0;
     auto position=count;
