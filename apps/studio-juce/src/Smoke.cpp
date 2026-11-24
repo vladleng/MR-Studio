@@ -89,6 +89,24 @@ void trackFolderSmoke(){
     d.action(10);check(!d.project()->folders.back().collapsed&&view.rows[0]->isVisible()&&d.mixer[0]->isVisible()&&d.mixerColumnCount==4,"Undo immediately restores both folder views");
     d.app.link_folder_bus(id,{},true);d.refresh();const auto linkedProject=d.project();const auto bus=*linkedProject->folders.back().bus;const auto busIndex=static_cast<std::size_t>(std::find_if(linkedProject->tracks.begin(),linkedProject->tracks.end(),[&](const auto& track){return track.id==bus;})-linkedProject->tracks.begin());
     check(d.mixerFolders.empty()&&d.mixer[busIndex]->folder==id&&d.mixerColumns[busIndex]==0&&d.mixerColumnCount==4,"linked Bus becomes the folder channel without a duplicate strip");
+    // Arrange presents the linked folder as that Bus channel: one row at the
+    // folder position, no slim header, and no Bus lane at the end of the list.
+    {
+        int folderRow=-1;for(std::size_t i=0;i<view.folderRows.size();++i)if(view.folderRows[i].folder.id==id){folderRow=static_cast<int>(i);break;}
+        check(folderRow>=0,"linked folder keeps one presentation row");
+        const auto& row=view.folderRows[static_cast<std::size_t>(folderRow)];
+        check(row.channel==static_cast<int>(busIndex)&&row.height==view.trackHeight,"linked folder row is the Bus channel at track height");
+        check(view.trackY(static_cast<int>(busIndex))==row.y,"Bus row sits at the folder position");
+        check(view.rowsBody.findChildWithID("track-folder-"+juce::String(id.value))==nullptr,"linked folder has no separate slim header");
+        auto* channelRow=dynamic_cast<Strip*>(view.rowsBody.findChildWithID("arrange-folder-"+juce::String(id.value)));
+        check(channelRow!=nullptr&&channelRow->isVisible()&&channelRow->folder==id&&channelRow->target==std::optional<mrs::Id>{bus},"Arrange folder row is the Bus channel");
+        auto* channelToggle=dynamic_cast<juce::TextButton*>(channelRow->findChildWithID("mixer-folder-toggle"));
+        check(channelToggle!=nullptr&&channelToggle->isVisible(),"Arrange folder channel exposes collapse control");
+        check(channelRow->gain.isVisible()&&channelRow->gain.isEnabled(),"Arrange folder channel keeps its Bus gain control");
+        const auto laneY=static_cast<float>(view.headerHeight()+row.y+6)-view.vertical;
+        check(view.trackAt(laneY)==static_cast<int>(busIndex),"folder lane is the Bus channel hit target");
+        check(d.mixer[busIndex]->isVisible()&&d.mixer[busIndex]->folder==std::optional<mrs::Id>{id},"mixer folder binding unchanged");
+    }
     const auto checkBusFx=[&]{
         const auto& strip=*d.mixer[busIndex];
         auto* insert=strip.findChildWithID("mixer-add-insert");
@@ -114,6 +132,15 @@ void trackFolderSmoke(){
     auto toggle=dynamic_cast<juce::TextButton*>(d.mixer[busIndex]->findChildWithID("mixer-folder-toggle"));check(toggle!=nullptr,"linked folder has collapse control");toggle->onClick();
     check(d.mixer[busIndex]->isVisible()&&!d.mixer[0]->isVisible()&&!view.rows[0]->isVisible()&&d.mixerColumnCount==2,"Mixer collapse immediately updates Arrange and keeps Bus controls");
     check(d.project()->tracks==tracks&&d.app.insert_generation()==generation,"visual collapse preserves routing and DSP owners");capture("collapsed");
+    {   // Collapsed folder shows its members compressed inside the folder lane.
+        int folderRow=-1;for(std::size_t i=0;i<view.folderRows.size();++i)if(view.folderRows[i].folder.id==id){folderRow=static_cast<int>(i);break;}
+        check(folderRow>=0&&!view.folderMembers[static_cast<std::size_t>(folderRow)].empty(),"collapsed folder keeps member tracks for the aggregate preview");
+        check(view.rows[busIndex]->isVisible(),"collapsed folder keeps its channel row visible");
+        check(!view.rows[0]->isVisible()&&!view.rows[1]->isVisible(),"collapsed folder hides the expanded member rows");
+        auto snapshot=view.createComponentSnapshot(view.getLocalBounds(),true,1.f,juce::SoftwareImageType{});
+        auto output=juce::File::getCurrentWorkingDirectory().getChildFile("arrange-folder-collapsed.png").createOutputStream();
+        check(output!=nullptr&&output->setPosition(0)&&output->truncate().wasOk()&&juce::PNGImageFormat().writeImageToStream(snapshot,*output),"collapsed folder arrange preview export");
+    }
     d.setWorkspace(mrs::desktop::Workspace::arrange);d.setWorkspace(mrs::desktop::Workspace::mix);check(d.mixerColumnCount==2&&!d.mixer[0]->isVisible(),"workspace switch retains shared collapse state");
     toggle=dynamic_cast<juce::TextButton*>(d.mixer[busIndex]->findChildWithID("mixer-folder-toggle"));toggle->onClick();
     mrs::Folder nested;nested.id=mrs::new_id();nested.name="Snares";nested.parent=id;d.app.services().projects->execute(mrs::CreateTrackFolder{nested,{b}});d.refresh();
@@ -150,6 +177,72 @@ void trackFolderSmoke(){
     d.app.link_folder_bus(fxFolder,{});d.refresh();
     check(!d.mixer[busIndex]->folder&&d.project()->tracks[busIndex]==busTrack,"detach keeps Bus FX and sends intact");
     checkBusFx();checkFxRows();
+    {   // Detaching the Bus returns the folder to the slim Arrange header.
+        int folderRow=-1;for(std::size_t i=0;i<view.folderRows.size();++i)if(view.folderRows[i].folder.id==fxFolder){folderRow=static_cast<int>(i);break;}
+        check(folderRow>=0&&view.folderRows[static_cast<std::size_t>(folderRow)].channel==-1&&view.folderRows[static_cast<std::size_t>(folderRow)].height==36,"detached folder is a slim header again");
+        check(view.rowsBody.findChildWithID("track-folder-"+juce::String(fxFolder.value))!=nullptr,"detached folder has its own header component");
+    }
+    // Channel inspector: Bus settings stay editable without the mixer dock.
+    {
+        d.selectTrack(bus,{});d.inspectorVisible=true;d.resized();d.refresh();
+        check(d.inspectorPanelVisible()&&d.inspectorPanelChannel()==std::optional<mrs::Id>{bus},"inspector shows the selected Bus");
+        auto* inspectorPanel=d.findChildWithID("channel-inspector");check(inspectorPanel!=nullptr,"inspector component present");
+        check(inspectorPanel->getRight()<=d.arrangeArea.getX()&&inspectorPanel->getX()>0&&!inspectorPanel->getBounds().intersects(d.browser->getBounds()),"inspector docks to the left of the Arrange channels");
+        {   // The toggle is the small "i" in the bottom-left corner, clear of the CPU readouts.
+            juce::TextButton* toggleButton=nullptr;
+            for(auto* child:d.getChildren())if(auto* candidate=dynamic_cast<juce::TextButton*>(child);candidate&&candidate->getButtonText()=="i")toggleButton=candidate;
+            check(toggleButton!=nullptr&&toggleButton->getWidth()<=28&&toggleButton->getWidth()>=20&&toggleButton->getX()<=16,"inspector toggle is the small left-corner button");
+            check(!toggleButton->getBounds().intersects(d.cpuReadout.getBounds())&&!toggleButton->getBounds().intersects(d.audioCpuBar.getBounds()),"CPU readouts stay clear of the inspector toggle");
+        }
+        auto* gain=dynamic_cast<Handle*>(inspectorPanel->findChildWithID("inspector-gain"));check(gain!=nullptr,"inspector gain control exists");
+        for(int i=0;i<inspectorPanel->getNumChildComponents();++i){auto* child=inspectorPanel->getChildComponent(i);check(!child->isVisible()||inspectorPanel->getLocalBounds().contains(child->getBounds()),"inspector controls stay inside the dock");}
+        const auto masterBefore=d.project()->master_gain;
+        gain->commit(.7);check(std::abs(d.project()->tracks[busIndex].mix.gain-std::pow(10.f,(-60.f+72.f*.7f)/20.f))<.0001f&&d.project()->master_gain==masterBefore,"inspector gain edits only the Bus");
+        auto* insertViewport=dynamic_cast<juce::Viewport*>(inspectorPanel->findChildWithID("inspector-inserts"));
+        check(insertViewport&&insertViewport->isVisible()&&insertViewport->getViewedComponent()->findChildWithID("inspector-insert:"+juce::String(effect.id.value))!=nullptr,"inspector lists the Bus insert");
+        auto* sendViewport=dynamic_cast<juce::Viewport*>(inspectorPanel->findChildWithID("inspector-sends"));
+        check(sendViewport&&sendViewport->isVisible()&&sendViewport->getViewedComponent()->findChildWithID("inspector-send:"+juce::String(busTrack.sends.front().bus.value))!=nullptr,"inspector lists the Bus send");
+        check(inspectorPanel->findChildWithID("inspector-add-insert")->isVisible()&&inspectorPanel->findChildWithID("inspector-add-send")->isVisible(),"inspector can add an insert and a send");
+        {
+            auto desktopShot=d.createComponentSnapshot(d.getLocalBounds(),true,1.f,juce::SoftwareImageType{});
+            auto shotOutput=juce::File::getCurrentWorkingDirectory().getChildFile("channel-inspector.png").createOutputStream();
+            check(shotOutput&&shotOutput->setPosition(0)&&shotOutput->truncate().wasOk()&&juce::PNGImageFormat().writeImageToStream(desktopShot,*shotOutput),"inspector desktop preview export");
+        }
+        d.selectedFolder=fxFolder;d.selectedTrack.reset();d.refresh();
+        check(d.inspectorPanelFolder()==std::optional<mrs::Id>{fxFolder}&&!d.inspectorPanelChannel(),"inspector follows a folder without Bus");
+        check(inspectorPanel->findChildWithID("inspector-link-bus")->isVisible()&&!inspectorPanel->findChildWithID("inspector-gain")->isVisible(),"folder without Bus shows the link action instead of channel controls");
+        const auto wideArrange=d.arrangeArea.getWidth();
+        d.toggleInspector();check(!d.inspectorPanelVisible()&&d.arrangeArea.getWidth()>wideArrange,"inspector toggle returns the width to Arrange");
+        d.toggleInspector();d.refresh();
+        check(ViewSettings::decode(d.view.encode()).channelInspector&&d.inspectorPanelVisible(),"inspector dock state survives view settings");
+        auto desktopShot=d.createComponentSnapshot(d.getLocalBounds(),true,1.f,juce::SoftwareImageType{});
+        auto shotOutput=juce::File::getCurrentWorkingDirectory().getChildFile("channel-inspector-folder.png").createOutputStream();
+        check(shotOutput&&shotOutput->setPosition(0)&&shotOutput->truncate().wasOk()&&juce::PNGImageFormat().writeImageToStream(desktopShot,*shotOutput),"folder inspector preview export");
+    }
+    // Collapsed folder paints its members' clips as compressed bands.
+    {
+        d.app.new_project();d.refresh(true);
+        d.setSize(1400,1100);d.resized();
+        const auto instrument=d.app.add_instrument_track("Keys");d.app.create_midi_clip(instrument,0);d.refresh(true);
+        const auto band=d.app.create_track_folder("Band",{instrument});d.app.link_folder_bus(band,{},true);
+        d.run([&]{d.app.update_track_folder(band,"Band",true);});d.refresh(true);
+        int folderRow=-1;for(std::size_t i=0;i<view.folderRows.size();++i)if(view.folderRows[i].folder.id==band){folderRow=static_cast<int>(i);break;}
+        check(folderRow>=0,"collapsed instrument folder keeps a row for the aggregate preview");
+        const auto& row=view.folderRows[static_cast<std::size_t>(folderRow)];
+        const auto& members=view.folderMembers[static_cast<std::size_t>(folderRow)];
+        check(!members.empty()&&row.height==view.trackHeight,"collapsed folder knows its member tracks");
+        const auto p2=d.project();const auto& memberTrack=p2->tracks[members.front()];
+        auto memberClip=std::find_if(p2->clips.begin(),p2->clips.end(),[&](const auto& c){return c.track==memberTrack.id;});
+        check(memberClip!=p2->clips.end(),"member clip exists for the compressed band");
+        const auto laneTop=view.headerHeight()+row.y-static_cast<int>(view.vertical);
+        const auto clipArea=view.clipRect(*memberClip);
+        const auto image=view.createComponentSnapshot(view.getLocalBounds(),true,1.f,juce::SoftwareImageType{});
+        const int sampleX=juce::jlimit(view.left+2,view.getWidth()-70,juce::roundToInt(clipArea.getCentreX()));
+        const auto bandPixel=image.getPixelAt(sampleX,laneTop+4);
+        check(bandPixel!=juce::Colour(arrangementCanvas),"collapsed folder paints the member clip band");
+        auto bandOutput=juce::File::getCurrentWorkingDirectory().getChildFile("arrange-folder-band.png").createOutputStream();
+        check(bandOutput&&bandOutput->setPosition(0)&&bandOutput->truncate().wasOk()&&juce::PNGImageFormat().writeImageToStream(image,*bandOutput),"collapsed band preview export");
+    }
 }
 void arrangeAudioSmoke(){
     const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};

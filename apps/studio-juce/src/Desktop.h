@@ -32,6 +32,7 @@ class TrackFolderHeader;
 class Browser;
 class LibraryFoundationPanel;
 class FxPanel;
+class ChannelInspector;
 class ProjectHome;
 class LiveWorkspace;
 class EditorWindow final : public juce::DocumentWindow {
@@ -525,6 +526,7 @@ public:
     void rebuildMixerFolders();
     std::unique_ptr<Strip> master;
     std::unique_ptr<Browser> browser;
+    std::optional<mrs::Id> selectedFolder; // UI-only folder selection for the inspector.
     std::unique_ptr<ProjectHome> home;
     std::vector<std::unique_ptr<EditorWindow>> windows;
     mrs::desktop::Preferences prefs;
@@ -548,6 +550,13 @@ private:
     friend void clipCopySmoke();
     friend void clipStretchSmoke();
     mutable mrs::audio::RealtimeState lastDisplayState;
+    std::unique_ptr<ChannelInspector> channelInspector;
+    bool inspectorVisible{};
+    void syncInspector();
+    void toggleInspector();
+    bool inspectorPanelVisible() const;
+    std::optional<mrs::Id> inspectorPanelChannel() const;
+    std::optional<mrs::Id> inspectorPanelFolder() const;
     void timerCallback() override;
     void remember();
     bool homeVisible{};
@@ -575,7 +584,7 @@ private:
     juce::Component mixerBody;
     kit::MRButton play{"Play"},pause{"Pause"},stop{"Stop"},record{"Record (R)"},
         previous{"< Section"},next{"Section >"},loop{"Loop section"},
-        editButton{"Edit"},mixButton{"Mix"},brows{"BROWS"},
+        editButton{"Edit"},mixButton{"Mix"},brows{"BROWS"},inspectorButton{"i"},
         addTrack{"+ Track"},addBus{"+ Bus"},undo{"Undo"},redo{"Redo"},split{"Split (S)"},
         duplicate{"Duplicate"},remove{"Del clip"},zoomIn{"Zoom +"},zoomOut{"Zoom -"},fit{"Fit"},snapButton{"Snap off"},clickButton{"Click"},countButton{"Count off"},pointerTool{"Pointer (1)"},knifeTool{"Knife (3)"};
     int lastCountBars{1}; // Toolbar off/on restores the last enabled count in this session.
@@ -706,7 +715,10 @@ public:
     int trackAt(float) const;
     int trackY(int) const;
     void rebuildFolderLayout();
-    struct FolderRow {mrs::Folder folder;int y{},depth{};};
+    // One presentation row for a folder: a plain header, or the channel of its
+    // linked Bus. folderMembers holds the descendant tracks used by the
+    // collapsed aggregate preview.
+    struct FolderRow {mrs::Folder folder;int y{},depth{},height{36},header{-1},channel{-1};};
     std::vector<FolderRow> folderRows;
     std::vector<std::unique_ptr<TrackFolderHeader>> folderHeaders;
     std::vector<int> trackPositions;
@@ -732,8 +744,10 @@ private:
     struct DropWave {std::uint64_t frames{};std::uint32_t rate{};};
     struct PendingWavDrop {
         std::weak_ptr<mrs::IProjectStore> store;
+    std::vector<std::vector<std::size_t>> folderMembers;
         std::uint64_t importRevision{};
         std::optional<mrs::Id> target;
+    void syncFolderChannels();
         mrs::Sample start{};
         juce::StringArray files;
         std::vector<DropWave> waves;

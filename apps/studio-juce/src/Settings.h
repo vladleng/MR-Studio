@@ -41,6 +41,7 @@ struct ViewSettings {
     int browserWidth{260},trackHeight{128},mixerHeight{365},editorHeight{500};
     bool liveRestoreLastShow{true};
     juce::String lastLiveShow;
+    bool channelInspector{};int channelInspectorWidth{288}; // UI-only dock for the selected channel.
     juce::String lastStudioOneShow; // Last validated .show import source; never part of project data.
     double liveUiZoom{}, liveMenuOpacity{.9}, liveWindowOpacity{1.};
     // Global timeline zoom is a view factor: it never enters the show document,
@@ -73,6 +74,7 @@ struct ViewSettings {
         object->setProperty("windowState",windowState);object->setProperty("inputs",inputs);
         object->setProperty("deviceChannels",deviceChannels);
         object->setProperty("rigLibrary",rigLibrary);object->setProperty("toneLibrary",toneLibrary);object->setProperty("cabManifest",cabManifest);object->setProperty("cabRoot",cabRoot);juce::Array<juce::var> favorites;for(const auto& f:cabFavorites)favorites.add(f);object->setProperty("cabFavorites",favorites);
+        object->setProperty("channelInspector",channelInspector);object->setProperty("channelInspectorWidth",channelInspectorWidth);
         juce::Array<juce::var> cabViews;for(const auto& [id,state]:cabBrowserViews){auto* entry=new juce::DynamicObject;entry->setProperty("id",id);entry->setProperty("role",state.role);entry->setProperty("search",state.search);entry->setProperty("favoritesOnly",state.favoritesOnly);entry->setProperty("unavailable",state.unavailable);juce::Array<juce::var> filters;for(const auto& f:state.facets)filters.add(f);entry->setProperty("facets",filters);cabViews.add(juce::var(entry));}object->setProperty("cabBrowserViews",cabViews);
         object->setProperty("reverbRoot",reverbRoot);object->setProperty("reverbQuadConfirmed",reverbQuadConfirmed);
         juce::Array<juce::var> nativeViews;for(const auto& [id,state]:nativeEditorViews){auto* entry=new juce::DynamicObject;entry->setProperty("id",id);entry->setProperty("band",state.band);entry->setProperty("options",state.options);entry->setProperty("pinned",state.pinned);entry->setProperty("rigTab",state.rigTab);entry->setProperty("rigRole",state.rigRole);entry->setProperty("rigFavorites",state.rigFavorites);entry->setProperty("rigFiles",state.rigFiles);entry->setProperty("rigSearch",state.rigSearch);entry->setProperty("rigTag",state.rigTag);entry->setProperty("search",state.search);entry->setProperty("folder",state.folder);nativeViews.add(juce::var(entry));}object->setProperty("nativeEditorViews",nativeViews);
@@ -135,6 +137,8 @@ struct ViewSettings {
         if(const auto* views=value["cabBrowserViews"].getArray())for(const auto& entry:*views){if(result.cabBrowserViews.size()>=256)break;const auto id=entry["id"].toString();if(!entry.isObject()||id.isEmpty()||id.length()>256)continue;CabBrowserView state;state.role=juce::jlimit(1,4,static_cast<int>(entry["role"]));state.search=entry["search"].toString().substring(0,1024);state.favoritesOnly=static_cast<bool>(entry["favoritesOnly"]);state.unavailable=static_cast<bool>(entry["unavailable"]);if(const auto* filters=entry["facets"].getArray())for(int i=0;i<juce::jmin(6,filters->size());++i)state.facets[static_cast<std::size_t>(i)]=filters->getReference(i).toString().substring(0,4096);result.cabBrowserViews[id]=std::move(state);}
         result.reverbRoot=value["reverbRoot"].toString().substring(0,32768);
         if(const auto* views=value["nativeEditorViews"].getArray())for(const auto& entry:*views){if(result.nativeEditorViews.size()>=256)break;const auto id=entry["id"].toString();if(!entry.isObject()||id.isEmpty()||id.length()>256)continue;NativeEditorView state;state.band=juce::jlimit(0,4,static_cast<int>(entry["band"]));state.options=static_cast<bool>(entry["options"]);state.pinned=static_cast<bool>(entry["pinned"]);state.rigTab=entry.hasProperty("rigTab")?juce::jlimit(1,3,static_cast<int>(entry["rigTab"])):1;state.rigRole=entry.hasProperty("rigRole")?juce::jlimit(1,4,static_cast<int>(entry["rigRole"])):1;state.rigFavorites=static_cast<bool>(entry["rigFavorites"]);state.rigFiles=static_cast<bool>(entry["rigFiles"]);state.rigSearch=entry["rigSearch"].toString().substring(0,1024);state.rigTag=entry["rigTag"].toString().substring(0,128);state.search=entry["search"].toString().substring(0,1024);state.folder=entry["folder"].toString().substring(0,4096);result.nativeEditorViews[id]=std::move(state);}
+        if(value.hasProperty("channelInspector"))result.channelInspector=static_cast<bool>(value["channelInspector"]);
+        if(value["channelInspectorWidth"].isInt())result.channelInspectorWidth=juce::jlimit(240,360,static_cast<int>(value["channelInspectorWidth"]));
         result.reverbQuadConfirmed=static_cast<bool>(value["reverbQuadConfirmed"]);
         result.inputs=value["inputs"].toString().substring(0,256);
         result.deviceChannels=value["deviceChannels"].toString().substring(0,32768);return result;

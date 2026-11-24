@@ -89,7 +89,7 @@ Desktop::Desktop(bool test,bool startAtHome,bool liveApplication):standaloneLive
     if(!testing)try{const auto readPrefs=std::filesystem::exists(prefsFile)?prefsFile:path(config.getChildFile("desktop.cfg"));std::ifstream in(readPrefs,std::ios::binary);if(in){std::string bytes((std::istreambuf_iterator<char>(in)),{});prefs=mrs::desktop::decode_preferences(bytes);}
         catalog=mrs::processing::load_vst3_cache(cacheFile);}catch(const std::exception& e){message=label(e.what());}
     if(!testing)try{juce::File file(juce::String(viewFile.wstring().c_str()));if(file.existsAsFile())view=ViewSettings::decode(file.loadFileAsString());}catch(const std::exception& e){message=label(e.what());}
-    sidebar=view.sidebar;browserWidth=view.browserWidth;snap=view.snap;
+    sidebar=view.sidebar;browserWidth=view.browserWidth;snap=view.snap;inspectorVisible=view.channelInspector;
     if(view.cabRoot.isNotEmpty())app.set_cab_root(path(juce::File(view.cabRoot)),view.cabManifest.toStdString());
     if(view.reverbRoot.isNotEmpty())app.set_reverb_root(path(juce::File(view.reverbRoot)));
     projectSessionStarted=testing&&!startAtHome&&!standaloneLive;if(projectSessionStarted)app.demo();else app.new_project();resetDevice();
@@ -112,7 +112,7 @@ Desktop::Desktop(bool test,bool startAtHome,bool liveApplication):standaloneLive
     latencyReadout.setDescription("Driver-reported input/output latency. Plugin delay compensation is shown separately as PDC.");
     audioCpuBar.setPercentageDisplay(false);audioCpuBar.setColour(juce::ProgressBar::backgroundColourId,juce::Colour(0xff121619));
     updatePerformance(app.device_status(),false);
-    for(auto* b:{&play,&pause,&stop,&record,&previous,&next,&loop,&editButton,&mixButton,&brows,&addTrack,&addBus,&undo,&redo,&split,&duplicate,&remove,&zoomIn,&zoomOut,&fit,&snapButton})addAndMakeVisible(b);
+    for(auto* b:{&play,&pause,&stop,&record,&previous,&next,&loop,&editButton,&mixButton,&brows,&inspectorButton,&addTrack,&addBus,&undo,&redo,&split,&duplicate,&remove,&zoomIn,&zoomOut,&fit,&snapButton})addAndMakeVisible(b);
     auto bind=[this](juce::TextButton& b,int cmd){b.onClick=[this,cmd]{action(cmd);};};
     bind(play,30);bind(pause,31);bind(stop,32);bind(record,33);bind(previous,34);bind(next,35);bind(loop,36);
     addAndMakeVisible(pointerTool);addAndMakeVisible(knifeTool);pointerTool.getProperties().set("mrHostIcon","tool_pointer");knifeTool.getProperties().set("mrHostIcon","tool_split");split.getProperties().set("mrHostIcon","tool_split");pointerTool.setTooltip("Pointer (1)");knifeTool.setTooltip("Split (3): click a clip, chord or section");pointerTool.onClick=[this]{setKnifeMode(false);};knifeTool.onClick=[this]{setKnifeMode(true);};pointerTool.setToggleState(true,juce::dontSendNotification);for(auto* tool:{&pointerTool,&knifeTool,&duplicate})tool->getProperties().set("mrSmallToolbarIcon",true);
@@ -127,10 +127,227 @@ Desktop::Desktop(bool test,bool startAtHome,bool liveApplication):standaloneLive
     snapButton.setButtonText(snap ? "Snap smart" : "Snap off");snapButton.setToggleState(snap,juce::dontSendNotification);
     arrangement->trackHeight=view.trackHeight;arrangement->pixelsPerSecond=view.pixelsPerSecond;
     addAndMakeVisible(navigationMode);navigationMode.addItem("Sections",1);navigationMode.addItem("Markers",2);navigationMode.setSelectedId(1,juce::dontSendNotification);navigationMode.setTitle("Navigation target");navigationMode.setComponentID("navigation-mode");
+// Persistent channel inspector. Every control calls the existing Application
+// command for the selected channel, so the panel owns no project state: it is a
+// wider, always-available view of the same mix/inserts/sends data as the strip.
+class ChannelInspector final : public juce::Component {
+public:
+    explicit ChannelInspector(Desktop& d):owner(d){
+        setComponentID("channel-inspector");setTitle("Channel inspector");
+        heading.setFont(ui::Theme::browserFont());heading.setInterceptsMouseClicks(false,false);
+        detail.setFont(ui::Theme::detailFont());detail.setColour(juce::Label::textColourId,juce::Colour(secondaryText));detail.setInterceptsMouseClicks(false,false);
+        insertsLabel.setFont(ui::Theme::detailFont());insertsLabel.setColour(juce::Label::textColourId,juce::Colour(secondaryText));insertsLabel.setInterceptsMouseClicks(false,false);
+        sendsLabel.setFont(ui::Theme::detailFont());sendsLabel.setColour(juce::Label::textColourId,juce::Colour(secondaryText));sendsLabel.setInterceptsMouseClicks(false,false);
+        insertsLabel.setText("Inserts",juce::dontSendNotification);sendsLabel.setText("Sends",juce::dontSendNotification);
+        for(auto* label:{&heading,&detail,&insertsLabel,&sendsLabel})addAndMakeVisible(*label);
+        gain.setComponentID("inspector-gain");gain.setTitle("Channel gain");gain.setDescription("Drag the fill; Ctrl for fine adjustment; arrows for keyboard");
+        addAndMakeVisible(gain);pan.rotary=true;pan.setComponentID("inspector-pan");pan.setTitle("Channel pan");pan.setDescription("Drag up/down or sideways; Ctrl for fine adjustment");
+        addAndMakeVisible(pan);
+        mute.setComponentID("inspector-mute");solo.setComponentID("inspector-solo");output.setComponentID("inspector-output");
+        instrument.setComponentID("inspector-instrument");addInsert.setComponentID("inspector-add-insert");addSend.setComponentID("inspector-add-send");
+        linkBus.setComponentID("inspector-link-bus");folderMenu.setComponentID("inspector-folder-menu");
+        mute.setColour(juce::TextButton::buttonOnColourId,juce::Colour(0xffd94747));
+        solo.setColour(juce::TextButton::buttonOnColourId,juce::Colour(0xffd5b63e));solo.setColour(juce::TextButton::textColourOnId,juce::Colour(0xff212830));
+        for(auto* b:{&mute,&solo,&output,&instrument,&addInsert,&addSend,&linkBus,&folderMenu}){addAndMakeVisible(*b);b->getProperties().set("stripFont",true);}
+        folderMenu.setButtonText("...");folderMenu.setTitle("Track folder menu");folderMenu.setTooltip("Folder: rename, move tracks, link or dissolve");
+        mute.setTitle("Mute");mute.setTooltip("Mute this channel");solo.setTitle("Solo");solo.setTooltip("Solo this channel");
+        addInsert.setButtonText("+ Insert");addInsert.setTooltip("Add an insert to this channel");
+        addSend.setButtonText("+ Send");addSend.setTooltip("Add a send from this channel");
+        linkBus.setButtonText("Create and link Bus");linkBus.setTooltip("Create one Bus channel and route this folder into it");
+        instrument.setButtonText("Instrument");instrument.setTooltip("Open this channel instrument");
+        allPower.setComponentID("inspector-inserts-power");allPower.setTitle("Insert FX power");addAndMakeVisible(allPower);
+        addAndMakeVisible(insertViewport);insertViewport.setComponentID("inspector-inserts");insertViewport.setViewedComponent(&insertBody,false);insertViewport.setScrollBarsShown(true,false);
+        addAndMakeVisible(sendViewport);sendViewport.setComponentID("inspector-sends");sendViewport.setViewedComponent(&sendBody,false);sendViewport.setScrollBarsShown(true,false);
+        gain.preview=[this](double v){previewMix(true,v);};gain.commit=[this](double v){commitMix(true,v);};
+        pan.preview=[this](double v){previewMix(false,v);};pan.commit=[this](double v){commitMix(false,v);};
+        gain.cancel=pan.cancel=[this]{owner.cancelPreview();sync();};
+        mute.onClick=[this]{if(!targetTrack)return;const auto id=*targetTrack;owner.run([&]{auto mix=readMix();mix.mute=!mix.mute;owner.app.set_track_mix(id,mix);});};
+        solo.onClick=[this]{if(!targetTrack)return;const auto id=*targetTrack;owner.run([&]{auto mix=readMix();mix.solo=!mix.solo;owner.app.set_track_mix(id,mix);});};
+        output.onClick=[this]{if(targetTrack)owner.routeMenu(*targetTrack);};
+        instrument.onClick=[this]{if(!targetTrack)return;const auto id=*targetTrack;const auto chain=owner.chain(id);if(chain.empty())owner.insertMenu(id);else owner.openInsert(id,chain.front().id);};
+        addInsert.onClick=[this]{if(targetTrack)owner.insertMenu(*targetTrack);};
+        addSend.onClick=[this]{if(targetTrack)owner.sendsMenu(*targetTrack,{},&addSend);};
+        linkBus.onClick=[this]{if(!targetFolder)return;const auto id=*targetFolder;owner.run([&]{owner.closeEditors();owner.app.link_folder_bus(id,{},true);});};
+        folderMenu.onClick=[this]{if(targetFolder)owner.showFolderMenu(*targetFolder,folderMenu.getScreenBounds().getBottomLeft());};
+        allPower.onClick=[this]{if(!targetTrack)return;juce::Component::SafePointer<ChannelInspector> safe(this);const auto store=owner.app.services().projects;const auto revision=store->state().revision;const auto id=*targetTrack;
+            juce::MessageManager::callAsync([safe,store,revision,id]{if(safe&&safe->owner.app.services().projects==store&&store->state().revision==revision)safe->owner.run([&]{safe->owner.toggleInsertPower(id);});});};
+        sync();
+    }
+    void setTargets(std::optional<mrs::Id> track,std::optional<mrs::Id> folderId){
+        if(track==targetTrack&&folderId==targetFolder)return;
+        targetTrack=track;targetFolder=folderId;sync();
+    }
+    std::optional<mrs::Id> channel() const {return targetTrack;}
+    std::optional<mrs::Id> folder() const {return targetFolder;}
+    void paint(juce::Graphics& g) override {
+        g.fillAll(juce::Colour(panel));
+        g.setColour(juce::Colour(outline));g.drawRect(getLocalBounds(),1);
+        if(targetTrack){const auto p=owner.project();for(const auto& t:p->tracks)if(t.id==*targetTrack){const auto fill=juce::Colour(0xff000000|t.color.value_or(ObjectPalette::defaultClip));g.setColour(fill);g.fillRoundedRectangle(juce::Rectangle<float>(8.f,8.f,4.f,16.f),2.f);break;}}
+        g.setColour(juce::Colour(separatorColour));g.drawHorizontalLine(gain.getBounds().getBottom()+4,8.f,static_cast<float>(getWidth()-8));
+        if(insertViewport.isVisible()){g.drawHorizontalLine(insertsLabel.getBounds().getY()-3,8.f,static_cast<float>(getWidth()-8));}
+        if(sendViewport.isVisible()){g.drawHorizontalLine(sendsLabel.getBounds().getY()-3,8.f,static_cast<float>(getWidth()-8));}
+    }
+    void resized() override {
+        auto area=getLocalBounds().reduced(10,8);
+        heading.setBounds(area.removeFromTop(20).withTrimmedLeft(10));
+        detail.setBounds(area.removeFromTop(18).withTrimmedLeft(10));
+        area.removeFromTop(6);
+        gain.setBounds(area.removeFromTop(26));
+        area.removeFromTop(6);
+        auto mixRow=area.removeFromTop(44);
+        pan.setBounds(mixRow.removeFromLeft(44));
+        mixRow.removeFromLeft(10);
+        auto toggles=mixRow.withSizeKeepingCentre(mixRow.getWidth(),24);
+        mute.setBounds(toggles.removeFromLeft(32));toggles.removeFromLeft(4);
+        solo.setBounds(toggles.removeFromLeft(32));toggles.removeFromLeft(10);
+        instrument.setBounds(toggles);
+        area.removeFromTop(6);
+        output.setBounds(area.removeFromTop(24));
+        area.removeFromTop(4);
+        if(linkBus.isVisible()){auto folderRow=area.removeFromTop(26);folderMenu.setBounds(folderRow.removeFromRight(26));folderRow.removeFromRight(4);linkBus.setBounds(folderRow);area.removeFromTop(4);}
+        auto insertRow=area.removeFromTop(20);
+        insertsLabel.setBounds(insertRow.removeFromLeft(juce::jmax(0,insertRow.getWidth()-92)));
+        allPower.setBounds(insertRow.removeFromLeft(16).reduced(1));
+        addInsert.setBounds(insertRow.removeFromRight(88));
+        insertViewport.setBounds(area.removeFromTop(juce::jmax(60,area.getHeight()/2-16)));
+        area.removeFromTop(8);
+        auto sendRow=area.removeFromTop(20);
+        sendsLabel.setBounds(sendRow.removeFromLeft(juce::jmax(0,sendRow.getWidth()-92)));
+        addSend.setBounds(sendRow.removeFromRight(88));
+        sendViewport.setBounds(area);
+        const int insertWidth=juce::jmax(1,insertViewport.getWidth()-(static_cast<int>(insertButtons.size())*22>insertViewport.getHeight()?insertViewport.getScrollBarThickness():0));
+        insertBody.setSize(insertWidth,static_cast<int>(insertButtons.size())*22);
+        for(std::size_t i=0;i<insertButtons.size();++i)insertButtons[i]->setBounds(0,static_cast<int>(i)*22,insertWidth,20);
+        const int sendWidth=juce::jmax(1,sendViewport.getWidth()-(static_cast<int>(sendButtons.size())*24>sendViewport.getHeight()?sendViewport.getScrollBarThickness():0));
+        sendBody.setSize(sendWidth,static_cast<int>(sendButtons.size())*24);
+        for(std::size_t i=0;i<sendButtons.size();++i)sendButtons[i]->setBounds(0,static_cast<int>(i)*24,sendWidth,22);
+    }
+    void sync(){
+        const auto p=owner.project();
+        const mrs::Track* channel=nullptr;if(targetTrack)for(const auto& t:p->tracks)if(t.id==*targetTrack){channel=&t;break;}
+        if(!channel&&targetTrack){targetTrack.reset();}
+        const mrs::Folder* folderInfo=nullptr;if(targetFolder)for(const auto& f:p->folders)if(f.id==*targetFolder){folderInfo=&f;break;}
+        if(!folderInfo&&targetFolder){targetFolder.reset();}
+        // A Bus row is the folder's channel: name it by the folder that owns it.
+        if(channel&&!folderInfo&&channel->kind==mrs::TrackKind::bus)for(const auto& f:p->folders)if(f.bus==channel->id){folderInfo=&f;break;}
+        juce::String name="No channel",subtitle="Select a track, Bus or folder";
+        if(channel){
+            name=label(channel->name);
+            subtitle=channel->fx_channel?"FX return":channel->kind==mrs::TrackKind::bus?"Bus":channel->kind==mrs::TrackKind::audio?"Audio":channel->kind==mrs::TrackKind::instrument?"Instrument":"MIDI";
+            if(folderInfo)subtitle+="  ·  Folder "+label(folderInfo->name);
+        }else if(folderInfo){
+            name=label(folderInfo->name);
+            subtitle=folderInfo->bus?"Track folder  ·  Bus linked":"Track folder  ·  no Bus";
+        }
+        heading.setText(name,juce::dontSendNotification);detail.setText(subtitle,juce::dontSendNotification);
+        const bool hasChannel=channel!=nullptr;
+        gain.setVisible(hasChannel);pan.setVisible(hasChannel);mute.setVisible(hasChannel);solo.setVisible(hasChannel);
+        output.setVisible(hasChannel);addInsert.setVisible(hasChannel);allPower.setVisible(hasChannel);
+        addSend.setVisible(hasChannel);insertsLabel.setVisible(hasChannel);sendsLabel.setVisible(hasChannel);
+        insertViewport.setVisible(hasChannel);sendViewport.setVisible(hasChannel);
+        linkBus.setVisible(!hasChannel&&folderInfo&&!folderInfo->bus);
+        folderMenu.setVisible(!hasChannel&&folderInfo!=nullptr);
+        instrument.setVisible(hasChannel&&channel->kind==mrs::TrackKind::instrument);
+        if(!hasChannel){insertButtons.clear();sendButtons.clear();insertViewport.setVisible(false);sendViewport.setVisible(false);resized();repaint();return;}
+        gain.setEnabled(true);pan.setEnabled(true);
+        const auto mix=channel->mix;
+        if(!gain.dragging())gain.value=juce::jlimit(0.,1.,(20*std::log10(juce::jmax(.001f,mix.gain))+60)/72.);
+        if(!pan.dragging())pan.value=(mix.pan+1)/2.;
+        gain.setTooltip(juce::String(-60+gain.value*72,1)+" dB — drag the fill endpoint; Ctrl fine; arrows");
+        {const int percent=juce::roundToInt(pan.value*200-100);pan.setTooltip((percent==0?"Pan centre":percent<0?"Pan L "+juce::String(-percent)+"%":"Pan R "+juce::String(percent)+"%")+" — drag up/down or sideways; Ctrl fine; arrows");}
+        mute.setToggleState(mix.mute,juce::dontSendNotification);
+        solo.setToggleState(mix.solo,juce::dontSendNotification);
+        juce::String out=channel->output?"Out: Missing":"Out: Master";
+        if(channel->output)for(const auto& t:p->tracks)if(t.id==channel->output)out="Out: "+label(t.name);
+        if(!channel->hardware_outputs.empty()){juce::String channels;for(const auto ch:channel->hardware_outputs){if(channels.isNotEmpty())channels+=",";channels+=juce::String(ch+1);}out="Out: HW "+channels;}
+        output.setButtonText(out);output.setTitle(label(channel->name)+" output: "+out);
+        insertList();sendList();resized();repaint();
+    }
+private:
+    mrs::Track::Mix readMix() const {
+        const auto p=owner.project();for(const auto& t:p->tracks)if(targetTrack&&t.id==*targetTrack)return t.mix;return {};
+    }
+    mrs::Track::Mix adjusted(bool volume,double value) const {
+        auto mix=readMix();if(volume)mix.gain=static_cast<float>(std::pow(10.,(-60+72*value)/20));else mix.pan=static_cast<float>(2*value-1);return mix;
+    }
+    void previewMix(bool volume,double value){
+        if(!targetTrack)return;
+        owner.setPreview(targetTrack,adjusted(volume,value),owner.project()->master_gain,[this]{return gain.dragging()||pan.dragging();});
+    }
+    void commitMix(bool volume,double value){
+        if(!targetTrack)return;const auto id=*targetTrack;
+        owner.run([&]{owner.finishPreview();owner.app.set_track_mix(id,adjusted(volume,value));owner.app.poll();owner.refresh(true);});
+    }
+    void insertList(){
+        const auto chain=targetTrack?owner.chain(targetTrack):std::vector<mrs::NativeInsert>{};
+        const std::size_t start=(targetTrack&&std::any_of(owner.project()->tracks.begin(),owner.project()->tracks.end(),[&](const auto& t){return t.id==*targetTrack&&t.kind==mrs::TrackKind::instrument;}))?std::min(std::size_t{1},chain.size()):0;
+        const bool allOff=chain.size()>start&&std::all_of(chain.begin()+static_cast<std::ptrdiff_t>(start),chain.end(),[](const auto& fx){return fx.bypass;});
+        const bool mixed=!allOff&&chain.size()>start&&std::any_of(chain.begin()+static_cast<std::ptrdiff_t>(start),chain.end(),[](const auto& fx){return fx.bypass;});
+        allPower.setEnabled(chain.size()>start&&!owner.app.recording());allPower.setToggleState(allOff,juce::dontSendNotification);
+        allPower.getProperties().set("mrMixedPower",mixed);
+        allPower.setTooltip(allOff?"Restore insert FX power states":mixed?"Mixed FX power states — bypass all insert FX":"Bypass all insert FX");
+        insertButtons.clear();
+        const auto source=targetTrack;const auto store=owner.app.services().projects;
+        for(std::size_t slotIndex=start;slotIndex<chain.size();++slotIndex){const auto& fx=chain[slotIndex];
+            auto chip=std::make_unique<MixerInsert>(insertName(fx),fx.bypass);const auto slot=fx.id;
+            chip->setComponentID("inspector-insert:"+label(slot.value));
+            juce::Component::SafePointer<MixerInsert> control(chip.get());
+            chip->editor.onClick=[this,slot,control,source]{if(control&&!control->dragged)owner.openInsert(source,slot);};
+            chip->beginDrag=[this,slot,control,source,store]{if(!control||owner.isDragAndDropActive()||owner.app.recording())return;
+                owner.insertDrag=Desktop::InsertDrag{store,store->state().revision,source,slot};owner.startDragging("mrs-insert:"+label(slot.value),control.getComponent());};
+            chip->menu=[this,slot,source](juce::Point<int> point){owner.insertContextMenu(source,slot,point);};
+            chip->bypass.onClick=[this,slot,source,store]{
+                juce::Component::SafePointer<ChannelInspector> safe(this);
+                juce::MessageManager::callAsync([safe,source,slot,store]{if(!safe||safe->owner.app.services().projects!=store)return;
+                    safe->owner.run([&]{auto effects=safe->owner.chain(source);auto at=std::find_if(effects.begin(),effects.end(),[&](const auto& fx){return fx.id==slot;});
+                        if(at==effects.end())return;at->bypass=!at->bypass;safe->owner.applyChain(source,std::move(effects));});});};
+            insertBody.addAndMakeVisible(*chip);insertButtons.push_back(std::move(chip));}
+    }
+    void sendList(){
+        std::vector<mrs::Id> destinations;if(targetTrack){const auto p=owner.project();for(const auto& t:p->tracks)if(t.id==*targetTrack)for(const auto& send:t.sends)destinations.push_back(send.bus);}
+        if(destinations!=sendDestinations){
+            for(auto& row:sendButtons)row->abort();sendButtons.clear();sendDestinations=destinations;
+            const auto source=targetTrack;const auto store=owner.app.services().projects;
+            if(source)for(const auto& bus:destinations){
+                auto row=std::make_unique<ui::SendLevel>();juce::Component::SafePointer<ui::SendLevel> control(row.get());
+                row->setComponentID("inspector-send:"+label(bus.value));
+                row->preview=[this,control,source,bus](float value){owner.setSendPreview(*source,bus,value,[control]{return control&&control->dragging();});};
+                row->cancel=[this]{owner.cancelPreview();};
+                row->commit=[this,source,bus](float value){owner.run([&]{owner.finishPreview();const auto p=owner.project();
+                    for(const auto& t:p->tracks)if(t.id==*source)for(std::size_t i=0;i<t.sends.size();++i)if(t.sends[i].bus==bus){owner.app.set_send_gain(*source,i,value);return;}
+                    owner.cancelPreview();});};
+                row->menu=[this,control,source,bus]{owner.run([&]{owner.sendsMenu(*source,bus,control.getComponent());});};
+                row->toggleBypass=[this,source,bus,store]{
+                    juce::Component::SafePointer<ChannelInspector> safe(this);
+                    juce::MessageManager::callAsync([safe,source,bus,store]{if(!safe||safe->owner.app.services().projects!=store)return;
+                        safe->owner.run([&]{safe->owner.cancelPreview();const auto p=safe->owner.project();
+                            for(const auto& t:p->tracks)if(t.id==*source)for(std::size_t i=0;i<t.sends.size();++i)if(t.sends[i].bus==bus){safe->owner.app.set_send_bypassed(*source,i,!t.sends[i].bypass);return;}});});};
+                sendBody.addAndMakeVisible(*row);sendButtons.push_back(std::move(row));}}
+        if(sendButtons.size()!=destinations.size()){sendDestinations.clear();return;}
+        const auto p=owner.project();for(std::size_t i=0;i<destinations.size();++i){juce::String name="Missing send";
+            for(const auto& t:p->tracks)if(t.id==destinations[i])name=label(t.name);
+            if(targetTrack)for(const auto& t:p->tracks)if(t.id==*targetTrack)for(const auto& send:t.sends)if(send.bus==destinations[i])sendButtons[i]->sync(name,send.gain,send.bypass);}
+        addSend.setEnabled(destinations.size()<8);
+    }
+    Desktop& owner;
+    std::optional<mrs::Id> targetTrack,targetFolder;
+    juce::Label heading,detail,insertsLabel,sendsLabel;
+    Handle gain{false},pan{false};
+    juce::TextButton mute{"M"},solo{"S"},output{"Out: Master"},instrument{"Instrument"},
+        addInsert{"+ Insert"},addSend{"+ Send"},linkBus{"Create and link Bus"},folderMenu{"..."};
+    InsertPowerButton allPower;
+    juce::Viewport insertViewport,sendViewport;
+    juce::Component insertBody,sendBody;
+    std::vector<std::unique_ptr<MixerInsert>> insertButtons;
+    std::vector<std::unique_ptr<ui::SendLevel>> sendButtons;
+    std::vector<mrs::Id> sendDestinations;
+};
+
     previous.onClick=[this]{action(navigationMode.getSelectedId()==2?48:34);};next.onClick=[this]{action(navigationMode.getSelectedId()==2?49:35);};
     navigationMode.onChange=[this]{const bool markers=navigationMode.getSelectedId()==2;previous.setTooltip(markers?"Previous marker":"Previous section");next.setTooltip(markers?"Next marker":"Next section");};
     contextLabels[1].addMouseListener(this,false);contextLabels[2].addMouseListener(this,false);
-    int focus=1;for(auto* b:{&undo,&redo,&addTrack,&addBus,&split,&duplicate,&remove,&zoomIn,&zoomOut,&fit,&snapButton,&play,&pause,&stop,&record,&previous,&next,&loop,&editButton,&mixButton,&brows}){b->setTitle(b->getButtonText());b->setTooltip(b->getButtonText());b->setExplicitFocusOrder(focus++);}
+    int focus=1;for(auto* b:{&undo,&redo,&addTrack,&addBus,&split,&duplicate,&remove,&zoomIn,&zoomOut,&fit,&snapButton,&play,&pause,&stop,&record,&previous,&next,&loop,&editButton,&mixButton,&brows,&inspectorButton}){b->setTitle(b->getButtonText());b->setTooltip(b->getButtonText());b->setExplicitFocusOrder(focus++);}
+    inspectorButton.setTitle("Channel inspector");inspectorButton.setTooltip("Show or hide the channel inspector, left of the Arrange channels");
     snapButton.setTitle("Smart snap");snapButton.setTooltip(snap?"Snap enabled":"Snap disabled");snapButton.onClick=[this]{snap=!snap;snapButton.setButtonText(snap ? "Snap smart" : "Snap off");snapButton.setToggleState(snap,juce::dontSendNotification);snapButton.setTooltip(snap?"Snap enabled":"Snap disabled");};
     for(std::size_t i=0;i<contextLabels.size();++i){auto& l=contextLabels[i];addAndMakeVisible(l);l.setComponentID("musical-context-"+juce::String(static_cast<int>(i)));l.setFont(theme.font(12));l.setColour(juce::Label::textColourId,juce::Colours::lightgrey);l.setInterceptsMouseClicks(true,false);}
     setSize(1400,850);refresh(true);setWorkspace(standaloneLive?mrs::desktop::Workspace::live:testing?mrs::desktop::Workspace::mix:prefs.workspace==mrs::desktop::Workspace::live?mrs::desktop::Workspace::arrange:prefs.workspace);
@@ -149,6 +366,7 @@ Desktop::~Desktop(){
 #endif
 setAssetDesign(false);setShellDesign(false);juce::PopupMenu::dismissAllActiveMenus();try{saveSettings();}catch(...){}stopTimer();*scanCancel=true;chooser.reset();closeEditors();dockedEditor.reset();home.reset();liveWorkspace.reset();
     if(scanner.valid())scanner.wait();setLookAndFeel(nullptr);mixerViewport.setViewedComponent(nullptr,false);}
+    channelInspector=std::make_unique<ChannelInspector>(*this);addChildComponent(*channelInspector);
 void Desktop::run(std::function<void()> f){try{message.clear();performAraOperation(*this,f);if(!app.recording()){recordingPreview.clear();audioRecordingPreview.clear();}else if(recordingPreview.empty()&&audioRecordingPreview.empty())updateRecordingPreview();refresh();}catch(const std::exception& e){mrs::diagnostics::event(std::string("ui_error ")+e.what());refresh();message=label(e.what());repaint();}}
 void Desktop::resetDevice(){visualTransport.reset();lastDisplayState={};lastVisualSample=0;app.connect(mrs::audio::make_offline_device(),{0,project()->sample_rate,128,{}, {0,1}});}
 mrs::audio::RealtimeState Desktop::displayState() const noexcept{app.engine()->try_state(lastDisplayState);return lastDisplayState;}
@@ -156,7 +374,7 @@ double Desktop::visualSample(){const auto* engine=app.engine().get();if(liveDocu
 double Desktop::visualTick(){const auto p=project();double sample=visualSample(),tick=0;for(std::size_t i=0;i<p->time.tempos.size();++i){const auto& tempo=p->time.tempos[i];const double perTick=60.*p->sample_rate/(tempo.bpm*mrs::ppq);if(i+1==p->time.tempos.size())return tick+sample/perTick;const double length=static_cast<double>(p->time.tempos[i+1].tick-tempo.tick),frames=length*perTick;if(sample<frames)return tick+sample/perTick;sample-=frames;tick+=length;}return 0;}
 void Desktop::showProjectHome(bool visible){if(!home||(standaloneLive&&visible))return;homeVisible=visible;if(!visible)projectSessionStarted=true;for(auto* child:getChildren())if(child!=home.get())child->setVisible(!visible);home->setVisible(visible);if(visible){closeEditors();home->toFront(false);}resized();repaint();}
 void Desktop::saveSettings(){if(testing)return;
-    prefs.workspace=app.workspace();view.sidebar=sidebar;view.browserWidth=browserWidth;view.snap=snap;
+    prefs.workspace=app.workspace();view.sidebar=sidebar;view.browserWidth=browserWidth;view.snap=snap;view.channelInspector=inspectorVisible;
     if(arrangement){view.trackHeight=arrangement->trackHeight;view.pixelsPerSecond=arrangement->pixelsPerSecond;}
     // Preference persistence must never abort the action that triggered it: a protected or
     // read-only Documents folder used to make project opening look broken.
@@ -176,6 +394,8 @@ void Desktop::reconnectDevice(bool session){if(testing||(!session&&!prefs.reconn
     mrs::audio::DeviceConfig config{found->index,project()->sample_rate,prefs.buffer,{},prefs.outputs,prefs.processing_workers,prefs.process_buffer_frames};
     if(!view.inputs.trim().isEmpty())config.inputs=mrs::desktop::parse_outputs(view.inputs.toStdString());
     else if(prefs.monitor_input>=0)config.inputs={prefs.monitor_input};
+    inspectorButton.onClick=[this]{toggleInspector();};
+    inspectorButton.setToggleState(inspectorVisible,juce::dontSendNotification);
     try{
         app.connect(std::move(device),config);prefs.rate=config.sample_rate;saveSettings();
         if(standaloneLive&&liveDocument)syncAutomaticLiveMonitoring();
@@ -375,7 +595,7 @@ juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupM
     return m;
 }
 void Desktop::selectTrack(mrs::Id id,juce::ModifierKeys mods){
-    const auto p=project();
+    const auto p=project();selectedFolder.reset();
     if(selectedTracks.empty()&&selectedTrack)selectedTracks.insert(selectedTrack->value);
     if(mods.isShiftDown()&&selectedTrack){auto a=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==*selectedTrack;});auto b=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==id;});
         if(a!=p->tracks.end()&&b!=p->tracks.end()){if(a>b)std::swap(a,b);for(;a<=b;++a)selectedTracks.insert(a->id.value);}}
@@ -547,7 +767,13 @@ void Desktop::resized(){if(homeVisible&&home){for(auto* child:getChildren())if(c
     for(std::size_t i=0;i<contextLabels.size();++i)contextLabels[i].setBounds(8+static_cast<int>(i)*(getWidth()-16)/3,66,(getWidth()-16)/3-4,22);
     clickButton.setBounds(getWidth()-340,getHeight()-34,30,30);countButton.setBounds(getWidth()-306,getHeight()-34,30,30);
     browserWidth=juce::jlimit(200,juce::jmax(200,juce::jmin(700,getWidth()-700)),browserWidth);
-    const int available=getWidth()-(sidebar?browserWidth:0)-16;
+    const int inspectorZone=inspectorVisible?juce::jlimit(0,360,getWidth()-(sidebar?browserWidth:0)-16-480):0;
+    const int inspectorWidth=inspectorVisible?juce::jmin(juce::jlimit(240,360,view.channelInspectorWidth),inspectorZone):0;
+    const int inspectorGap=inspectorWidth?6:0;
+    // The inspector is a left dock: the Arrange channels keep their position
+    // relative to the arrangement, the dock precedes them.
+    const int inspectorIndent=inspectorWidth+inspectorGap;
+    const int available=getWidth()-(sidebar?browserWidth:0)-16-inspectorIndent;
     const bool showMix=app.workspace()==mrs::desktop::Workspace::mix;
     const bool showEdit=app.workspace()==mrs::desktop::Workspace::edit&&dockedClip&&dockedEditor&&dockedEditor->isVisible();
     const bool instrumentChannels=std::any_of(project()->tracks.begin(),project()->tracks.end(),[](const auto& track){return track.kind==mrs::TrackKind::instrument;});
@@ -560,9 +786,11 @@ void Desktop::resized(){if(homeVisible&&home){for(auto* child:getChildren())if(c
     const int baseHeight=juce::jmax(juce::jmax(260,(project()->tracks.empty()?352:instrumentChannels?436:380)+mixerNameExtra-insertHeight),view.mixerHeight);
     const int mixerHeight=showEdit?juce::jmin(maxHeight,view.editorHeight):showMix ? juce::jmin(maxHeight,baseHeight+insertHeight) : 0;
     const int mixerShift=showMix?14:0; // Move the whole mixer down, keeping strip/fader dimensions.
-    arrangeArea={8,94,available,getHeight()-94-footerHeight-mixerHeight+mixerShift};arrangement->setBounds(arrangeArea);
-    mixArea={8,arrangeArea.getBottom()+6,available,mixerHeight-6-mixerShift};
-    mixerDivider.setVisible(showMix||showEdit);mixerDivider.setBounds(8,arrangeArea.getBottom(),available,6);
+    arrangeArea={8+inspectorIndent,94,available,getHeight()-94-footerHeight-mixerHeight+mixerShift};arrangement->setBounds(arrangeArea);
+    if(channelInspector){const bool show=inspectorVisible&&inspectorWidth>0&&!homeVisible;channelInspector->setVisible(show);
+        if(show)channelInspector->setBounds(8,94,inspectorWidth,getHeight()-94-footerHeight);}
+    mixArea={8+inspectorIndent,arrangeArea.getBottom()+6,available,mixerHeight-6-mixerShift};
+    mixerDivider.setVisible(showMix||showEdit);mixerDivider.setBounds(8+inspectorIndent,arrangeArea.getBottom(),available,6);
     if(dockedEditor){dockedEditor->setVisible(showEdit);if(showEdit)dockedEditor->setBounds(mixArea);}
     mixerViewport.setVisible(showMix);if(master)master->setVisible(showMix);
     if(showMix){mixerViewport.setBounds(mixArea.withTrimmedRight(88));mixerBody.setSize(juce::jmax(mixerViewport.getWidth(),mixerColumnCount*88),mixArea.getHeight());
@@ -574,8 +802,9 @@ void Desktop::resized(){if(homeVisible&&home){for(auto* child:getChildren())if(c
     browser->setVisible(sidebar);browser->setBounds(getWidth()-browserWidth,94,browserWidth-8,getHeight()-94-footerHeight);
     x=juce::jmax(400,(getWidth()-520)/2);navigationMode.setBounds(x,getHeight()-34,86,30);x+=96;for(auto* b:{&play,&pause,&stop,&record,&previous,&next,&loop}){b->setBounds(x,getHeight()-34,36,30);x+=40;}for(auto* b:{&clickButton,&countButton}){b->setBounds(x,getHeight()-34,32,30);x+=36;}
     x=getWidth()-260;for(auto* b:{&editButton,&mixButton,&brows}){b->setBounds(x,getHeight()-34,78,30);x+=84;}
-    cpuReadout.setBounds(8,getHeight()-29,88,20);audioCpuBar.setBounds(100,getHeight()-21,90,4);
-    latencyReadout.setBounds(196,getHeight()-29,188,20);
+    inspectorButton.setBounds(8,getHeight()-30,24,24);
+    cpuReadout.setBounds(40,getHeight()-29,88,20);audioCpuBar.setBounds(132,getHeight()-21,90,4);
+    latencyReadout.setBounds(228,getHeight()-29,188,20);
     shellStatus.setVisible(shellTheme!=nullptr);shellTime.setVisible(shellTheme!=nullptr);if(shellTheme)layoutShell();
 }
 juce::String Desktop::footerStatus(){
@@ -699,7 +928,7 @@ void Desktop::refresh(bool force){
     mixButton.setToggleState(app.workspace()==mrs::desktop::Workspace::mix,juce::dontSendNotification);
     record.setToggleState(app.recording(),juce::dontSendNotification);loop.setToggleState(displayState().loop.has_value(),juce::dontSendNotification);
     const auto click=app.click_settings();clickButton.setToggleState(click.playback||click.recording,juce::dontSendNotification);clickButton.setEnabled(!app.recording());countButton.setEnabled(!app.recording());countButton.setButtonText(click.count_bars?"Count "+juce::String(click.count_bars):"Count off");countButton.setToggleState(click.count_bars>0,juce::dontSendNotification);
-    brows.setToggleState(sidebar,juce::dontSendNotification);if(shellTheme)refreshShell();repaint();arrangement->repaint();
+    brows.setToggleState(sidebar,juce::dontSendNotification);inspectorButton.setToggleState(inspectorVisible,juce::dontSendNotification);if(shellTheme)refreshShell();syncInspector();repaint();arrangement->repaint();
 }
 void Desktop::refreshMusicalContext(){
     app.musical().refresh();
@@ -902,6 +1131,11 @@ void Strip::ColorField::paintButton(juce::Graphics& g,bool hover,bool down){
     const auto bounds=getLocalBounds();g.setColour(fill.withAlpha(isEnabled()?1.f:.55f));g.fillRoundedRectangle(bounds.toFloat().reduced(1),2);
     const auto ink=fill.getPerceivedBrightness()>.58f?juce::Colours::black:juce::Colours::white;
     if(channelName.isNotEmpty()){g.setColour(ink);g.setFont(ui::Theme::stripFont());g.drawText(channelName,bounds.reduced(5,0),juce::Justification::centred,true);}
+void Desktop::syncInspector(){if(!channelInspector)return;channelInspector->setTargets(selectedTrack,selectedFolder);}
+void Desktop::toggleInspector(){inspectorVisible=!inspectorVisible;view.channelInspector=inspectorVisible;inspectorButton.setToggleState(inspectorVisible,juce::dontSendNotification);resized();repaint();saveSettings();}
+bool Desktop::inspectorPanelVisible() const{return channelInspector&&channelInspector->isVisible();}
+std::optional<mrs::Id> Desktop::inspectorPanelChannel() const{return channelInspector?channelInspector->channel():std::nullopt;}
+std::optional<mrs::Id> Desktop::inspectorPanelFolder() const{return channelInspector?channelInspector->folder():std::nullopt;}
     if(hasKeyboardFocus(true)){g.setColour(ink);g.drawRoundedRectangle(bounds.toFloat().reduced(1.5f),2,1);}
 }
 
@@ -1004,7 +1238,7 @@ void Strip::syncFolderPresentation(){
     const bool isFolder=folder.has_value();folderToggle.setVisible(isFolder);folderMenuButton.setVisible(isFolder);
     if(!isFolder)return;
     if(!folderIcon)folderIcon=juce::Drawable::createFromImageData(MRConceptAssets::folder_svg,MRConceptAssets::folder_svgSize);
-    setComponentID("mixer-folder-"+label(folder->value));
+    setComponentID((mini?"arrange-folder-":"mixer-folder-")+label(folder->value));
     // A linked folder is the Bus strip; only a folder without a Bus hides channel controls.
     if(!target){
         for(auto* component:{static_cast<juce::Component*>(&insertViewport),static_cast<juce::Component*>(&sendViewport),static_cast<juce::Component*>(&sendDivider),static_cast<juce::Component*>(&allPower),static_cast<juce::Component*>(&add),static_cast<juce::Component*>(&sends),static_cast<juce::Component*>(&input),static_cast<juce::Component*>(&output),static_cast<juce::Component*>(&arm),static_cast<juce::Component*>(&monitor),static_cast<juce::Component*>(&instrument),static_cast<juce::Component*>(&piano),static_cast<juce::Component*>(&colorField)})component->setVisible(false);
@@ -1340,14 +1574,19 @@ public:
         g.drawText(caption,x+44,0,getWidth()-x-70,getHeight(),juce::Justification::centredLeft,true);g.drawText("...",getWidth()-26,0,22,getHeight(),juce::Justification::centred);
     }
     void toggle(){owner.run([&]{owner.app.update_track_folder(folder.id,folder.name,!folder.collapsed);});}
-    void mouseDown(const juce::MouseEvent& e) override{if(e.mods.isPopupMenu()||e.x>getWidth()-30)owner.showFolderMenu(folder.id,e.getScreenPosition());else toggle();}
+    void mouseDown(const juce::MouseEvent& e) override{owner.selectedFolder=folder.id;owner.selectedTrack.reset();if(e.mods.isPopupMenu()||e.x>getWidth()-30)owner.showFolderMenu(folder.id,e.getScreenPosition());else toggle();}
     bool keyPressed(const juce::KeyPress& k) override{if(k==juce::KeyPress::returnKey||k==juce::KeyPress::spaceKey){toggle();return true;}return false;}
 };
 void Arrangement::rebuildFolderLayout(){
-    const auto p=owner.project();trackPositions.assign(p->tracks.size(),-1);folderRows.clear();folderHeaders.clear();contentHeight=0;layoutTrackHeight=trackHeight;
+    const auto p=owner.project();trackPositions.assign(p->tracks.size(),-1);folderRows.clear();folderHeaders.clear();folderMembers.clear();contentHeight=0;layoutTrackHeight=trackHeight;
+    // A Bus linked to a folder is that folder's channel, so it never becomes a
+    // second row at the end of the track list.
+    std::set<std::string> linked;
+    for(const auto& folder:p->folders)if(folder.bus)linked.insert(folder.bus->value);
     struct Task{std::optional<mrs::Id> folder;int track{-1},depth{};};
     const auto children=[&](std::optional<mrs::Id> parent,int depth){std::vector<Task> result;std::set<std::string> emitted;
-        for(std::size_t i=0;i<p->tracks.size();++i){const auto& track=p->tracks[i];if(track.folder==parent){result.push_back({{},static_cast<int>(i),depth});continue;}
+        for(std::size_t i=0;i<p->tracks.size();++i){const auto& track=p->tracks[i];if(linked.contains(track.id.value))continue;
+            if(track.folder==parent){result.push_back({{},static_cast<int>(i),depth});continue;}
             auto ancestor=track.folder;std::optional<mrs::Id> child;
             for(std::size_t n=0;ancestor&&n<p->folders.size();++n){const auto f=std::find_if(p->folders.begin(),p->folders.end(),[&](const auto& v){return v.id==*ancestor;});if(f==p->folders.end())break;if(f->parent==parent){child=f->id;break;}ancestor=f->parent;}
             if(child&&emitted.insert(child->value).second)result.push_back({child,-1,depth});}
@@ -1355,8 +1594,24 @@ void Arrangement::rebuildFolderLayout(){
     auto roots=children({},0);std::vector<Task> tasks(roots.rbegin(),roots.rend());
     while(!tasks.empty()){const auto task=tasks.back();tasks.pop_back();if(task.track>=0){trackPositions[static_cast<std::size_t>(task.track)]=contentHeight;contentHeight+=trackHeight;continue;}
         const auto f=std::find_if(p->folders.begin(),p->folders.end(),[&](const auto& v){return task.folder==v.id;});if(f==p->folders.end())continue;
-        folderRows.push_back({*f,contentHeight,task.depth});contentHeight+=36;if(!f->collapsed){const auto next=children(f->id,task.depth+1);tasks.insert(tasks.end(),next.rbegin(),next.rend());}}
-    for(const auto& row:folderRows){auto component=std::make_unique<TrackFolderHeader>(*this,owner,row);rowsBody.addAndMakeVisible(*component);folderHeaders.push_back(std::move(component));}
+        FolderRow row;row.folder=*f;row.y=contentHeight;row.depth=task.depth;row.height=36;
+        if(f->bus){const auto at=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==*f->bus&&t.kind==mrs::TrackKind::bus;});
+            if(at!=p->tracks.end()){row.channel=static_cast<int>(at-p->tracks.begin());row.height=trackHeight;trackPositions[static_cast<std::size_t>(row.channel)]=contentHeight;}}
+        folderRows.push_back(row);contentHeight+=row.height;
+        if(!f->collapsed){const auto next=children(f->id,task.depth+1);tasks.insert(tasks.end(),next.rbegin(),next.rend());}}
+    // Descendant tracks per folder row, for the collapsed aggregate preview.
+    folderMembers.resize(folderRows.size());
+    for(std::size_t i=0;i<folderRows.size();++i){const auto id=folderRows[i].folder.id;
+        for(std::size_t t=0;t<p->tracks.size();++t){auto parent=p->tracks[t].folder;
+            for(std::size_t n=0;parent&&n<p->folders.size();++n){if(*parent==id){folderMembers[i].push_back(t);break;}
+                const auto f=std::find_if(p->folders.begin(),p->folders.end(),[&](const auto& v){return v.id==*parent;});if(f==p->folders.end())break;parent=f->parent;}}}
+    for(std::size_t i=0;i<folderRows.size();++i){if(folderRows[i].channel>=0)continue;auto component=std::make_unique<TrackFolderHeader>(*this,owner,folderRows[i]);rowsBody.addAndMakeVisible(*component);folderRows[i].header=static_cast<int>(folderHeaders.size());folderHeaders.push_back(std::move(component));}
+}
+void Arrangement::syncFolderChannels(){
+    const auto p=owner.project();
+    for(auto& row:rows){if(!row||!row->target)continue;std::optional<mrs::Id> folder;
+        for(const auto& item:p->folders)if(item.bus==*row->target){folder=item.id;break;}
+        if(row->folder==folder)continue;row->folder=folder;row->sync();}
 }
 void Desktop::rebuildMixerFolders(){
     const auto p=project();mixerColumns.assign(mixer.size(),-1);mixerFolderColumns.clear();mixerColumnCount=0;
@@ -1407,14 +1662,14 @@ Arrangement::Arrangement(Desktop& d):owner(d),playhead([this]{const float x=stat
     for(int i=0;i<5;++i){laneButtons[i]=std::make_unique<LaneButton>(owner,names[i],i);addAndMakeVisible(*laneButtons[i]);laneButtons[i]->onClick=[this,i]{setLaneVisible(i,!laneVisible(i));};}
 }
 Arrangement::~Arrangement(){dropWorker.request_stop();dropWake.notify_all();if(dropWorker.joinable())dropWorker.join();}
-void Arrangement::rebuild(){fileDragExit({});std::vector<std::unique_ptr<Strip>> next;for(const auto& t:owner.project()->tracks){auto at=std::find_if(rows.begin(),rows.end(),[&](const auto& row){return row&&row->target==t.id;});if(at!=rows.end())next.push_back(std::move(*at));else{auto row=std::make_unique<Strip>(owner,t.id,true);rowsBody.addAndMakeVisible(*row);next.push_back(std::move(row));}}rows=std::move(next);rebuildFolderLayout();resized();}
+void Arrangement::rebuild(){fileDragExit({});std::vector<std::unique_ptr<Strip>> next;for(const auto& t:owner.project()->tracks){auto at=std::find_if(rows.begin(),rows.end(),[&](const auto& row){return row&&row->target==t.id;});if(at!=rows.end())next.push_back(std::move(*at));else{auto row=std::make_unique<Strip>(owner,t.id,true);rowsBody.addAndMakeVisible(*row);next.push_back(std::move(row));}}rows=std::move(next);rebuildFolderLayout();syncFolderChannels();resized();}
 void Arrangement::resized(){if(layoutTrackHeight!=trackHeight)rebuildFolderLayout();vertical=juce::jlimit(0.f,static_cast<float>(juce::jmax(0,contentHeight-(getHeight()-headerHeight()))),vertical);
     const std::array<juce::Component*,5> lanes{markers.get(),sections.get(),chords.get(),tempos.get(),meters.get()};
     constexpr std::array<int,5> heights{24,33,24,32,32};int laneY=20;
     for(int i=0;i<5;++i){const bool visible=laneVisible(i);lanes[i]->setVisible(visible);lanes[i]->setBounds(0,laneY,getWidth(),visible?heights[i]:0);if(visible)laneY+=heights[i];laneButtons[i]->setBounds(112+i*26,0,24,20);laneButtons[i]->setToggleState(visible,juce::dontSendNotification);}
     rowsBody.setBounds(0,headerHeight(),left-6,getHeight()-headerHeight());
     for(std::size_t i=0;i<rows.size();++i){const int y=trackY(static_cast<int>(i))-static_cast<int>(vertical);rows[i]->setBounds(0,y,left-6,trackHeight-2);rows[i]->setVisible(y+trackHeight>0 && y<rowsBody.getHeight());}
-    for(std::size_t i=0;i<folderHeaders.size();++i){const int y=folderRows[i].y-static_cast<int>(vertical);folderHeaders[i]->setBounds(0,y,left-6,35);folderHeaders[i]->setVisible(y+36>0&&y<rowsBody.getHeight());}playhead.update();}
+    for(std::size_t i=0;i<folderRows.size();++i){if(folderRows[i].header<0)continue;auto& folderHeader=folderHeaders[static_cast<std::size_t>(folderRows[i].header)];const int y=folderRows[i].y-static_cast<int>(vertical);folderHeader->setBounds(0,y,left-6,folderRows[i].height-1);folderHeader->setVisible(y+folderRows[i].height>0&&y<rowsBody.getHeight());}playhead.update();}
 int Arrangement::trackAt(float y) const{const float local=y-headerHeight()+vertical;if(local<0)return -1;for(std::size_t i=0;i<trackPositions.size();++i)if(trackPositions[i]>=0&&local>=trackPositions[i]&&local<trackPositions[i]+trackHeight)return static_cast<int>(i);return local>=contentHeight?static_cast<int>(trackPositions.size()):-1;}
 namespace {
 juce::MouseCursor bracketCursor(bool right){
@@ -1516,7 +1771,28 @@ void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(arrangementCan
     g.saveState();g.reduceClipRegion(left,headerHeight(),getWidth()-left,getHeight()-headerHeight());
     g.setFont(Theme::stripFont());
     for(std::size_t i=0;i<p->tracks.size();++i){int y=headerHeight()+trackY(static_cast<int>(i))-static_cast<int>(vertical);g.setColour(juce::Colour(separatorColour));g.drawHorizontalLine(y,static_cast<float>(left),static_cast<float>(getWidth()));}
-    for(const auto& folder:folderRows){const int y=headerHeight()+folder.y-static_cast<int>(vertical);g.setColour(juce::Colour(panel));g.fillRect(left,y,getWidth()-left,35);g.setColour(juce::Colour(outline));g.drawHorizontalLine(y+35,static_cast<float>(left),static_cast<float>(getWidth()));}
+    for(std::size_t i=0;i<folderRows.size();++i){const auto& row=folderRows[i];const int y=headerHeight()+row.y-static_cast<int>(vertical);const int height=row.height;
+        g.setColour(row.channel<0?juce::Colour(panel):juce::Colour(surface).withAlpha(.45f));g.fillRect(left,y,getWidth()-left,height-1);
+        g.setColour(juce::Colour(outline));g.drawHorizontalLine(y+height-1,static_cast<float>(left),static_cast<float>(getWidth()));
+        // Collapsed folder: its members stay audible and visible as compressed
+        // bands. This is presentation only, so clips remain non-interactive.
+        if(!row.folder.collapsed||i>=folderMembers.size()||folderMembers[i].empty())continue;
+        const auto& members=folderMembers[i];const int usable=juce::jmax(4,height-6);
+        const int bands=juce::jmax(1,juce::jmin(static_cast<int>(members.size()),usable/4));
+        const int bandHeight=juce::jmax(2,usable/bands-1);
+        for(std::size_t m=0;m<members.size();++m){const auto& track=p->tracks[members[m]];
+            const int band=static_cast<int>(m*static_cast<std::size_t>(bands)/members.size());
+            const int bandTop=y+3+band*(usable/bands);
+            if(bandTop+bandHeight>y+height-2)continue;
+            for(const auto& c:p->clips){if(c.track!=track.id)continue;const auto r=clipRect(c);if(r.getRight()<left||r.getX()>static_cast<float>(getWidth()))continue;
+                const juce::Rectangle<float> bar{r.getX(),static_cast<float>(bandTop),r.getWidth(),static_cast<float>(bandHeight)};
+                g.setColour(juce::Colour(0xff000000|c.color.value_or(track.color.value_or(ObjectPalette::defaultClip))).withAlpha(.55f));g.fillRoundedRectangle(bar,2.f);
+                g.setColour(juce::Colour(outline).withAlpha(.65f));g.drawRoundedRectangle(bar.reduced(.25f),2.f,.5f);}}
+        if(height>=24){const auto caption=juce::String(static_cast<int>(members.size()))+(members.size()==1?" track":" tracks");
+            const auto chip=juce::Rectangle<float>(static_cast<float>(getWidth()-66),static_cast<float>(y+3),60.f,static_cast<float>(juce::jmin(16,height-8)));
+            g.setColour(juce::Colour(panel).withAlpha(.88f));g.fillRoundedRectangle(chip,2.f);
+            g.setColour(juce::Colour(secondaryText));g.setFont(ui::Theme::detailFont());g.drawText(caption,chip.toNearestInt(),juce::Justification::centred);}
+    }
     g.setFont(Theme::detailFont());
     // Paint selected clips last; both audio and MIDI reveal overlapping clips.
     auto paintedClips=p->clips;std::stable_partition(paintedClips.begin(),paintedClips.end(),[&](const auto& c){return c.id!=owner.selectedClip&&!owner.selectedClips.contains(c.id.value);});
@@ -1684,7 +1960,9 @@ void Arrangement::mouseDrag(const juce::MouseEvent& e){
     if(drag&&!trim&&!drag->midi&&dragGroup.size()==1&&!owner.standaloneLive){const auto p=owner.project();const auto target=trackAt(e.position.y);if(e.x>=left&&target>=0&&target<static_cast<int>(p->tracks.size())&&p->tracks[static_cast<std::size_t>(target)].kind==mrs::TrackKind::instrument&&e.getDistanceFromDragStart()>=2){transcriptionDrop=true;dragTrack=p->tracks[static_cast<std::size_t>(target)].id;dragStart=sampleAt(e.position.x);dragMoved=true;setMouseCursor(juce::MouseCursor::CopyingCursor);setTooltip(juce::String::fromUTF8("Convert stem to MIDI · Instrument Track"));repaint();return;}transcriptionDrop=false;}
     if(fadeOriginal){const auto r=clipRect(*fadeOriginal);const auto frames=static_cast<mrs::Sample>(std::llround(static_cast<double>(fadeRight?r.getRight()-e.position.x:e.position.x-r.getX())/static_cast<double>(juce::jmax(1.f,r.getWidth()))*static_cast<double>(fadeOriginal->length)));if(fadeRight)fadeOutPreview=std::clamp(frames,mrs::Sample{0},fadeOriginal->length);else fadeInPreview=std::clamp(frames,mrs::Sample{0},fadeOriginal->length);repaint();return;}if(rulerSeeking){if(e.x>=left&&e.y>=0&&e.y<20)owner.run([&]{owner.app.seek(seekSampleAt(e.position.x));});return;}if(selecting){selectionBox=juce::Rectangle<float>(selectionOrigin,e.position).getIntersection(juce::Rectangle<float>(static_cast<float>(left),static_cast<float>(headerHeight()),static_cast<float>(getWidth()-left),static_cast<float>(getHeight()-headerHeight())));owner.selectedClips=selectionBase;owner.selectedClip=selectionBase.empty()?std::nullopt:std::optional<mrs::Id>{mrs::Id{*selectionBase.begin()}};for(const auto& c:owner.project()->clips)if(clipRect(c).intersects(selectionBox)){owner.selectedClips.insert(c.id.value);if(!owner.selectedClip)owner.selectedClip=c.id;}repaint();return;}if(!drag)return;
     const auto p=owner.project();const mrs::Timeline time(p->time,p->sample_rate);auto delta=static_cast<mrs::Sample>((e.x-dragX)/pixelsPerSecond*p->sample_rate);if(trim){updateTrim(delta,owner.snap&&!e.mods.isShiftDown());repaint();return;}if(!trim){mrs::Sample low=-mrs::max_sample,high=mrs::max_sample;for(const auto& c:dragGroup){const auto start=mrs::clip_start(c,time);low=std::max(low,-start);high=std::min(high,mrs::max_sample-mrs::clip_end(c,time));}delta=std::clamp(delta,low,high);if(owner.snap&&!e.mods.isShiftDown()){const auto snapped=sampleAt(static_cast<float>(left+static_cast<double>(drag->start+delta)/p->sample_rate*pixelsPerSecond-horizontal));delta=std::clamp(snapped-drag->start,low,high);}}dragStart=juce::jmax<mrs::Sample>(0,drag->start+delta);
-    const auto anchor=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==drag->track;});if(anchor==p->tracks.end()){keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));return;}const int targetIndex=trackAt(e.position.y);if(targetIndex<0)return;int wanted=targetIndex-static_cast<int>(anchor-p->tracks.begin()),low=0,high=static_cast<int>(p->tracks.size())-1;if(!dragGroup.empty()){low=-static_cast<int>(p->tracks.size());high=static_cast<int>(p->tracks.size());for(const auto& c:dragGroup){const auto t=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& item){return item.id==c.track;});const int at=static_cast<int>(t-p->tracks.begin());low=std::max(low,-at);high=std::min(high,static_cast<int>(p->tracks.size())-1-at);}}dragTrackDelta=std::clamp(wanted,low,high);dragTrack=p->tracks[static_cast<std::size_t>(static_cast<int>(anchor-p->tracks.begin())+dragTrackDelta)].id;dragMoved=dragMoved||std::abs(e.x-dragX)>=2||dragTrackDelta!=0;repaint();
+    const auto anchor=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==drag->track;});if(anchor==p->tracks.end()){keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));return;}const int targetIndex=trackAt(e.position.y);if(targetIndex<0)return;
+    // A folder's Bus row is a channel, not a clip lane: keep the last valid target.
+    if(targetIndex<static_cast<int>(p->tracks.size())&&p->tracks[static_cast<std::size_t>(targetIndex)].kind==mrs::TrackKind::bus)return;int wanted=targetIndex-static_cast<int>(anchor-p->tracks.begin()),low=0,high=static_cast<int>(p->tracks.size())-1;if(!dragGroup.empty()){low=-static_cast<int>(p->tracks.size());high=static_cast<int>(p->tracks.size());for(const auto& c:dragGroup){const auto t=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& item){return item.id==c.track;});const int at=static_cast<int>(t-p->tracks.begin());low=std::max(low,-at);high=std::min(high,static_cast<int>(p->tracks.size())-1-at);}}dragTrackDelta=std::clamp(wanted,low,high);dragTrack=p->tracks[static_cast<std::size_t>(static_cast<int>(anchor-p->tracks.begin())+dragTrackDelta)].id;dragMoved=dragMoved||std::abs(e.x-dragX)>=2||dragTrackDelta!=0;repaint();
 }
 void Arrangement::mouseUp(const juce::MouseEvent& e){
     if(selectingAudioRange){selectingAudioRange=false;repaint();return;}
