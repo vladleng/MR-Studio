@@ -12,6 +12,7 @@ inline juce::String deviceLayout(const mrs::audio::DeviceInfo& info) {
     juce::Array<juce::var> layout;layout.add(inputs);layout.add(outputs);return juce::JSON::toString(layout,true);
 }
 struct ViewSettings {
+    int exportFormat{1},exportRange{1}; // user preferences, not project state
     struct NativeEditorView {
         int band{1};bool options{},pinned{};juce::String search,folder;
         int rigTab{1},rigRole{1};bool rigFavorites{},rigFiles{};juce::String rigSearch,rigTag;
@@ -67,6 +68,7 @@ struct ViewSettings {
         object->setProperty("liveMixerHeight",liveMixerHeight);
         object->setProperty("liveMixerFaderHeight",liveMixerFaderHeight);
         object->setProperty("version",1);object->setProperty("sidebar",sidebar);
+        object->setProperty("exportFormat",exportFormat);object->setProperty("exportRange",exportRange);
         object->setProperty("musicalLanes",musicalLanes);
         juce::Array<juce::var> templates;for(const auto& item:sectionTemplates){auto* entry=new juce::DynamicObject;entry->setProperty("name",item.name);entry->setProperty("color",static_cast<int>(item.color));templates.add(juce::var(entry));}object->setProperty("sectionTemplates",templates);
         object->setProperty("snap",snap);object->setProperty("browserWidth",browserWidth);
@@ -93,6 +95,8 @@ struct ViewSettings {
         ViewSettings result;juce::var value;
         if(bytes.length()>32*1024*1024||juce::JSON::parse(bytes,value).failed()||!value.isObject()||static_cast<int>(value["version"])!=1)
             throw std::runtime_error("Invalid JUCE view settings");
+        if(value["exportFormat"].isInt())result.exportFormat=juce::jlimit(1,2,static_cast<int>(value["exportFormat"]));
+        if(value["exportRange"].isInt())result.exportRange=juce::jlimit(1,3,static_cast<int>(value["exportRange"]));
         if(value.hasProperty("liveRestoreLastShow")){if(!value["liveRestoreLastShow"].isBool())throw std::runtime_error("Invalid Live startup mode");result.liveRestoreLastShow=static_cast<bool>(value["liveRestoreLastShow"]);}
         if(value["transcriptionCpuThreads"].isInt()){const auto n=static_cast<int>(value["transcriptionCpuThreads"]);if(n>=0&&n<=32)result.transcriptionCpuThreads=n;}
         if(value["transcriptionCompatibility"].isBool())result.transcriptionCompatibility=static_cast<bool>(value["transcriptionCompatibility"]);
