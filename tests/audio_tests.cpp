@@ -622,6 +622,47 @@ void offline_range() {
     rejects([&]{render_master_range({48000,0,2,4},plain,5,5,{[](std::span<const float>){}});});
     rejects([&]{render_master_range({48000,0,2,4},plain,0,20,{[](std::span<const float>){throw std::runtime_error("sink failure");}});});
 }
+void offline_streaming() {
+    TempFile file;std::string payload;
+    constexpr Sample total=30000;
+    for(Sample i=0;i<total;++i)put32(payload,std::bit_cast<std::uint32_t>(static_cast<float>(i%127)/256.f));
+    file.write(wav_bytes(3,32,payload));
+    const auto disk=std::make_shared<const AudioData>(open_wav(file.path,0));
+    const auto pcm=std::make_shared<const AudioData>(load_wav(file.path));
+    CHECK(disk->file&&disk->samples.empty());
+    const auto make_graph=[](const std::shared_ptr<const AudioData>& source){
+        RenderGraph graph;graph.mixer={{},{}};graph.voices={
+            {source,11,8188,17003,{{0,0,1},{0,1,.5f}}},
+            {source,510,17000,511,{{0,0,.5f},{0,1,1}}}};
+        graph.voices[0].mixer_track=0;graph.voices[0].fade_in=13;graph.voices[0].fade_out=21;
+        graph.voices[1].mixer_track=1;graph.voices[1].fade_in=7;
+        graph.master_gain=.5f;return graph;
+    };
+    RenderConfig config{48000,0,2,257};config.processing_block=113;
+    std::vector<float> expected,actual;
+    const auto reference=render_master_range(config,make_graph(pcm),7,18001,{
+        [&](std::span<const float> block){expected.insert(expected.end(),block.begin(),block.end());}});
+    const auto rendered=render_master_range(config,make_graph(disk),7,18001,{
+        [&](std::span<const float> block){actual.insert(actual.end(),block.begin(),block.end());}});
+    CHECK(reference.completed&&rendered.completed&&rendered.frames_written==17994);
+    CHECK(expected==actual&&reference.peak==rendered.peak&&actual.size()==35988);
+    CHECK(disk->samples.empty());
+    actual.clear();
+    const auto cancelled=render_master_range(config,make_graph(disk),0,18001,{
+        [&](std::span<const float> block){actual.insert(actual.end(),block.begin(),block.end());},
+        [](const OfflineRenderProgress& p){return p.written<257;}});
+    CHECK(!cancelled.completed&&cancelled.frames_written==257&&actual.size()==514);
+    // Retained immutable metadata, but file is truncated after inspection.
+    std::filesystem::resize_file(file.path,44+100*4);
+    const auto immediate=render_master_range(config,make_graph(disk),0,18001,{
+        [](std::span<const float>){throw std::runtime_error("unexpected output");},
+        [](const OfflineRenderProgress&){return false;}});
+    CHECK(!immediate.completed&&immediate.frames_written==0);
+    bool threw=false;std::size_t writes=0;
+    try{(void)render_master_range(config,make_graph(disk),0,18001,{
+        [&](std::span<const float>){++writes;}});}catch(const std::exception&){threw=true;}
+    CHECK(threw&&writes==0); // failed first read, never substitute silence
+}
 void sends() {
     auto asset = std::make_shared<AudioData>(); asset->channels = 1; asset->samples.assign(16384,0.25f);
     RenderGraph graph; graph.mixer = {{0.5f,0,false,false},{0.5f,0,false,false},{},{}};
@@ -1011,7 +1052,7 @@ int main(int argc, char** argv) {
         if (argc != 2) throw std::invalid_argument("expected suite");
         const std::string suite = argv[1];
         if(suite=="state_snapshot"){state_snapshot();std::cout<<"PASS state_snapshot: "<<assertions<<" checks\n";return 0;}
-        if(suite=="performance")performance();else if(suite=="metronome")metronome();else if(suite=="callback_blocks")callback_blocks();else if (suite=="pdc") pdc(); else if (suite=="inserts") inserts(); else if(suite=="insert_switch")insert_switch(); else if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="master_export") { master_export(); offline_range(); } else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
+        if(suite=="performance")performance();else if(suite=="metronome")metronome();else if(suite=="callback_blocks")callback_blocks();else if (suite=="pdc") pdc(); else if (suite=="inserts") inserts(); else if(suite=="insert_switch")insert_switch(); else if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="master_export") { master_export(); offline_range(); offline_streaming(); } else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
         else if (suite=="queue") queue(); else if (suite=="wav") wav();
         else if (suite=="device") device(); else if (suite=="metrics") metrics();
         else if (suite=="streaming") streaming(); else if (suite=="recording") recording();
