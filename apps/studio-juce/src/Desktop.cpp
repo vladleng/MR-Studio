@@ -2753,28 +2753,28 @@ void exportAudioSmoke(){
     d.view.exportFormat=1;d.view.exportRange=1;
     d.action(Desktop::exportAudioAction);
     check(d.exportWindow&&d.exportWindow->isVisible(),"File menu opens export window");
-    auto* panel=dynamic_cast<ExportAudioPanel*>(d.exportWindow->getContentComponent());
-    check(panel&&panel->selectedRange()==mrs::LoopRange{0,4096},"export range reflects source");
-    check(panel->start.isEnabled(),"valid export ready");
-    panel->mp3.onClick();check(panel->format==2&&panel->mp3.getToggleState(),"MP3 selection");
-    panel->wav.onClick();check(panel->format==1&&panel->wav.getToggleState(),"WAV selection");
-    for(auto* component:std::array<juce::Component*,8>{&panel->wav,&panel->mp3,&panel->name,&panel->range,&panel->folder,&panel->bar,&panel->detail,&panel->start})
-        check(!component->getBounds().isEmpty()&&panel->getLocalBounds().contains(component->getBounds()),"export control bounds");
+    auto* exportPanel=dynamic_cast<ExportAudioPanel*>(d.exportWindow->getContentComponent());
+    check(exportPanel&&exportPanel->selectedRange()==mrs::LoopRange{0,4096},"export range reflects source");
+    check(exportPanel->start.isEnabled(),"valid export ready");
+    exportPanel->mp3.onClick();check(exportPanel->format==2&&exportPanel->mp3.getToggleState(),"MP3 selection");
+    exportPanel->wav.onClick();check(exportPanel->format==1&&exportPanel->wav.getToggleState(),"WAV selection");
+    for(auto* component:std::array<juce::Component*,8>{&exportPanel->wav,&exportPanel->mp3,&exportPanel->name,&exportPanel->range,&exportPanel->folder,&exportPanel->bar,&exportPanel->detail,&exportPanel->start})
+        check(!component->getBounds().isEmpty()&&exportPanel->getLocalBounds().contains(component->getBounds()),"export control bounds");
     const auto before=d.app.services().projects->state();
-    panel->folder.setText(temp.root.getFullPathName(),false);
-    panel->name.setText("mix",false);panel->updateRange();panel->start.onClick();
-    if(!panel->busy||!d.app.export_active())throw std::runtime_error("export worker did not start: "+panel->detail.getText().toStdString());
+    exportPanel->folder.setText(temp.root.getFullPathName(),false);
+    exportPanel->name.setText("mix",false);exportPanel->updateRange();exportPanel->start.onClick();
+    if(!exportPanel->busy||!d.app.export_active())throw std::runtime_error("export worker did not start: "+exportPanel->detail.getText().toStdString());
     const auto limit=std::chrono::steady_clock::now()+std::chrono::seconds(15);
-    while(panel->busy&&std::chrono::steady_clock::now()<limit){
-        panel->timerCallback();std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    while(exportPanel->busy&&std::chrono::steady_clock::now()<limit){
+        exportPanel->timerCallback();std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
-    if(panel->busy||!panel->finished||d.app.export_active())throw std::runtime_error("export did not complete: "+panel->detail.getText().toStdString());
+    if(exportPanel->busy||!exportPanel->finished||d.app.export_active())throw std::runtime_error("export did not complete: "+exportPanel->detail.getText().toStdString());
     const auto result=temp.root.getChildFile("mix.wav");
     const auto info=mrs::audio::inspect_wav(std::filesystem::path(result.getFullPathName().toWideCharPointer()));
     check(info.sample_rate==48000&&info.bits==24&&info.channels==2&&info.frame_count==4096,"WAV produced through dialog");
     check(d.app.services().projects->state().project==before.project,"export preserves project");
-    panel->start.onClick();
-    check(!panel->busy&&panel->operation.getText()=="Export failed"&&result.existsAsFile(),"dialog refuses overwrite");
+    exportPanel->start.onClick();
+    check(!exportPanel->busy&&exportPanel->operation.getText()=="Export failed"&&result.existsAsFile(),"dialog refuses overwrite");
     d.exportWindow->closeButtonPressed();
     check(!d.exportWindow->isVisible()&&!d.app.export_active(),"close export window");
     d.showExportAudio();check(d.exportWindow&&d.exportWindow->isVisible(),"reopen export window");
