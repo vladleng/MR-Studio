@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(MoonRiverStudio VERSION 0.10.3 LANGUAGES C CXX)
+project(MoonRiverStudio VERSION 0.11.0 LANGUAGES C CXX)
 include(CTest)
 include(cmake/TranscriptionProfile.cmake)
 if(MSVC)
