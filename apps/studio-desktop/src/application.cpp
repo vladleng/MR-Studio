@@ -2511,31 +2511,128 @@ void Application::commit_midi_project(Project candidate,std::string operation){
     }
     services_.projects->execute(Import{std::move(candidate),std::move(operation)});unsaved_=true;sync_arm();publish_midi_routes();
 }
-void Application::prepare_mixer(audio::RenderGraph& result) {
-    const auto project = preparing_project_?preparing_project_:services_.projects->state().project.get();
-    mixer_tracks_.clear();
+namespace {
+void project_mixer(const Project* project,audio::RenderGraph& result,std::vector<Id>& mixer_tracks,const std::shared_ptr<audio::ExternalMidiQueue>& external_midi) {
+    mixer_tracks.clear();
     for (const auto& t : project->tracks) if (t.kind != TrackKind::midi) {
-        require(mixer_tracks_.size() < audio::max_mixer_tracks,"mixer supports up to 128 audio tracks and buses");
-        mixer_tracks_.push_back(t.id); result.mixer.push_back(t.mix); result.input_monitoring.push_back(t.input_monitor); result.buses.push_back(t.kind == TrackKind::bus);result.live_midi.push_back(t.kind==TrackKind::instrument);result.midi_monitor.push_back(t.midi_monitor);
-        result.external_midi_tracks.push_back(!t.midi_output.empty());result.external_midi_channels.push_back(t.midi_output_channel);if(!t.midi_output.empty())result.external_midi=external_midi_;
+        require(mixer_tracks.size() < audio::max_mixer_tracks,"mixer supports up to 128 audio tracks and buses");
+        mixer_tracks.push_back(t.id); result.mixer.push_back(t.mix); result.input_monitoring.push_back(t.input_monitor); result.buses.push_back(t.kind == TrackKind::bus);result.live_midi.push_back(t.kind==TrackKind::instrument);result.midi_monitor.push_back(t.midi_monitor);
+        result.external_midi_tracks.push_back(!t.midi_output.empty());result.external_midi_channels.push_back(t.midi_output_channel);if(!t.midi_output.empty())result.external_midi=external_midi;
     }
     for (const auto& t : project->tracks) if (t.kind != TrackKind::midi) {
-        const auto destination = t.output ? std::find(mixer_tracks_.begin(),mixer_tracks_.end(),*t.output) : mixer_tracks_.end();
-        require(!t.output || destination != mixer_tracks_.end(),"missing output bus");
+        const auto destination = t.output ? std::find(mixer_tracks.begin(),mixer_tracks.end(),*t.output) : mixer_tracks.end();
+        require(!t.output || destination != mixer_tracks.end(),"missing output bus");
         result.sends.emplace_back();
         for (const auto& send : t.sends) {
-            const auto bus = std::find(mixer_tracks_.begin(),mixer_tracks_.end(),send.bus);
-            require(bus != mixer_tracks_.end(),"missing send bus");
-            result.sends.back().push_back({static_cast<std::size_t>(bus-mixer_tracks_.begin()),send.bypass?0.f:send.gain,send.pre_fader});
+            const auto bus = std::find(mixer_tracks.begin(),mixer_tracks.end(),send.bus);
+            require(bus != mixer_tracks.end(),"missing send bus");
+            result.sends.back().push_back({static_cast<std::size_t>(bus-mixer_tracks.begin()),send.bypass?0.f:send.gain,send.pre_fader});
         }
-        result.outputs.push_back(destination == mixer_tracks_.end() ? audio::no_mixer_track : static_cast<std::size_t>(destination-mixer_tracks_.begin()));
+        result.outputs.push_back(destination == mixer_tracks.end() ? audio::no_mixer_track : static_cast<std::size_t>(destination-mixer_tracks.begin()));
     }
     result.master_gain = project->master_gain;
-    applied_mix_revision_ = services_.projects->state().revision;
 }
-void Application::prepare_midi_clips(audio::RenderGraph& graph){
-    const auto p=preparing_project_?preparing_project_:services_.projects->state().project.get();const Timeline time(p->time,p->sample_rate);graph.click_time=p->time;graph.click=click_settings_;graph.midi_events=audio::compile_midi_events(*p,mixer_tracks_);graph.midi_notes=audio::compile_midi_clips(*p,mixer_tracks_);
+void project_midi(const Project* p,audio::RenderGraph& graph,const std::vector<Id>& mixer_tracks,const audio::ClickSettings& click){
+    const Timeline time(p->time,p->sample_rate);graph.click_time=p->time;graph.click=click;graph.midi_events=audio::compile_midi_events(*p,mixer_tracks);graph.midi_notes=audio::compile_midi_clips(*p,mixer_tracks);
     for(const auto& tempo:p->time.tempos)graph.tempos.push_back({time.to_samples(tempo.tick),tempo.bpm,static_cast<double>(tempo.tick)/ppq});
+}
+}
+void Application::prepare_mixer(audio::RenderGraph& result) {
+    const auto project=preparing_project_?preparing_project_:services_.projects->state().project.get();
+    project_mixer(project,result,mixer_tracks_,external_midi_);
+    applied_mix_revision_=services_.projects->state().revision;
+}
+void Application::prepare_midi_clips(audio::RenderGraph& result) {
+    const auto project=preparing_project_?preparing_project_:services_.projects->state().project.get();
+    project_midi(project,result,mixer_tracks_,click_settings_);
+}
+audio::OfflineRenderResult Application::export_master(Sample begin,Sample end,const audio::OfflineRenderCallbacks& callbacks) {
+    require_not_playing();
+    require(workspace_!=Workspace::live&&!performance_plan_,"Audio export is Studio-only");
+    require(begin>=0&&end>begin&&end<=max_sample&&static_cast<bool>(callbacks.write_stereo),"Invalid export range or sink");
+    require(!preparing_project_&&!pending_live_insert_switch_.transition&&!staged_insert_target_&&staged_insert_graphs_.empty()&&retained_insert_keys_.empty(),"Wait for pending graph changes before export");
+    require(stretch_ready(true),"Wait for current time / pitch preparation before export");
+    if(callbacks.continue_render&&!callbacks.continue_render({0,end,0,end-begin}))return {};
+    const bool restart=device_&&device_->status().phase==audio::DevicePhase::running;
+    if(restart)device_->stop();
+    if(device_)engine_->quiesce();
+    // Existing device and live DSP instances are retained; no graph swap, seek,
+    // persistent model update, undo entry or device reconfiguration is needed.
+    audio::OfflineRenderResult rendered;
+    try {
+        auto project=*services_.projects->state().project;
+        require(engine_->state().playback!=PlaybackState::playing,"Stop playback before export");
+        for(const auto& t:project.tracks)require(t.midi_output.empty(),"External MIDI cannot be rendered offline");
+        // Reuse the existing stopped-state capture contract, writing only into
+        // a private project copy. Fail rather than omit an unavailable plugin.
+        capture_insert_state(project,{},true);
+        for(const auto& [key,runtime]:insert_runtime_){
+            (void)key;
+            require(!runtime.settings_failed&&!runtime.pending&&(!runtime.graph||!runtime.graph->failed()),"Resolve pending or failed plugin state before export");
+        }
+        require(instrument_errors_.empty(),"Resolve unavailable instruments before export");
+        auto graph_state=*graphs_->state().graph;
+        if(prepared_&&prepared_->snapshot().graph==graphs_->state().graph)graph_state=prepared_->capture();
+        audio::RenderGraph graph;
+        std::vector<Id> tracks;
+        project_mixer(&project,graph,tracks,{});
+        project_midi(&project,graph,tracks,{});
+        graph.monitoring=false;
+        graph.live_midi.assign(tracks.size(),false);
+        graph.midi_monitor.assign(tracks.size(),false);
+        graph.input_monitoring.assign(tracks.size(),false);
+        graph.master_outputs={0,1};
+        // Preserve Master bypass routing without requiring physical outputs.
+        for(const auto& t:project.tracks)if(t.kind!=TrackKind::midi)
+            graph.hardware_outputs.push_back(t.hardware_outputs.empty()?std::vector<std::size_t>{}:std::vector<std::size_t>{0,1});
+        graph.voices=prepare_clip_voices(project,tracks,2,true);
+#ifdef MRS_HAS_ARA
+        if(!project.ara_bindings.empty()){
+            if(ara_){
+                for(const auto& binding:project.ara_bindings)if(!binding.bypass)
+                    require(ara_->status(binding.source).starts_with("ready"),"Resolve pending or failed ARA source before export");
+                const auto saved=ara_->save_bindings();
+                for(auto& binding:project.ara_bindings){
+                    const auto current=std::find_if(saved.begin(),saved.end(),[&](const auto& b){return b.persistent_id==binding.persistent_id&&b.source==binding.source;});
+                    if(current!=saved.end()){const auto bypass=binding.bypass;binding=*current;binding.bypass=bypass;}
+                }
+            }
+            ara::Arrangement offline_ara;
+            offline_ara.restore_bindings(project.ara_bindings);
+            offline_ara.synchronize(project,[this](const auto& source){return asset(source);});
+            offline_ara.apply_offline(project,graph);
+        }
+#else
+        require(std::none_of(project.ara_bindings.begin(),project.ara_bindings.end(),[](const auto& b){return !b.bypass;}),"This build cannot export active ARA processing");
+#endif
+        constexpr std::uint32_t block=512;
+        const auto chain=[&](const std::vector<NativeInsert>& effects,bool instrument){
+            if(effects.empty())return std::shared_ptr<processing::PreparedGraph>{};
+            for(const auto& fx:effects)if(!fx.bypass)
+                require((fx.kind!=InsertKind::reverb&&!wav_core(fx.kind))||fx.reverb.first.digest.empty(),"Offline external IR preparation is not implemented yet");
+            auto saved=std::make_shared<const processing::GraphState>(processing::insert_graph(effects));
+            return std::make_shared<processing::PreparedGraph>(processing::GraphSnapshot{saved,0,false,false},
+                processing::ProcessConfig{project.sample_rate,2,block,block,instrument,true}
+#ifdef MRS_HAS_VST3
+                ,processing::hosted_factory
+#endif
+            );
+        };
+        for(const auto& t:project.tracks)if(t.kind!=TrackKind::midi)graph.inserts.push_back(chain(t.inserts,t.kind==TrackKind::instrument));
+        graph.master_inserts=chain(project.master_inserts,false);
+        graph.processors=std::make_shared<processing::PreparedGraph>(
+            processing::GraphSnapshot{std::make_shared<const processing::GraphState>(std::move(graph_state)),0,false,false},
+            processing::ProcessConfig{project.sample_rate,2,block,block,false,true});
+        audio::RenderConfig config{project.sample_rate,0,2,block};
+        if(device_config_)config.processing_workers=device_config_->processing_workers;
+        rendered=audio::render_master_range(config,std::move(graph),begin,end,callbacks);
+    }catch(...){
+        const auto original=std::current_exception();
+        if(restart)device_->start();
+        std::rethrow_exception(original);
+    }
+    if(restart)device_->start();
+    return rendered;
 }
 audio::RenderGraph Application::render(const audio::DeviceConfig& c,bool retain_inserts) {
     const auto project=preparing_project_?preparing_project_:services_.projects->state().project.get();
