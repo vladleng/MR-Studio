@@ -110,9 +110,8 @@ struct ExportCancelled {};
 struct ExportStage {
     fs::path directory;
     explicit ExportStage(const fs::path& destination){
-        const auto candidate=destination.parent_path()/(".mrs-export-"+new_id().value);
-        if(!fs::create_directory(candidate))throw std::runtime_error("Cannot create private export staging directory");
-        directory=candidate;
+        directory=destination.parent_path()/(".mrs-export-"+new_id().value);
+        if(!fs::create_directory(directory))throw std::runtime_error("Cannot create private export staging directory");
     }
     ~ExportStage(){std::error_code ignored;fs::remove_all(directory,ignored);}
     ExportStage(const ExportStage&)=delete;
@@ -218,7 +217,12 @@ WavExportResult export_wav24(const std::filesystem::path& requested,std::uint32_
             conversion_progress(0.f);
             // Use the existing bounded windowed-sinc import SRC; no separate
             // resampling algorithm and no integer quantization before SRC.
-            resample_wav_file(input,resampled,export_rate,callbacks.stop,[&](float p){conversion_progress(p*.5f);});
+            try{
+                resample_wav_file(input,resampled,export_rate,callbacks.stop,[&](float p){conversion_progress(p*.5f);});
+            }catch(const std::runtime_error& error){
+                if(callbacks.stop.stop_requested()&&std::string_view(error.what())=="WAV import cancelled")throw ExportCancelled{};
+                throw;
+            }
             check_cancel();
             const auto wav=inspect_wav(resampled);
             if(wav.sample_rate!=export_rate||wav.channels!=2||wav.frame_count!=static_cast<Sample>(frames))
@@ -245,7 +249,6 @@ WavExportResult export_wav24(const std::filesystem::path& requested,std::uint32_
 #endif
         return result;
     }catch(const ExportCancelled&){return {};}
-    catch(...){if(callbacks.stop.stop_requested())return {};throw;}
 }
 
 }
