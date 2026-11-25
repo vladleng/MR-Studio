@@ -1214,6 +1214,18 @@ OfflineRenderResult render_master_range(RenderConfig config, RenderGraph graph, 
             return voice.renderer || (voice.stream && (!voice.asset || !voice.asset->file));
         }))
         throw std::invalid_argument("offline graph contains an unsupported capture, renderer or external route");
+    // Hosted VST3 chains must have been prepared in the requested mode.
+    // Never reconfigure or silently borrow a running device's processors.
+    const auto require_offline=[](const std::shared_ptr<processing::PreparedGraph>& chain){
+        if(chain&&!chain->config().offline&&std::any_of(chain->snapshot().graph->nodes.begin(),
+            chain->snapshot().graph->nodes.end(),[](const auto& node){return node.format==processing::ProcessorFormat::vst3;}))
+            throw std::invalid_argument("offline render requires independently prepared offline VST3 processors");
+    };
+    require_offline(graph.processors);require_offline(graph.master_inserts);
+    for(const auto& chain:graph.inserts)require_offline(chain);
+    // Keep references for non-RT fault inspection before publishing a block.
+    auto chains=graph.inserts;
+    chains.push_back(graph.processors);chains.push_back(graph.master_inserts);
     // No ReadAhead worker or full-file preload for disk-backed voices. Reuse
     // immutable WAV metadata, but never reuse the live stream cursor.
     std::vector<std::shared_ptr<OfflineWavVoice>> disk_voices;
@@ -1258,6 +1270,8 @@ OfflineRenderResult render_master_range(RenderConfig config, RenderGraph graph, 
         auto output=std::span<float>(stereo).first(count*2);
         if (!engine->render_master_block(std::span<float>(scratch).first(count*config.output_channels),output))
             throw std::runtime_error("offline Master processing failed");
+        if(std::any_of(chains.begin(),chains.end(),[](const auto& chain){return chain&&chain->failed();}))
+            throw std::runtime_error("offline plugin processing failed");
         const Sample next=progress.processed+static_cast<Sample>(count);
         const auto from=std::max(first,progress.processed);
         if (next>from) {
