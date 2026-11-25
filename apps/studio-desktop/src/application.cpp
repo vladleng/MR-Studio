@@ -2546,6 +2546,16 @@ void Application::prepare_midi_clips(audio::RenderGraph& result) {
     const auto project=preparing_project_?preparing_project_:services_.projects->state().project.get();
     project_midi(project,result,mixer_tracks_,click_settings_);
 }
+audio::WavExportResult Application::export_wav(const std::filesystem::path& destination,Sample begin,Sample end,
+                                               const audio::WavExportCallbacks& callbacks) {
+    require_not_playing();
+    require(workspace_!=Workspace::live&&!performance_plan_,"Audio export is Studio-only");
+    require(begin>=0&&end>begin&&end<=max_sample,"Invalid export range");
+    const auto rate=services_.projects->state().project->sample_rate;
+    return audio::export_wav24(destination,rate,end-begin,[&](const auto& sink){
+        return export_master(begin,end,sink);
+    },callbacks);
+}
 audio::OfflineRenderResult Application::export_master(Sample begin,Sample end,const audio::OfflineRenderCallbacks& callbacks) {
     require_not_playing();
     require(workspace_!=Workspace::live&&!performance_plan_,"Audio export is Studio-only");
