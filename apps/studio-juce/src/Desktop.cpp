@@ -1,6 +1,7 @@
 #include "MusicalGrid.h"
 #include "MeterTrack.h"
 #include "Desktop.h"
+#include "ExportAudio.h"
 #if defined(MRS_DRUM_MAP_UI)
 #include "DrumMapEditor.h"
 #endif
@@ -446,6 +447,7 @@ Desktop::Desktop(bool test,bool startAtHome,bool liveApplication):standaloneLive
     home=std::make_unique<ProjectHome>(*this);addChildComponent(*home);if(!standaloneLive&&(!testing||startAtHome)){showProjectHome(true);if(!testing)home->rescan();}if(standaloneLive){liveDocument.emplace();prepareLiveInterface(true);showProjectHome(false);liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};}startTimerHz(30);
 }
 Desktop::~Desktop(){
+    exportWindow.reset(); // joins offline worker before Application/theme retirement
 #if defined(MRS_PROJECT_IMPORT_UI)
     projectImportStop.request_stop();
     if(auto* alert=projectImportDialog.getComponent())delete alert;
@@ -461,7 +463,7 @@ Desktop::~Desktop(){
 #endif
 setAssetDesign(false);setShellDesign(false);juce::PopupMenu::dismissAllActiveMenus();try{saveSettings();}catch(...){}stopTimer();*scanCancel=true;chooser.reset();closeEditors();dockedEditor.reset();home.reset();liveWorkspace.reset();
     if(scanner.valid())scanner.wait();setLookAndFeel(nullptr);mixerViewport.setViewedComponent(nullptr,false);}
-void Desktop::run(std::function<void()> f){try{message.clear();performAraOperation(*this,f);if(!app.recording()){recordingPreview.clear();audioRecordingPreview.clear();}else if(recordingPreview.empty()&&audioRecordingPreview.empty())updateRecordingPreview();refresh();}catch(const std::exception& e){mrs::diagnostics::event(std::string("ui_error ")+e.what());refresh();message=label(e.what());repaint();}}
+void Desktop::run(std::function<void()> f){if(app.export_active())return;try{message.clear();performAraOperation(*this,f);if(!app.recording()){recordingPreview.clear();audioRecordingPreview.clear();}else if(recordingPreview.empty()&&audioRecordingPreview.empty())updateRecordingPreview();refresh();}catch(const std::exception& e){mrs::diagnostics::event(std::string("ui_error ")+e.what());refresh();message=label(e.what());repaint();}}
 void Desktop::resetDevice(){visualTransport.reset();lastDisplayState={};lastVisualSample=0;app.connect(mrs::audio::make_offline_device(),{0,project()->sample_rate,128,{}, {0,1}});}
 mrs::audio::RealtimeState Desktop::displayState() const noexcept{app.engine()->try_state(lastDisplayState);return lastDisplayState;}
 double Desktop::visualSample(){const auto* engine=app.engine().get();if(liveDocument&&liveDocument->projects.empty()&&liveRuntimeToken&&engine->performance_status().token!=liveRuntimeToken){visualTransport.reset();return lastVisualSample=0;}if(engine!=visualEngine){visualEngine=engine;visualTransport.reset();}mrs::audio::RealtimeState state;if(!engine->try_state(state))return lastVisualSample;return lastVisualSample=visualTransport.sample(state,project()->sample_rate,juce::Time::getMillisecondCounterHiRes());}
@@ -734,7 +736,7 @@ void Desktop::renameTrack(mrs::Id id){
     auto& strips=app.workspace()==mrs::desktop::Workspace::mix?mixer:arrangement->rows;
     for(auto& strip:strips)if(strip->target==id){strip->beginNameEdit();return;}
 }
-void Desktop::confirmDiscard(std::function<void()> nextAction,bool songOnly){if(app.recording()){run([&]{app.pause();});if(app.recording()||!message.isEmpty())return;}if(!projectSessionStarted||!(songOnly?songDirty():documentDirty())){nextAction();return;}
+void Desktop::confirmDiscard(std::function<void()> nextAction,bool songOnly){if(app.export_active())return;if(app.recording()){run([&]{app.pause();});if(app.recording()||!message.isEmpty())return;}if(!projectSessionStarted||!(songOnly?songDirty():documentDirty())){nextAction();return;}
     auto* alert=new StudioAlertWindow(*this,songOnly?"Save song changes?":liveDocument?"Save show changes?":"Save project changes?",liveDocument?liveDocument->title:label(project()->title),juce::MessageBoxIconType::NoIcon);
     alert->addButton("Save",1);alert->addButton("Discard",2);alert->addButton("Cancel",0,juce::KeyPress(juce::KeyPress::escapeKey));
     juce::Component::SafePointer<Desktop> safe(this);alert->enterModalState(true,juce::ModalCallbackFunction::create([safe,nextAction](int n){if(!safe)return;
@@ -763,7 +765,7 @@ juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupM
     }
     // Existing menus retain their action IDs after inserting Options next to File.
     const int originalIndex = n > 1 ? n - 1 : n;
-    if(originalIndex==0){m.addItem(6,"Project home");m.addItem(8,"Close project",projectSessionStarted);m.addItem(1,"New project");m.addItem(2,"Open project...");m.addItem(3,"Save");m.addItem(4,"Save as...");m.addItem(5,"Import WAV...");
+    if(originalIndex==0){m.addItem(6,"Project home");m.addItem(8,"Close project",projectSessionStarted);m.addItem(1,"New project");m.addItem(2,"Open project...");m.addItem(3,"Save");m.addItem(4,"Save as...");m.addItem(5,"Import WAV...");if(!standaloneLive)m.addItem(exportAudioAction,"Export Audio... (Ctrl+E)",!homeVisible&&!liveDocument&&!app.recording()&&!app.export_active()&&app.engine()->state().playback!=mrs::PlaybackState::playing);
 #if defined(MRS_PROJECT_IMPORT_UI)
         if(!standaloneLive)m.addSubMenu("Import Project...",projectImportMenu());
 #endif
@@ -873,7 +875,20 @@ void Desktop::openDrumMaps(std::optional<mrs::Id> target) {
 }
 #endif
 void Desktop::menuItemSelected(int n,int){action(n);}
+void Desktop::showExportAudio(){
+    if(standaloneLive||homeVisible||liveDocument||app.workspace()==mrs::desktop::Workspace::live||app.recording()||app.engine()->state().playback==mrs::PlaybackState::playing||busyGesture())return;
+    if(exportWindow&&exportWindow->isVisible()){exportWindow->toFront(true);return;}
+    exportWindow.reset();
+    auto* content=new ExportAudioPanel(*this);
+    exportWindow=std::make_unique<EditorWindow>("Export Audio",content,false);
+    exportWindow->setLookAndFeel(&theme);exportWindow->setResizable(true,false);exportWindow->setResizeLimits(520,570,1000,850);
+    exportWindow->setOwner(*this);exportWindow->getProperties().set("mrs-hide-on-close",false);
+    exportWindow->onClose=[content]{content->requestClose();};
+    exportWindow->setVisible(true);applyGraphiteWindowCaption(*exportWindow);exportWindow->enterModalState(true,nullptr,false);
+}
 void Desktop::action(int n){
+    if(app.export_active())return;
+    if(n==exportAudioAction){run([&]{showExportAudio();});return;}
 #if defined(MRS_DRUM_MAP_UI)
     if (n == 720) {
         auto track = activeMidiEditorTrack();
@@ -1210,7 +1225,7 @@ bool Desktop::keyPressed(const juce::KeyPress& k){if(workspaceShortcut(k))return
     if(k.getKeyCode()==juce::KeyPress::escapeKey&&separationJob&&(separationJob->status().state==mr::separation::State::running||separationJob->status().state==mr::separation::State::ready)){separationJob->cancel();return true;}
 #endif
     if(homeVisible){if(k.getModifiers().isCtrlDown()&&k.getKeyCode()=='O'){action(2);return true;}if(k.getModifiers().isCtrlDown()&&k.getKeyCode()=='N'){action(1);return true;}return false;}
-    auto c=k.getKeyCode();if(k.getModifiers().isAltDown())return false;if(k.getModifiers().isCtrlDown()){if(c=='D'&&(arrangement->sections->hasSelection()||arrangement->chords->hasSelection()||arrangement->markers->hasSelection())){action(45);return true;}if(c=='Z'){action(10);return true;}if(c=='Y'){action(11);return true;}if(c=='S'){action(3);return true;}if(c=='O'){action(2);return true;}if(c=='N'){action(1);return true;}return false;}
+    auto c=k.getKeyCode();if(k.getModifiers().isAltDown())return false;if(k.getModifiers().isCtrlDown()){if(c=='D'&&(arrangement->sections->hasSelection()||arrangement->chords->hasSelection()||arrangement->markers->hasSelection())){action(45);return true;}if(c=='E'&&!standaloneLive){action(exportAudioAction);return true;}if(c=='Z'){action(10);return true;}if(c=='Y'){action(11);return true;}if(c=='S'){action(3);return true;}if(c=='O'){action(2);return true;}if(c=='N'){action(1);return true;}return false;}
     if(k.getModifiers().isShiftDown())return false;
     if(c=='1'){setKnifeMode(false);return true;}if(c=='3'){setKnifeMode(true);return true;}if(c=='D'){action(45);return true;}if(c=='G'){action(52);return true;}if(c=='S'){action(24);return true;}if(c=='R'){action(33);return true;}if(c==juce::KeyPress::backspaceKey||c==juce::KeyPress::deleteKey){action(25);return true;}return c==juce::KeyPress::spaceKey;
 }
@@ -1223,7 +1238,7 @@ void Desktop::updateRecordingPreview(){
     audioRecordingPreview=std::move(nextWaveforms);
 }
 void Desktop::focusLost(FocusChangeType){spaceHeld=false;}
-void Desktop::timerCallback(){try{const bool wasRecording=app.recording();app.poll();syncLivePlayback();pollLivePreflightJobs();
+void Desktop::timerCallback(){if(app.export_active())return;try{const bool wasRecording=app.recording();app.poll();syncLivePlayback();pollLivePreflightJobs();
 #if defined(MRS_PROJECT_IMPORT_UI)
     pollProjectImportPreview();pollProjectImportCreate();
 #endif
