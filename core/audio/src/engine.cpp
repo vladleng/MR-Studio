@@ -1156,6 +1156,57 @@ void AudioEngine::resolve_performance() noexcept {
     }
     performance_stalled_=true;performance_action_=PerformanceAction::stop;++performance_end_serial_;rt_.playback=PlaybackState::stopped;
 }
+OfflineRenderResult render_master_range(RenderConfig config, RenderGraph graph, Sample begin, Sample end,
+                                        const OfflineRenderCallbacks& callbacks) {
+    if (begin<0 || end<=begin || end>max_sample || config.output_channels<2 || !callbacks.write_stereo)
+        throw std::invalid_argument("invalid offline render range or sink");
+    if (graph.performance || graph.external_midi || graph.recording || !graph.recordings.empty() ||
+        !graph.midi_recordings.empty() || std::any_of(graph.voices.begin(),graph.voices.end(),[](const auto& voice){
+            return voice.stream || voice.renderer || (voice.asset && voice.asset->file);
+        }))
+        throw std::invalid_argument("offline graph contains an unsupported capture, stream, renderer or external route");
+    // Never read live input, emit count-in or touch an editor audition renderer.
+    graph.monitoring=false;
+    graph.monitor.clear();
+    graph.editor_renderers.clear();
+    graph.click.playback=graph.click.recording=false;
+    graph.count_frames=0;
+    config.worker_mmcss=false;
+    auto engine=std::make_unique<AudioEngine>();
+    engine->prepare(config,std::move(graph));
+    const auto latency=static_cast<Sample>(engine->compensation().output);
+    if (end>max_sample-latency) throw std::invalid_argument("offline render range plus latency exceeds timeline");
+    // Start at project origin for deterministic preroll, including preceding
+    // notes/FX. Skip compensated leading frames; emit exactly [begin,end).
+    const Sample first=begin+latency, last=end+latency;
+    OfflineRenderProgress progress{0,last,0,end-begin};
+    OfflineRenderResult result{};
+    const auto keep_going=[&]{return !callbacks.continue_render || callbacks.continue_render(progress);};
+    if (!keep_going()) return result;
+    std::vector<float> scratch(static_cast<std::size_t>(config.max_block)*config.output_channels);
+    std::vector<float> stereo(static_cast<std::size_t>(config.max_block)*2);
+    if (!engine->enqueue({ControlKind::play})) throw std::runtime_error("offline transport start failed");
+    while (progress.processed<last) {
+        const auto count=static_cast<std::size_t>(std::min<Sample>(config.max_block,last-progress.processed));
+        auto output=std::span<float>(stereo).first(count*2);
+        if (!engine->render_master_block(std::span<float>(scratch).first(count*config.output_channels),output))
+            throw std::runtime_error("offline Master processing failed");
+        const Sample next=progress.processed+static_cast<Sample>(count);
+        const auto from=std::max(first,progress.processed);
+        if (next>from) {
+            const auto data=std::span<const float>(output).subspan(static_cast<std::size_t>(from-progress.processed)*2,
+                                      static_cast<std::size_t>(next-from)*2);
+            for (const float sample:data) result.peak=std::max(result.peak,std::abs(sample));
+            callbacks.write_stereo(data);
+            progress.written+=next-from;
+            result.frames_written=progress.written;
+        }
+        progress.processed=next;
+        if (!keep_going()) return result;
+    }
+    result.completed=true;
+    return result;
+}
 bool AudioEngine::render_master_block(std::span<float> device_scratch, std::span<float> stereo) noexcept {
     const auto frames = stereo.size()/2;
     if (!frames || stereo.size()%2 || frames>config_.max_block || config_.output_channels<2 ||
