@@ -11,6 +11,7 @@ namespace ui {
 // Dedicated Studio modal window. No model writes from the worker. Vendor
 // processor/ARA creation and destruction stay with the control owner.
 class ExportAudioPanel final : public juce::Component,private juce::Timer {
+    friend void exportAudioSmoke();
     using Plan=mrs::desktop::Application::PreparedMasterExport;
     using Result=mrs::audio::WavExportResult;
     using Clock=std::chrono::steady_clock;
