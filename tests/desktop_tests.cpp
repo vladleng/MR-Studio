@@ -492,6 +492,61 @@ void offline_export() {
     CHECK(app.export_master(0,8,{sink}).completed);
     CHECK(data.size()==16&&std::all_of(data.begin(),data.end(),[](float value){return value==0.f;}));
 }
+void offline_external_ir() {
+    Directory dir;const auto root=dir.path/"IR",moved=dir.path/"Moved";
+    std::filesystem::create_directory(root);
+    const auto source=dir.path/"source.wav";wav(source,2,48000);
+    const auto impulse_file=root/"Half.wav";
+    std::array<float,128> impulse{};impulse[0]=.5f;
+    {audio::Recorder writer(impulse_file,48000,0,{0});writer.capture(impulse.data(),1,128,0);writer.finish();}
+    NativeInsert reverb;reverb.id=new_id();reverb.kind=InsertKind::reverb;reverb.reverb.mix=1.f;
+    const auto config=processing::ProcessConfig{48000,2,512};
+    const auto state=std::make_shared<const processing::GraphState>(processing::insert_graph(std::span<const NativeInsert>(&reverb,1)));
+    auto selection_graph=std::make_shared<processing::PreparedGraph>(processing::GraphSnapshot{state,0,false,false},config);
+    audio::ReverbLoader selector(selection_graph,reverb.id,config);
+    const auto index=audio::index_reverb_library(root);
+    CHECK(index.entries.size()==1);
+    selector.select(index.entries.front(),root);
+    eventually([&]{return selector.snapshot()->phase!=audio::ReverbLoadPhase::loading;});
+    CHECK(selector.snapshot()->phase==audio::ReverbLoadPhase::ready&&selector.snapshot()->active);
+    reverb.reverb=audio::reverb_selection_state(*selector.snapshot()->active,reverb.reverb);
+    selector.shutdown();
+    // Relocation must resolve identical bytes from the current library root.
+    std::filesystem::rename(root,moved);
+    for(const auto kind:{InsertKind::reverb,InsertKind::cab_collection,InsertKind::rig}){
+        Application app;app.import_wav(source);
+        app.set_reverb_root(moved);app.set_cab_root(moved);
+        const auto track=app.services().projects->state().project->tracks.front().id;
+        auto fx=reverb;fx.id=new_id();fx.kind=kind;
+        app.set_inserts(track,{fx});
+        auto device=std::make_unique<ManualDevice>();
+        app.connect(std::move(device),{0,48000,128,{}, {0,1}});
+        eventually([&]{app.poll();return app.reverb_loader(track,fx.id)->snapshot()->phase==audio::ReverbLoadPhase::ready;});
+        app.poll();
+        const auto before=app.services().projects->state();
+        std::vector<float> output;
+        const auto sink=[&](std::span<const float> block){output.insert(output.end(),block.begin(),block.end());};
+        CHECK(app.export_master(0,64,{sink}).completed&&output.size()==128);
+        // The same native chain prepared by the ordinary asynchronous loader
+        // is the reference. Compare first block, including the Cab/Rig filters.
+        const auto saved=std::make_shared<const processing::GraphState>(processing::insert_graph(std::span<const NativeInsert>(&fx,1)));
+        auto reference=std::make_shared<processing::PreparedGraph>(processing::GraphSnapshot{saved,0,false,false},config);
+        audio::ReverbLoader loader(reference,fx.id,config);
+        loader.restore(fx.reverb,moved);
+        eventually([&]{return loader.snapshot()->phase!=audio::ReverbLoadPhase::loading;});
+        CHECK(loader.snapshot()->phase==audio::ReverbLoadPhase::ready);
+        loader.activate_quiescent();loader.shutdown();
+        std::array<float,128> expected;expected.fill(4000.f/32768.f);
+        reference->process(expected.data(),64,0,true);
+        for(std::size_t i=0;i<expected.size();++i)CHECK(std::abs(output[i]-expected[i]*.5f)<1e-6f);
+        CHECK(app.services().projects->state().project==before.project&&app.audio_running());
+        // A missing external file is an explicit failure, not a dry mix.
+        const auto hidden=moved/"Hidden.wav";std::filesystem::rename(moved/"Half.wav",hidden);
+        output.clear();rejects([&]{app.export_master(0,64,{sink});});
+        CHECK(output.empty()&&app.audio_running()&&app.services().projects->state().project==before.project);
+        std::filesystem::rename(hidden,moved/"Half.wav");
+    }
+}
 void profiles() {
     ManualDevice driver; auto info=driver.enumerate().front(); auto profile=capture_profile("Stage",info,{0,44100,128,{1},{2,3,0,1}});
     info.index=7; CHECK(resolve_profile(profile,info).device == 7 && resolve_profile(profile,info).inputs == std::vector<int>{1});
@@ -1304,7 +1359,7 @@ int main(int argc, char** argv) {
         if(name=="sections"){sections();std::cout<<"PASS desktop sections\n";return 0;}
         if(name=="chords"){chords();std::cout<<"PASS desktop chords\n";return 0;}
         if(name=="markers"){markers();std::cout<<"PASS desktop markers\n";return 0;}
-        if(name=="cab_combo")cab_combo();else if(name=="cab_collection")cab_collection();else if(name=="reverb")reverb();else if(name=="cab_ir")cab_ir();else if (name == "inserts") inserts(); else if (name == "multi_input") multi_input(); else if (name == "hardware") hardware(); else if (name == "offline_export") offline_export(); else if (name == "profiles") profiles(); else if (name == "sends") sends(); else if (name == "buses") buses(); else if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
+        if(name=="cab_combo")cab_combo();else if(name=="cab_collection")cab_collection();else if(name=="reverb")reverb();else if(name=="cab_ir")cab_ir();else if (name == "inserts") inserts(); else if (name == "multi_input") multi_input(); else if (name == "hardware") hardware(); else if (name == "offline_export") {offline_export();offline_external_ir();} else if (name == "profiles") profiles(); else if (name == "sends") sends(); else if (name == "buses") buses(); else if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
         else if (name == "files") files(); else if (name == "assets") assets();
         else if (name == "mono_route") mono_route(); else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else if (name == "streaming") streaming(); else if (name == "clip_edits") clip_edits(); else if (name == "recording") recording(); else if (name == "project_folders") project_folders(); else throw std::runtime_error("unknown suite");
         std::cout << "PASS desktop " << name << '\n'; return 0;
