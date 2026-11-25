@@ -351,6 +351,12 @@ public:
     // RT entry: supplied interleaved buffers have frames * configured channels.
     // No locks/allocations/I/O/listeners/ProjectStore calls in this function.
     void process(const float* input, float* output, std::uint32_t frames, std::uint32_t input_flags = 0) noexcept;
+    // First offline render primitive: caller exclusively owns a prepared engine,
+    // with device, ahead producers and live MIDI/control producers stopped.
+    // No streams/recording/external MIDI/performance or loop/count-in yet.
+    // Caller supplies disjoint buffers; false means discard the entire block.
+    // Stereo captures Master after FX/fader, before click/physical output clipping.
+    bool render_master_block(std::span<float> device_scratch, std::span<float> stereo) noexcept;
     // Backend passes measured callback body duration, on the same audio thread.
     void observe(std::uint64_t duration_ns, std::uint32_t frames, std::uint32_t flags) noexcept;
     RealtimeState state() const; // control-thread bounded coherent mailbox read
@@ -373,7 +379,7 @@ public:
     const ProcessingDomains& processing_domains() const; // candidate plan, control thread
 private:
     friend struct AudioEngineTestAccess; // deterministic stopped-engine mailbox regression
-    void process_block(const float*,float*,std::uint32_t,std::uint32_t) noexcept;
+    void process_block(const float*,float*,std::uint32_t,std::uint32_t,float* master_capture = nullptr) noexcept;
     // Device consumer only, after project FX; never mixed into speculative packets.
     void mix_library_preview(float*,std::uint32_t,const float* envelope=nullptr,float level=1.f) noexcept;
     Metronome metronome_;
