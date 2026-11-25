@@ -12,19 +12,23 @@ void Application::poll_clip_updates(){
     });
 }
 std::vector<audio::Voice> Application::prepare_clip_voices(const Project& project){
+    return prepare_clip_voices(project,mixer_tracks_,static_cast<std::uint32_t>(device_config_->outputs.size()),false);
+}
+std::vector<audio::Voice> Application::prepare_clip_voices(const Project& project,std::span<const Id> tracks,std::uint32_t channels,bool strict){
     std::vector<audio::Voice> voices;voices.reserve(project.clips.size());
     for(const auto& clip:project.clips){
         if(clip.midi)continue;
         const auto original=asset(clip.source);
         if(clip.source_offset>original->frames()||audio_source_span(clip)>original->frames()-clip.source_offset)
             throw std::invalid_argument("Clip exceeds source audio");
-        auto data=clip_audio(clip,original);if(!data)continue; // pending worker, never raw wrong-speed playback
-        const auto track=std::find(mixer_tracks_.begin(),mixer_tracks_.end(),clip.track);
-        if(track==mixer_tracks_.end())throw std::invalid_argument("Missing audio channel");
+        auto data=clip_audio(clip,original);
+        if(!data){if(strict)throw std::runtime_error("Offline clip audio is not ready");continue;}
+        const auto track=std::find(tracks.begin(),tracks.end(),clip.track);
+        if(track==tracks.end())throw std::invalid_argument("Missing audio channel");
         audio::Voice voice{data,clip.start,clip_playback_offset(clip),clip.length,{}};
-        voice.fade_in=clip.fade_in;voice.fade_out=clip.fade_out;voice.mixer_track=static_cast<std::size_t>(track-mixer_tracks_.begin());
+        voice.fade_in=clip.fade_in;voice.fade_out=clip.fade_out;voice.mixer_track=static_cast<std::size_t>(track-tracks.begin());
         const auto gain=clip.source=="mrs:demo-tone"?.15f:1.f;
-        const auto outputs=std::min<std::uint32_t>(2,static_cast<std::uint32_t>(device_config_->outputs.size()));
+        const auto outputs=std::min<std::uint32_t>(2,channels);
         if(data->channels==1){for(std::uint32_t out=0;out<outputs;++out)voice.routes.push_back({0,out,gain});}
         else for(std::uint32_t c=0;c<data->channels;++c)voice.routes.push_back({c,c%outputs,gain});
         voices.push_back(std::move(voice));
