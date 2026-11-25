@@ -1,6 +1,5 @@
 #pragma once
 #include "Desktop.h"
-#include "GraphiteWindow.h"
 #include <algorithm>
 #include <cmath>
 #include <chrono>
