@@ -103,6 +103,42 @@ void Arrangement::apply(const Project& project, audio::RenderGraph& graph,bool e
         output.renderer=binding->second.session->live_renderer(clip.id);
     }
 }
+void Arrangement::apply_offline(const Project& project,audio::RenderGraph& graph) const {
+    std::vector<std::pair<std::size_t,std::shared_ptr<const audio::AudioData>>> prepared;
+    std::size_t index{};
+    for(const auto& clip:project.clips)if(!clip.midi){
+        if(index>=graph.voices.size())throw std::invalid_argument("ARA offline voice mapping mismatch");
+        const auto voice=index++;
+        const auto found=impl_->bindings.find(clip.source);
+        if(found==impl_->bindings.end()){
+            if(std::any_of(project.ara_bindings.begin(),project.ara_bindings.end(),[&](const auto& b){return b.source==clip.source&&!b.bypass;}))
+                throw std::runtime_error("ARA offline source binding unavailable: "+clip.source);
+            continue;
+        }
+        const auto& b=found->second;
+        if(b.bypass)continue;
+        if(!b.session||!b.status.starts_with("ready (prepared PCM cache)")||
+            b.time!=project.time||b.rate!=project.sample_rate||b.session->analysing()||
+            b.content_revision!=b.session->content_revision()||b.session->live_renderer(clip.id))
+            throw std::runtime_error("ARA offline PCM is not current: "+clip.source);
+        const auto cache=std::find_if(b.caches.begin(),b.caches.end(),[&](const auto& c){return c.clip==clip;});
+        const auto& original=graph.voices[voice];
+        if(cache==b.caches.end()||!cache->pcm||!original.asset||cache->pcm->file||
+            cache->pcm->sample_rate!=project.sample_rate||cache->pcm->frames()!=clip.length||
+            cache->pcm->channels!=original.asset->channels)
+            throw std::runtime_error("ARA offline PCM geometry mismatch: "+clip.source);
+        cache->pcm->validate();
+        prepared.emplace_back(voice,cache->pcm);
+    }
+    if(index!=graph.voices.size())throw std::invalid_argument("ARA offline voice mapping mismatch");
+    // All bindings validated before mutation. No editor or vendor instance is
+    // retained by the offline graph, only immutable compensated audio.
+    for(const auto& [voice,pcm]:prepared){
+        auto& output=graph.voices[voice];output.asset=pcm;output.source_offset=0;
+        output.stream.reset();output.renderer.reset();
+    }
+    graph.editor_renderers.clear();
+}
 std::string Arrangement::status(const std::string& source) const {
     const auto found = impl_->bindings.find(source);
     if (found == impl_->bindings.end()) return "unbound";
