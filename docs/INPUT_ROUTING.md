@@ -29,4 +29,5 @@ older builds cannot read newly saved v7 snapshots. Limits: 64 physical channels,
 32 armed/captured tracks and shared source/clip/disk budgets. No nonadjacent stereo
 pairs, resampling, punch/loop recording or automatic latency compensation.
 
-See [recording](RECORDING.md) and [acceptance](MRS_STAGE_2E_CHECKLIST.md).
+See [recording](RECORDING.md). Historical Stage 2e workflow acceptance is recorded
+in DSH #22; it does not certify the separate extended hardware/performance matrix.

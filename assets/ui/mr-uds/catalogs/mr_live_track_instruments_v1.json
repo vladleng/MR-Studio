@@ -1,0 +1,561 @@
+{
+  "name": "MR Live track instrument icons",
+  "version": "1.0",
+  "pack": "mr_live_track_instruments_v1",
+  "authority": "MR UDS visual language; MR Live track headers",
+  "license": "Same as project; original artwork, no third-party material",
+  "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+  "grid": "24x24 viewBox, 20x20 optical field, transparent background",
+  "style": "Studio-One-like single-object pictograms: one dominant silhouette, few identifying details, no frames, no baked state colour",
+  "stroke": {
+    "silhouette": 1.6,
+    "detail": 1.3
+  },
+  "color": {
+    "normal": "#DAE5F4",
+    "note": "host tints selected/disabled; icon files stay neutral"
+  },
+  "integration": "Assets only. Runtime adoption in MR Live track headers is a separate approved slice; nothing here changes model, persistence, DSP or layout.",
+  "assets": [
+    {
+      "id": "icons/live_track/vocal_mic",
+      "file": "svg/icons/live_track/vocal_mic.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "voice",
+      "label": "Vocal",
+      "label_ru": "Вокал",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/backing_vocals",
+      "file": "svg/icons/live_track/backing_vocals.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "voice",
+      "label": "Backing vocals",
+      "label_ru": "Бэк-вокал",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/choir",
+      "file": "svg/icons/live_track/choir.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "voice",
+      "label": "Choir",
+      "label_ru": "Хор",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/electric_guitar",
+      "file": "svg/icons/live_track/electric_guitar.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "strings",
+      "label": "Electric guitar",
+      "label_ru": "Электрогитара",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/acoustic_guitar",
+      "file": "svg/icons/live_track/acoustic_guitar.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "strings",
+      "label": "Acoustic guitar",
+      "label_ru": "Акустическая гитара",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/bass_guitar",
+      "file": "svg/icons/live_track/bass_guitar.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "strings",
+      "label": "Bass guitar",
+      "label_ru": "Бас-гитара",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/banjo",
+      "file": "svg/icons/live_track/banjo.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "strings",
+      "label": "Banjo",
+      "label_ru": "Банджо",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/violin",
+      "file": "svg/icons/live_track/violin.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "strings",
+      "label": "Violin",
+      "label_ru": "Скрипка",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/cello",
+      "file": "svg/icons/live_track/cello.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "strings",
+      "label": "Cello",
+      "label_ru": "Виолончель",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/upright_bass",
+      "file": "svg/icons/live_track/upright_bass.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "strings",
+      "label": "Upright bass",
+      "label_ru": "Контрабас",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/grand_piano",
+      "file": "svg/icons/live_track/grand_piano.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "keys",
+      "label": "Grand piano",
+      "label_ru": "Рояль",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/electric_piano",
+      "file": "svg/icons/live_track/electric_piano.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "keys",
+      "label": "Electric piano",
+      "label_ru": "Электропиано",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/organ",
+      "file": "svg/icons/live_track/organ.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "keys",
+      "label": "Organ",
+      "label_ru": "Орган",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/accordion",
+      "file": "svg/icons/live_track/accordion.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "keys",
+      "label": "Accordion",
+      "label_ru": "Аккордеон",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/analog_synth",
+      "file": "svg/icons/live_track/analog_synth.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "keys",
+      "label": "Analog synth",
+      "label_ru": "Аналоговый синтезатор",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/modular_synth",
+      "file": "svg/icons/live_track/modular_synth.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "keys",
+      "label": "Modular synth",
+      "label_ru": "Модульный синтезатор",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/sampler",
+      "file": "svg/icons/live_track/sampler.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "keys",
+      "label": "Sampler",
+      "label_ru": "Сэмплер",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/drum_kit",
+      "file": "svg/icons/live_track/drum_kit.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "drums",
+      "label": "Drum kit",
+      "label_ru": "Ударная установка",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/kick_drum",
+      "file": "svg/icons/live_track/kick_drum.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "drums",
+      "label": "Kick drum",
+      "label_ru": "Бочка",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/snare_drum",
+      "file": "svg/icons/live_track/snare_drum.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "drums",
+      "label": "Snare drum",
+      "label_ru": "Малый барабан",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/hihat",
+      "file": "svg/icons/live_track/hihat.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "drums",
+      "label": "Hi-hat",
+      "label_ru": "Хай-хэт",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/percussion",
+      "file": "svg/icons/live_track/percussion.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "drums",
+      "label": "Percussion",
+      "label_ru": "Перкуссия",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/drum_machine",
+      "file": "svg/icons/live_track/drum_machine.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "drums",
+      "label": "Drum machine",
+      "label_ru": "Драм-машина",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/trumpet",
+      "file": "svg/icons/live_track/trumpet.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "winds",
+      "label": "Trumpet",
+      "label_ru": "Труба",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/saxophone",
+      "file": "svg/icons/live_track/saxophone.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "winds",
+      "label": "Saxophone",
+      "label_ru": "Саксофон",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/flute",
+      "file": "svg/icons/live_track/flute.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "winds",
+      "label": "Flute",
+      "label_ru": "Флейта",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/clarinet",
+      "file": "svg/icons/live_track/clarinet.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "winds",
+      "label": "Clarinet",
+      "label_ru": "Кларнет",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/harp",
+      "file": "svg/icons/live_track/harp.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "other",
+      "label": "Harp",
+      "label_ru": "Арфа",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/timpani",
+      "file": "svg/icons/live_track/timpani.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "other",
+      "label": "Timpani",
+      "label_ru": "Литавры",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    },
+    {
+      "id": "icons/live_track/midi_controller",
+      "file": "svg/icons/live_track/midi_controller.svg",
+      "size": [
+        24,
+        24
+      ],
+      "pack": "mr_live_track_instruments_v1",
+      "family": "live_track_instruments",
+      "group": "other",
+      "label": "MIDI controller",
+      "label_ru": "MIDI-клавиатура",
+      "state": "normal",
+      "kind": "glyph",
+      "lod": "standard_24",
+      "source": "Original MR Studio vector, MR Live track instrument icon set (2026-11-17)",
+      "license": "Same as project; original artwork, no third-party material"
+    }
+  ]
+}

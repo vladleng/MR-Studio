@@ -129,13 +129,17 @@ void SetAudioStretch::apply(Project& p) const {
         const auto begin=mapped_frame(c.stretch->window_begin,1),end=mapped_frame(c.stretch->window_end,1);
         if(end<=begin)throw std::invalid_argument("Source selection is shorter than one sample");
         c.source_offset+=begin;c.length=end-begin;c.stretch.reset();
-    }else{
-        if(!c.stretch)c.stretch=ClipStretch{parameters_,c.length,0,static_cast<double>(c.length)};
-        c.stretch->parameters=parameters_;
-        c.length=mapped_frame(c.stretch->window_end,audio_time_ratio(c))-audio_output_offset(c);
-        if(c.length<=0||c.length>max_sample-c.start)throw std::invalid_argument("Stretch produces invalid clip duration");
-        validate_audio_stretch(c);
-    }
+        c.fade_in=std::min(c.fade_in,c.length);c.fade_out=std::min(c.fade_out,c.length);
+    }else stretch_audio_source(c,parameters_,anchor_);
+}
+void stretch_audio_source(Clip& c,stretch::Parameters parameters,StretchAnchor anchor) {
+    const auto fixedEnd=c.start+c.length;
+    if(!c.stretch)c.stretch=ClipStretch{parameters,c.length,0,static_cast<double>(c.length)};
+    c.stretch->parameters=parameters;
+    c.length=mapped_frame(c.stretch->window_end,audio_time_ratio(c))-audio_output_offset(c);
+    if(anchor==StretchAnchor::end)c.start=fixedEnd-c.length;
+    if(c.start<0||c.length<=0||c.length>max_sample-c.start)throw std::invalid_argument("Stretch produces invalid clip duration");
+    validate_audio_stretch(c);
     c.fade_in=std::min(c.fade_in,c.length);c.fade_out=std::min(c.fade_out,c.length);
 }
 void TrimAudioClip::apply(Project& p) const {

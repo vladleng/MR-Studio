@@ -24,6 +24,45 @@ template<class F> void eventually(F f) {
     }
     throw std::runtime_error("timed out");
 }
+void drum_maps() {
+    Application app;
+    app.new_project();
+    const auto track = app.add_instrument_track("Drums");
+    const auto audio = app.add_audio_track("Audio");
+    const auto clip = app.create_midi_clip(track, 0);
+    app.set_midi_notes(clip, {{new_id(), 17, 99, 36, 111, 9}, {new_id(), 120, 200, 127, 3, 0}});
+    app.set_midi_events(clip, {{new_id(), 12, 2, 9, 4, 92}});
+    const auto original = app.snapshot().project;
+    DrumMapProfile p;
+    p.id = new_id(); p.name = "Base";
+    p.categories = {{{"toms"}, "Toms", {{{"floor"}, "Floor", {{{"hit"}, "Hit", 36, 9, {}}}}}}};
+    DrumMapBinding binding{p, {{"toms"}, {"floor"}}};
+    rejects([&] { app.set_track_drum_map(audio, binding); });
+    CHECK(app.snapshot().project == original);
+    auto oversized = binding;
+    auto& rows = oversized.snapshot.categories.front().instruments.front().articulations;
+    for (int i = 0; i < 64; ++i)
+        rows.push_back({new_id(), "Hit", 36, 9, std::vector<std::string>(32, std::string(256, '\\'))});
+    const auto before_invalid = app.services().projects->state();
+    rejects([&] { app.set_track_drum_map(track, oversized); });
+    CHECK(app.services().projects->state().revision == before_invalid.revision && app.snapshot().project == original);
+    app.set_track_drum_map(track, binding);
+    const auto assigned = app.snapshot().project;
+    CHECK(assigned.tracks.front().drum_map == binding && assigned.clips == original.clips);
+    CHECK(app.history_preserves_plugins(false) && app.undo() && app.snapshot().project == original);
+    CHECK(app.history_preserves_plugins(true) && app.redo() && app.snapshot().project == assigned);
+    app.set_track_drum_map(track, {});
+    CHECK(app.snapshot().project == original && app.undo());
+    Directory dir;
+    const auto file = dir.path / "Drums.mrsproject", copy = dir.path / "Copy.mrsproject";
+    app.save_project(file);
+    app.open_project(file);
+    CHECK(app.snapshot().project == assigned);
+    app.save_project(copy);
+    app.open_project(copy);
+    CHECK(app.snapshot().project == assigned);
+    CHECK(persistence::load_project(file).project == assigned);
+}
 void track_folders(){
     Application app;app.disconnect();app.new_project();const auto a=app.add_audio_track("A"),b=app.add_audio_track("B");
     const auto id=app.create_track_folder("Drums",{a,b});app.update_track_folder(id,"Rhythm",true);
@@ -1228,6 +1267,7 @@ int main(int argc, char** argv) {
         if(argc==3&&std::string_view(argv[1])=="cab_combo_real"){cab_combo_real(std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(argv[2]))));return 0;}
         if (argc != 2) throw std::runtime_error("expected suite");
         std::string name = argv[1];
+        if(name=="drum_maps"){drum_maps();std::cout<<"PASS desktop drum_maps\n";return 0;}
         if(name=="track_folders"){track_folders();std::cout<<"PASS desktop track_folders\n";return 0;}
         if(name=="remove_tracks"){remove_tracks();std::cout<<"PASS desktop remove_tracks\n";return 0;}
         if(name=="meter"){meter();std::cout<<"PASS desktop meter\n";return 0;}

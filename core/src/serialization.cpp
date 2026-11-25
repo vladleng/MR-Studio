@@ -1,5 +1,5 @@
 #include <algorithm>
-#include <mrs/core.hpp>
+#include <mrs/drum_maps.hpp>
 #include <iomanip>
 #include <limits>
 #include <locale>
@@ -91,9 +91,9 @@ std::string serialize(const Project& p) {
     std::ostringstream out;
     out.imbue(std::locale::classic());
     out << std::setprecision(std::numeric_limits<double>::max_digits10);
-    // Unaffected projects retain schema32/33/34. Schema35 is emitted only
-    // for durable transcription records; earlier projects still migrate in memory.
-    out << "MRS_CORE_SNAPSHOT " << (!p.transcription_results.empty()?35:p.separation_results.empty()?32:std::all_of(p.separation_results.begin(),p.separation_results.end(),legacy_separation)?33:34) << '\n';
+    // Preserve the previous wire version for projects without Drum Maps.
+    const auto drum_maps = std::count_if(p.tracks.begin(), p.tracks.end(), [](const auto& t) { return t.drum_map.has_value(); });
+    out << "MRS_CORE_SNAPSHOT " << (drum_maps ? 36 : !p.transcription_results.empty()?35:p.separation_results.empty()?32:std::all_of(p.separation_results.begin(),p.separation_results.end(),legacy_separation)?33:34) << '\n';
     out << "PROJECT " << std::quoted(p.id.value) << ' ' << std::quoted(p.title) << ' '
         << std::quoted(p.artist) << ' ' << p.sample_rate << '\n';
     section(out, "TEMPOS", p.time.tempos);
@@ -171,6 +171,16 @@ std::string serialize(const Project& p) {
     if(!p.transcription_results.empty()){
         out<<"TRANSCRIPTION_RESULTS "<<p.transcription_results.size()<<'\n';
         for(const auto& r:p.transcription_results){out<<std::quoted(r.id.value)<<' '<<std::quoted(r.source_clip.value)<<' '<<std::quoted(r.provenance)<<' '<<r.midi_clips.size();for(const auto& clip:r.midi_clips)out<<' '<<std::quoted(clip.value);out<<'\n';}
+    }
+    if (drum_maps) {
+        out << "DRUM_MAPS " << drum_maps << '\n';
+        for (const auto& track : p.tracks) if (track.drum_map) {
+            const auto& binding = *track.drum_map;
+            out << std::quoted(track.id.value) << ' ' << std::quoted(serialize_drum_map(binding.snapshot))
+                << ' ' << binding.collapsed.size();
+            for (const auto& id : binding.collapsed) out << ' ' << std::quoted(id.value);
+            out << '\n';
+        }
     }
     out << "END\n";
     auto result = out.str();
@@ -365,6 +375,22 @@ Project deserialize(std::string_view bytes) {
         const auto total=count(in);if(total>64)throw std::invalid_argument("Too many transcription records");
         for(std::size_t i=0;i<total;++i){TranscriptionRecord record;record.id={quoted(in)};record.source_clip={quoted(in)};record.provenance=quoted(in);const auto clips=count(in);if(clips==0||clips>128)throw std::invalid_argument("Invalid transcription clip count");for(std::size_t j=0;j<clips;++j)record.midi_clips.push_back(Id{quoted(in)});p.transcription_results.push_back(std::move(record));}
         in>>ending;check_stream(in);
+    }
+    if (input_version >= 36 && ending == "DRUM_MAPS") {
+        const auto total = count(in);
+        if (total > p.tracks.size()) throw std::invalid_argument("too many track drum maps");
+        for (std::size_t i = 0; i < total; ++i) {
+            const Id id{quoted(in)};
+            const auto track = std::find_if(p.tracks.begin(), p.tracks.end(), [&](const auto& t) { return t.id == id; });
+            if (track == p.tracks.end() || track->kind != TrackKind::instrument || track->drum_map)
+                throw std::invalid_argument("invalid track drum map identity");
+            DrumMapBinding binding{deserialize_drum_map(quoted(in)), {}};
+            const auto collapsed = count(in);
+            if (collapsed > max_drum_map_groups) throw std::invalid_argument("too many collapsed drum map groups");
+            for (std::size_t j = 0; j < collapsed; ++j) binding.collapsed.push_back(Id{quoted(in)});
+            track->drum_map = std::move(binding);
+        }
+        in >> ending; check_stream(in);
     }
     if(ending!="END")throw std::invalid_argument("invalid snapshot ending");
     in >> std::ws;

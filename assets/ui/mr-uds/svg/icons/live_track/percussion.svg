@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+<title>MR Live track Percussion</title>
+<ellipse cx="7.2" cy="7.4" rx="2.5" ry="0.9" fill="none" stroke="#DAE5F4" stroke-width="1.6"/>
+<path d="M4.7 7.4 C4.7 11.4 5.3 14.8 7.2 14.8 C9.1 14.8 9.7 11.4 9.7 7.4" fill="none" stroke="#DAE5F4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<ellipse cx="15.6" cy="9.6" rx="2.5" ry="0.9" fill="none" stroke="#DAE5F4" stroke-width="1.6"/>
+<path d="M13.1 9.6 C13.1 14.0 13.7 18.0 15.6 18.0 C17.5 18.0 18.1 14.0 18.1 9.6" fill="none" stroke="#DAE5F4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

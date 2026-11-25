@@ -37,6 +37,32 @@ void arrangeFinalGesturesSmoke(){
     a.mouseDown(mouse({450,8},juce::ModifierKeys::leftButtonModifier));flush();const auto rulerSample=d.app.engine()->state().sample;check(rulerSample==a.seekSampleAt(450),"ruler click seeks");
     a.mouseDrag(mouse({480,8},juce::ModifierKeys::leftButtonModifier));flush();check(d.app.engine()->state().sample==a.seekSampleAt(480),"ruler drag seeks");
     const auto beforeBody=d.app.engine()->state().sample;a.mouseDrag(mouse({550,100},juce::ModifierKeys::leftButtonModifier));a.mouseUp(mouse({550,100},0));flush();check(d.app.engine()->state().sample==beforeBody,"ruler drag outside ruler does not seek");
+    juce::Button* loopButton=nullptr;
+    for(auto* child:d.getChildren())if(auto* button=dynamic_cast<juce::Button*>(child);button&&button->getTitle()=="Toggle loop")loopButton=button;
+    check(loopButton!=nullptr,"Loop button is present");
+    const int selectLoop=juce::ModifierKeys::leftButtonModifier|juce::ModifierKeys::shiftModifier;
+    const mrs::LoopRange custom{a.sampleAt(435),a.sampleAt(585)};
+    const auto loopRevision=d.app.services().projects->state().revision;
+    a.mouseDown(mouse({585,8},selectLoop));a.mouseDrag(mouse({435,8},selectLoop));flush();
+    check(a.selectingLoop()&&!d.app.engine()->state().loop&&d.app.engine()->state().sample==beforeBody,"Loop drag previews without changing transport or playhead");
+    a.mouseUp(mouse({435,8},0));flush();d.refresh();
+    check(d.app.engine()->state().loop==custom&&loopButton->getToggleState()&&d.app.services().projects->state().revision==loopRevision,"Reverse ruler drag applies loop without a project edit");
+    referencePreview(a,"ruler-loop");
+    a.mouseDown(mouse({470,8},selectLoop));a.mouseDrag(mouse({620,8},selectLoop));
+    a.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));a.mouseUp(mouse({620,8},0));flush();
+    check(d.app.engine()->state().loop==custom,"Escape leaves the previous loop active");
+    a.mouseDown(mouse({470,8},selectLoop));a.mouseUp(mouse({470,8},0));flush();
+    check(d.app.engine()->state().loop==custom,"Shift-click without a drag leaves the loop unchanged");
+    d.action(36);flush();d.refresh();check(!d.app.engine()->state().loop&&!loopButton->getToggleState(),"Loop button disables custom range");
+    d.action(36);flush();check(d.app.engine()->state().loop==custom,"Loop button restores custom range");
+    d.app.seek(custom.end-64);d.app.play();flush();
+    check(d.app.engine()->state().sample==custom.start+64,"Playback wraps at the selected boundary");
+    d.app.pause();flush();d.action(36);flush();d.app.seek(beforeBody);flush();
+    d.snap=true;
+    const mrs::LoopRange snapped{a.sampleAt(436),a.sampleAt(584)};
+    a.mouseDown(mouse({436,8},selectLoop));a.mouseDrag(mouse({584,8},selectLoop));a.mouseUp(mouse({584,8},0));flush();
+    check(d.app.engine()->state().loop==snapped,"Ruler loop uses visible Snap grid");
+    d.action(36);flush();d.snap=false;
     for(float y:{32.f,52.f,230.f}){a.mouseDown(mouse({750,y},juce::ModifierKeys::leftButtonModifier));a.mouseUp(mouse({750,y},0));flush();check(d.app.engine()->state().sample==beforeBody,"section/chord/empty body clicks do not seek");}
     auto stored=[&](mrs::Id id){const auto p=d.project();return *std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});};
     auto resize=[&](mrs::Id id,bool right,float shift,bool cancel=false){
@@ -614,6 +640,52 @@ void projectHomeSmoke(){
     home.openFile(a);check(!home.liveDocument&&home.app.workspace()==mrs::desktop::Workspace::arrange,"ordinary project leaves Live document mode");
     home.home.reset();check(folder.deleteRecursively(),"home fixture cleanup");
 }
+void pianoAuditionSmoke(const juce::File& fixture){
+    auto check=[](bool ok,const char* why){if(!ok)throw std::runtime_error(why);};
+    check(fixture.existsAsFile(),"Missing VST3 instrument fixture");
+    const auto folder=juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("mrs-piano-audition","",false);
+    check(folder.createDirectory(),"Cannot create audition fixture directory");
+    struct Cleanup{juce::File folder;~Cleanup(){folder.deleteRecursively();}} cleanup{folder};
+    // The synthetic VST3 enables its MIDI input only under this filename.
+    const auto plugin=folder.getChildFile("instrument.vst3");
+    check(fixture.copyFileTo(plugin),"Cannot copy VST3 instrument fixture");
+    const auto descriptors=mrs::processing::probe_vst3(plugin.getFullPathName().toStdString());
+    check(!descriptors.empty(),"Cannot probe VST3 instrument fixture");
+    const auto& info=descriptors.front();
+    Desktop d(true);d.app.new_project(48000);
+    const auto track=d.app.add_instrument_track("Piano audition");
+    mrs::NativeInsert synth;synth.id=mrs::new_id();synth.kind=mrs::InsertKind::vst3;synth.plugin_path=info.path;synth.class_id=info.class_id;synth.plugin_name=info.name;
+    d.app.set_inserts(track,{synth});
+    const auto clip=d.app.create_midi_clip(track,0,4*mrs::ppq);
+    const std::vector<mrs::MidiNote> notes{{mrs::new_id(),0,mrs::ppq,67,100,0}};
+    d.app.set_midi_notes(clip,notes);
+    d.app.connect(std::make_unique<ManualDevice>(),{0,48000,128,{}, {0,1},2});
+    PianoRoll roll(d,clip);d.addAndMakeVisible(roll);
+    auto mouse=[&](juce::Point<float> p,int mods,int heldMs=0){const auto now=juce::Time::getCurrentTime();return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),p,juce::ModifierKeys(mods),1,0,0,0,0,&roll,&roll,now,p,now-juce::RelativeTime::milliseconds(heldMs),1,false);};
+    std::array<float,256> audio{};
+    auto render=[&](int blocks){for(int i=0;i<blocks;++i)d.app.engine()->process(nullptr,audio.data(),128);return audio.back();};
+    const auto left=juce::ModifierKeys::leftButtonModifier;
+    const auto note=roll.noteRect(notes.front()).getCentre();
+    const juce::Point<float> key{3.f,note.y};
+    const auto revision=d.app.services().projects->state().revision;
+    render(1);
+    for(const auto tap:{note,key}){
+        roll.mouseDown(mouse(tap,left));roll.mouseUp(mouse(tap,0));
+        check(render(1)>0,"Quick click starts audition even in one audio block");
+        check(render(729)>0,"Quick click audition is still audible just before two seconds");
+        check(render(35)==0,"Quick click audition has ended just after two seconds");
+    }
+    roll.mouseDown(mouse(key,left));
+    check(render(75)>0,"Held key keeps sounding until release");
+    roll.mouseUp(mouse(key,0,200));
+    check(render(10)>0&&render(21)==0,"Long press keeps the ordinary soft release");
+    roll.mouseDown(mouse(key,left));roll.mouseUp(mouse(key,0));
+    check(render(1)>0,"First tap enters release tail");
+    roll.mouseDown(mouse(key,left));
+    check(render(75)>0,"Retrigger of the same pitch is not cut by previous release");
+    roll.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));
+    check(render(1)==0&&d.app.services().projects->state().revision==revision,"Escape releases held key and audition does not edit project");
+}
 void midi4bSmoke(Desktop& d,const juce::File& fixture){
     auto check=[](bool b,const char* text){if(!b)throw std::runtime_error(text);};
     if(!fixture.existsAsFile())return; auto stage=[](const char* text){juce::File::getCurrentWorkingDirectory().getChildFile("midi-clips-smoke-stage.txt").replaceWithText(text);};stage("begin");
@@ -659,9 +731,9 @@ void midi4bSmoke(Desktop& d,const juce::File& fixture){
     dynamic_cast<juce::TextEditor*>(controllerControl("controller-position"))->setText("0.5");dynamic_cast<juce::TextEditor*>(controllerControl("controller-value"))->setText("0");dynamic_cast<juce::TextButton*>(controllerControl("controller-apply"))->onClick();check(d.project()->clips.front().midi->events.front().start==mrs::ppq/2&&d.project()->clips.front().midi->events.front().id==sustainId,"controller move retains ID");controllerPanel->keyPressed(juce::KeyPress('Z',juce::ModifierKeys(juce::ModifierKeys::ctrlModifier),0));check(d.project()->clips.front().midi->events.front().data2==127,"controller shared Undo");
     dynamic_cast<juce::ComboBox*>(controllerControl("controller-kind"))->setSelectedId(5,juce::sendNotificationSync);dynamic_cast<juce::TextEditor*>(controllerControl("controller-value"))->setText("8191");eventAdd->onClick();check(d.project()->clips.front().midi->events.size()==2&&d.project()->clips.front().midi->events.back().data1==127&&d.project()->clips.front().midi->events.back().data2==127,"14-bit bend UI");const auto controllerRevision=d.app.services().projects->state().revision;dynamic_cast<juce::TextEditor*>(controllerControl("controller-value"))->setText("8192");dynamic_cast<juce::TextButton*>(controllerControl("controller-apply"))->onClick();check(d.app.services().projects->state().revision==controllerRevision,"invalid bend atomic");
     dynamic_cast<juce::ComboBox*>(controllerControl("controller-kind"))->setSelectedId(3,juce::sendNotificationSync);dynamic_cast<juce::TextEditor*>(controllerControl("controller-value"))->setText("12");eventAdd->onClick();check(d.project()->clips.front().midi->events.back().kind==3&&d.project()->clips.front().midi->events.back().data1==12,"Program UI");dynamic_cast<juce::TextButton*>(controllerControl("controller-delete"))->onClick();check(d.project()->clips.front().midi->events.size()==2,"controller delete");
-    dynamic_cast<juce::ComboBox*>(controllerControl("controller-selector"))->setSelectedId(1,juce::sendNotificationSync);auto* lane=controllerControl("controller-lane");const juce::Point<float> eventPoint{64,26};auto controllerMouse=[&](juce::Point<float> point,int mods){return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),point,juce::ModifierKeys(mods),1,0,0,0,0,lane,lane,juce::Time::getCurrentTime(),eventPoint,juce::Time::getCurrentTime(),1,true);};const auto eventBaseline=d.project()->clips.front().midi->events;const auto dragRevision=d.app.services().projects->state().revision;lane->mouseDown(controllerMouse(eventPoint,juce::ModifierKeys::leftButtonModifier));lane->mouseDrag(controllerMouse(eventPoint.translated(200,50),juce::ModifierKeys::leftButtonModifier));check(d.app.services().projects->state().revision==dragRevision,"controller drag preview only");lane->mouseUp(controllerMouse(eventPoint.translated(200,50),0));check(d.project()->clips.front().midi->events.front().start>0&&d.project()->clips.front().midi->events.front().data2<127,"controller gesture position/value");controllerPanel->keyPressed(juce::KeyPress('Z',juce::ModifierKeys(juce::ModifierKeys::ctrlModifier),0));check(d.project()->clips.front().midi->events==eventBaseline,"one Undo restores controller drag");lane->mouseDown(controllerMouse(eventPoint,juce::ModifierKeys::leftButtonModifier));lane->mouseDrag(controllerMouse(eventPoint.translated(250,80),juce::ModifierKeys::leftButtonModifier));lane->keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));lane->mouseUp(controllerMouse(eventPoint.translated(250,80),0));check(d.project()->clips.front().midi->events==eventBaseline,"controller Escape cancels gesture");
+    dynamic_cast<juce::ComboBox*>(controllerControl("controller-selector"))->setSelectedId(1,juce::sendNotificationSync);auto* lane=controllerControl("controller-lane");const juce::Point<float> eventPoint{static_cast<float>(PianoRoll::keys),26};auto controllerMouse=[&](juce::Point<float> point,int mods){return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),point,juce::ModifierKeys(mods),1,0,0,0,0,lane,lane,juce::Time::getCurrentTime(),eventPoint,juce::Time::getCurrentTime(),1,true);};const auto eventBaseline=d.project()->clips.front().midi->events;const auto dragRevision=d.app.services().projects->state().revision;lane->mouseDown(controllerMouse(eventPoint,juce::ModifierKeys::leftButtonModifier));lane->mouseDrag(controllerMouse(eventPoint.translated(200,50),juce::ModifierKeys::leftButtonModifier));check(d.app.services().projects->state().revision==dragRevision,"controller drag preview only");lane->mouseUp(controllerMouse(eventPoint.translated(200,50),0));check(d.project()->clips.front().midi->events.front().start>0&&d.project()->clips.front().midi->events.front().data2<127,"controller gesture position/value");controllerPanel->keyPressed(juce::KeyPress('Z',juce::ModifierKeys(juce::ModifierKeys::ctrlModifier),0));check(d.project()->clips.front().midi->events==eventBaseline,"one Undo restores controller drag");lane->mouseDown(controllerMouse(eventPoint,juce::ModifierKeys::leftButtonModifier));lane->mouseDrag(controllerMouse(eventPoint.translated(250,80),juce::ModifierKeys::leftButtonModifier));lane->keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));lane->mouseUp(controllerMouse(eventPoint.translated(250,80),0));check(d.project()->clips.front().midi->events==eventBaseline,"controller Escape cancels gesture");
     dynamic_cast<juce::ComboBox*>(controllerControl("controller-kind"))->setSelectedId(2,juce::sendNotificationSync);dynamic_cast<juce::TextEditor*>(controllerControl("controller-number"))->setText("1");for(const auto [beat,val]:std::array<std::pair<int,int>,3>{{{0,10},{1,127},{2,20}}}){dynamic_cast<juce::TextEditor*>(controllerControl("controller-position"))->setText(juce::String(beat));dynamic_cast<juce::TextEditor*>(controllerControl("controller-value"))->setText(juce::String(val));eventAdd->onClick();}check(d.project()->clips.front().midi->events.back().data1==1,"continuous CC1 lane data");
-    stage("upd4 controller group");{auto ccBefore=d.project()->clips.front().midi->events;auto controllerPlot=juce::Rectangle<float>(64,26,static_cast<float>(lane->getWidth())-80,static_cast<float>(lane->getHeight())-52);auto cp=[&](const mrs::MidiChannelEvent& event){return juce::Point<float>{controllerPlot.getX()+static_cast<float>(static_cast<double>(event.start)/((notePanel->getWidth()-32-PianoRoll::keys-16)/roll->beatWidth*mrs::ppq))*controllerPlot.getWidth(),controllerPlot.getBottom()-mrs::midi_event_value(event)/127.f*controllerPlot.getHeight()};};std::vector<mrs::MidiChannelEvent> cc;for(const auto& event:ccBefore)if(event.kind==2&&event.data1==1)cc.push_back(event);check(cc.size()==3,"CC group fixture");const auto boxStart=controllerPlot.getTopLeft().translated(-4,-4),boxEnd=controllerPlot.getBottomRight().translated(4,4);lane->mouseDown(controllerMouse(boxStart,juce::ModifierKeys::leftButtonModifier));lane->mouseDrag(controllerMouse(boxEnd,juce::ModifierKeys::leftButtonModifier));lane->mouseUp(controllerMouse(boxEnd,0));const auto groupRevision=d.app.services().projects->state().revision;const auto anchorPoint=cp(cc.front());lane->mouseDown(controllerMouse(anchorPoint,juce::ModifierKeys::leftButtonModifier));lane->mouseDrag(controllerMouse(anchorPoint.translated(80,0),juce::ModifierKeys::leftButtonModifier));check(d.app.services().projects->state().revision==groupRevision,"CC group preview does not edit model");lane->mouseUp(controllerMouse(anchorPoint.translated(80,0),0));auto ccAfter=d.project()->clips.front().midi->events;mrs::Tick shift=-1;for(const auto& original:cc){const auto found=std::find_if(ccAfter.begin(),ccAfter.end(),[&](const auto& event){return event.id==original.id;});check(found!=ccAfter.end(),"group keeps event ID");if(shift<0)shift=found->start-original.start;check(shift>0&&found->start-original.start==shift&&mrs::midi_event_value(*found)==mrs::midi_event_value(original),"CC group preserves timing and values");}controllerPanel->keyPressed(juce::KeyPress('Z',juce::ModifierKeys(juce::ModifierKeys::ctrlModifier),0));check(d.project()->clips.front().midi->events==ccBefore,"single Undo restores CC group");lane->mouseDown(controllerMouse(anchorPoint,juce::ModifierKeys::leftButtonModifier));lane->mouseDrag(controllerMouse(anchorPoint.translated(100,30),juce::ModifierKeys::leftButtonModifier));lane->keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));lane->mouseUp(controllerMouse(anchorPoint,0));check(d.project()->clips.front().midi->events==ccBefore,"Escape cancels CC group drag");}
+    stage("upd4 controller group");{auto ccBefore=d.project()->clips.front().midi->events;auto controllerPlot=juce::Rectangle<float>(PianoRoll::keys,26,static_cast<float>(lane->getWidth()-PianoRoll::keys-16),static_cast<float>(lane->getHeight())-52);auto cp=[&](const mrs::MidiChannelEvent& event){return juce::Point<float>{controllerPlot.getX()+static_cast<float>(static_cast<double>(roll->clip.start+event.start-roll->clip.source_offset)/mrs::ppq)*roll->beatWidth-roll->findParentComponentOfClass<juce::Viewport>()->getViewPositionX(),controllerPlot.getBottom()-mrs::midi_event_value(event)/127.f*controllerPlot.getHeight()};};std::vector<mrs::MidiChannelEvent> cc;for(const auto& event:ccBefore)if(event.kind==2&&event.data1==1)cc.push_back(event);check(cc.size()==3,"CC group fixture");const auto boxStart=controllerPlot.getTopLeft().translated(-4,-4),boxEnd=controllerPlot.getBottomRight().translated(4,4);lane->mouseDown(controllerMouse(boxStart,juce::ModifierKeys::leftButtonModifier));lane->mouseDrag(controllerMouse(boxEnd,juce::ModifierKeys::leftButtonModifier));lane->mouseUp(controllerMouse(boxEnd,0));const auto groupRevision=d.app.services().projects->state().revision;const auto anchorPoint=cp(cc.front());lane->mouseDown(controllerMouse(anchorPoint,juce::ModifierKeys::leftButtonModifier));lane->mouseDrag(controllerMouse(anchorPoint.translated(80,0),juce::ModifierKeys::leftButtonModifier));check(d.app.services().projects->state().revision==groupRevision,"CC group preview does not edit model");lane->mouseUp(controllerMouse(anchorPoint.translated(80,0),0));auto ccAfter=d.project()->clips.front().midi->events;mrs::Tick shift=-1;for(const auto& original:cc){const auto found=std::find_if(ccAfter.begin(),ccAfter.end(),[&](const auto& event){return event.id==original.id;});check(found!=ccAfter.end(),"group keeps event ID");if(shift<0)shift=found->start-original.start;check(shift>0&&found->start-original.start==shift&&mrs::midi_event_value(*found)==mrs::midi_event_value(original),"CC group preserves timing and values");}controllerPanel->keyPressed(juce::KeyPress('Z',juce::ModifierKeys(juce::ModifierKeys::ctrlModifier),0));check(d.project()->clips.front().midi->events==ccBefore,"single Undo restores CC group");lane->mouseDown(controllerMouse(anchorPoint,juce::ModifierKeys::leftButtonModifier));lane->mouseDrag(controllerMouse(anchorPoint.translated(100,30),juce::ModifierKeys::leftButtonModifier));lane->keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));lane->mouseUp(controllerMouse(anchorPoint,0));check(d.project()->clips.front().midi->events==ccBefore,"Escape cancels CC group drag");}
     for(float scale:{1.f,1.5f}){auto image=controllerPanel->createComponentSnapshot(controllerPanel->getLocalBounds(),true,scale,juce::SoftwareImageType{});auto stream=juce::File::getCurrentWorkingDirectory().getChildFile(scale==1.f?"juce-controller-100-preview.png":"juce-controller-150-preview.png").createOutputStream();check(stream!=nullptr,"controller preview stream");stream->setPosition(0);stream->truncate();juce::PNGImageFormat().writeImageToStream(image,*stream);}
     d.app.set_midi_events(clip,{});d.refresh();
     stage("pump timer");const auto until=juce::Time::getMillisecondCounter()+100;while(juce::Time::getMillisecondCounter()<until){MSG msg{};while(PeekMessageW(&msg,nullptr,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}juce::Thread::sleep(1);}check(notePanel->isShowing(),"MIDI editor survives engine rebuild timer");

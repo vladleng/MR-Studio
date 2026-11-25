@@ -1,42 +1,36 @@
 ---
 name: mr-studio-build-test
-description: Choose proportionate local MR Studio / MR Live builds and tests, diagnose failures and prepare acceptance packages. Use for build failures or requested validation; not for docs-only planning.
+description: Select and run proportional local builds, regression tests and acceptance checks for MR Studio/MR Live. Use for code validation, build/test failures and requested packages; not for docs-only discussion.
 ---
 
-# MR Studio Local Build & Test
+# MR Studio / MR Live — локальные сборки и проверки
 
-Development, builds, tests and artifacts run on the local Windows PC (user decision 2026-11-16). Tasks, status and acceptance live in DSH Task Manager; load `dsh-task-manager-workflow` before journal operations. Follow root `AGENTS.md` and [local policy](../../../docs/LOCAL_BUILD_POLICY.md). Do not push source/rules, create PRs or dispatch Actions automatically. Preserve local Git history, SDKs, accepted packages and user projects.
+Этот Skill определяет **объём проверки**, а не полномочия: локальная работа, DSH Task Manager, Git, публикация и приёмка регулируются проектным `AGENTS.md`. Не открывай весь `docs/LOCAL_BUILD_POLICY.md` автоматически; обращайся к **нужному разделу**, если выбранный случай, исключение или этап приёмки недостаточно определён ниже. Реальные команды/targets/SDK определяй по **текущему локальному checkout**, а не по историческим CI.
 
-**Never invent preset/target/path/test commands.** Discover scripts, CMake presets and targets in the actual checkout. Installed tooling does not prove that SDKs, configuration or compilation work.
+## Выбор минимально достаточного уровня
 
-## Choose proportional validation
+- **L0 — docs/metadata:** проверить diff, ссылки, формат; без сборки приложения.
+- **L1a — runtime-only визуальные ресурсы:** проверить синтаксис и manifest; без configure/build/CTest. Визуальная приёмка — пользователем.
+- **L1b — косметика C++/скомпилированных ресурсов:** адресная проверка diff/исходников; собирать изменённый GUI target, только если нужен обновлённый исполняемый кандидат. Без автоматических smoke, скриншотов и DPI-прогонов.
+- **L1c — layout/контролы/поведение UI:** проверить затронутые взаимодействия/состояния, при необходимости собрать соответствующее приложение; для существенного редизайна по возможности сравнить видимый результат до/после. Недоступный GUI = `NOT TESTED`.
+- **L2 — функциональность:** адресные тесты модели, Commands/Undo, Save/Open, интеграции и соседних сценариев по фактическому изменению; собрать только затронутый продукт, когда требуется проверка интеграции или кандидат.
+- **L3 — Engine/host/RT:** L2 + релевантные host/PDC/record/transport регрессии, callback/xrun, lock/alloc/timing там, где доступны; физические ASIO/MIDI/vendor тесты только на реальном оборудовании.
+- **L4 — интеграция/релиз:** согласованный кандидат и необходимый набор CTest; полный CTest только по отдельному согласованию либо при конкретном обоснованном риске.
 
-- **L0 Docs/metadata:** diff, links and schema/frontmatter sanity; no application build.
-- **L1a Runtime-only visual assets:** syntax/manifest checks and user visual acceptance; no configure/build/CTest.
-- **L1b Cosmetic C++/compiled assets:** source/resource review; build the affected GUI target only when an updated application is requested. No automatic smoke, previews, screenshots or DPI sweep. Otherwise explain that changes appear in the next build.
-- **L1c Layout/control behavior:** focused state/interaction checks, then affected Windows JUCE target when needed to validate the change or provide a runnable candidate.
-- **L2 Product feature:** targeted model/Undo/SaveOpen/regression and affected app/GUI checks; scoped local Windows build for changed integration or a requested candidate.
-- **L3 Engine/hosting/RT:** L2 plus relevant host/PDC/loop/record regressions and available allocation/lock/callback timing checks. Physical ASIO/MIDI/vendor behavior requires actual hardware checks.
-- **L4 Acceptance/release:** agreed local integration/release build and necessary CTest suite; full CTest only when explicitly agreed or justified by concrete risk.
+**Граница продукта:** проверяй `Core`, `Studio`, `Live` или `Both` по влиянию изменения. Studio: ARA2 ON по умолчанию, диагностический ARA OFF — по прямому запросу; Live standalone: ARA2 OFF; при совместной сборке ARA2 только в Studio. Не запускай Studio-тесты ради Live-задачи и наоборот без объяснимого влияния на общий код. Не расширяй L0/L1 на полную сборку, пакет, DPI или все targets без причины.
 
-A cosmetic edit does not justify full rebuild, all-target build, full CTest, packaging, shortcut changes or mass DPI checks. Preserve Studio-only / Live-only scope. Studio uses ARA2 by default; Live standalone is always without ARA2, and a joint build keeps ARA2 confined to Studio. Studio ARA-OFF requires an explicit diagnostic request.
+## Выполнение
 
-## Local execution
+1. Установи scope/уровень и проверь фактические ветку, HEAD, dirty diff, конфигурацию и существующее build tree. Для ошибок — исходный **RED**, затем **GREEN** тем же сценарием; если автоматический репро-тест неприменим, зафиксируй ручные шаги и ограничения.
+2. Перед командой проверь существующие `tools/Build-Local.ps1`, `tools/Enter-DevEnvironment.ps1`, CMake presets/targets и доступные SDK. Предпочитай предусмотренный проектом **адресный** запуск; неизвестные ключи, цели и пути не выдумывай. [Поиск команд](references/command-discovery.md) и [Windows/JUCE диагностика](references/windows-juce-validation.md) — только по необходимости.
+3. Не выполняй configure, загрузку SDK, очистку build tree, полный CTest или упаковку лишь ради небольшой правки. SDK-подготовка через текущие `tools/ci/Prepare-Sdks.ps1` / `sdk-lock.json` — отдельный осознанный шаг при реальной нехватке зависимости; наличие файлов не подтверждает доступность toolchain.
+4. При FAIL разбери первую содержательную ошибку, проверь гипотезу и повтори **только затронутую** проверку; не отключай тесты и не удаляй чужие результаты. Применяй ограничение попыток из `AGENTS.md`. Actions/remote CI не заменяют локальную проверку и запускаются только по прямому запросу.
+5. В кратком отчёте отделяй код, тесты и пользовательскую приёмку: scope, уровень, ветка/HEAD/dirty state, реальные команды/targets, конфигурация, **PASS/FAIL/NOT TESTED**, ограничения и оставшиеся аппаратные проверки. Не выдавай сборку за визуальную, слуховую или ASIO-проверку. Значимые результаты фиксируй в назначенной задаче через `dsh-task-manager-workflow` только в рамках разрешённой работы.
 
-1. Check status, branch, exact HEAD and dirty diff. Inspect installed MSVC/Windows SDK/CMake and required SDK paths. See [command discovery](references/command-discovery.md) only as needed; current files and root policy override historical examples.
-2. State L0–L4 scope and actual targets/tests. For bugs establish RED before fixing, then GREEN using the same regression. Use the documented manual exception only where automated reproduction is impractical.
-3. Read `tools/Build-Local.ps1` before invoking it. It initializes `Enter-DevEnvironment.ps1` automatically and accepts `-Step Configure|Build|Test|All`, `-Product Core|Studio|Live|Both`, `-Target`, `-BuildDir`, `-Configuration`, `-Jobs`, `-TestRegex`, `-Full`, `-NoAra`, `-AraFixture` and `-DryRun`. Default is a scoped Studio build with ARA ON and Live OFF, using `build/sdk`, `build/private-sdk` and separate `build/local-windows/<profile>` trees. DryRun returns the command plan without configure/build/test. Test requires explicit selection and a matching configured tree; build the required test targets before running it. ARA render/model tests require the explicit fixture option; Full with ARA rejects a missing fixture. Do not invoke all-target builds merely to obtain one target.
-4. `tools/ci/Prepare-Sdks.ps1` and `tools/ci/sdk-lock.json` provide pinned SDK preparation. Their location under `tools/ci` does not require Actions. Downloads/installations are a separate environment-preparation step, never part of docs-only validation. Check pinned SDK files before execution; the local build script does not download them.
-5. If scripts cannot express the scope, derive scoped CMake commands from the actual configured tree and target definitions. Reconfigure only when required; preserve existing build trees. Use conservative job counts; if parallel MSBuild dies without a useful error, retry once with one job and inspect resource pressure.
-6. On failure read the first substantive configure/compiler/link/test error, form a new hypothesis, change one cause and rerun affected checks. Never weaken tests or delete unrelated build trees to obtain PASS.
-7. Record branch/HEAD, dirty state, exact commands, configuration, SDK pins and PASS/FAIL/NOT TESTED. Keep logs outside Git; record meaningful task evidence in the assigned DSH task within the agreed scope. A check on a different revision does not validate current code.
+## Кандидат и приёмка
 
-Visual Studio 18 Community may supply CMake/Ninja outside PATH; use its developer shell or verified absolute paths. Machine-specific paths are examples, not proof of availability. [Windows/JUCE notes](references/windows-juce-validation.md) are optional troubleshooting material.
+Перед **порученной** подготовкой пакета читай нужные положения `docs/VERSIONING.md`; сверяй версию приложения, имени пакета, manifest и symbols. Пакеты храни вне checkout, не перезаписывай принятые версии и не включай SDK, fixtures, секреты, сторонние плагины или пользовательские данные. Проверяй launch/Save/Open/Undo/editor lifetime, только когда это затронуто.
 
-## Delivery and acceptance
+Статусы: **READY** — обязательные проверки выполнены; **READY WITH MANUAL CHECK** — остались только явно указанные ручные/аппаратные проверки; **NOT VALIDATED/BLOCKED** — обязательные проверки не выполнены либо есть ошибка. `PASS` не означает пользовательскую приёмку, `done`, merge, push или публикацию.
 
-- Before assigning a build version or preparing a package, read [versioning rules](../../../docs/VERSIONING.md). Prepare acceptance packages outside checkout with matching component version, manifest and symbols; preserve earlier versions. Exclude SDKs, fixtures, secrets, proprietary plugins and user files.
-- Check startup/editor lifetime and Save/Open/Undo when affected. Report listening, ASIO/MIDI, physical DPI and vendor checks only when actually performed; unavailable hardware remains NOT TESTED.
-- READY requires necessary checks; READY WITH MANUAL CHECK means only stated user/hardware checks remain; otherwise report NOT VALIDATED or BLOCKED. Build PASS is not acceptance, marking the DSH task Done or permission to merge into local `main`.
-- Historical CI configuration is retained but is not a required local gate. Actions or remote publication require a separate request; then inspect real workflows rather than bypassing gates.
-- Optional [report template](assets/build-report-template.md), [matrix](assets/validation-matrix-template.md) and [stage checklist](assets/stage-acceptance-checklist.md) are aids, not parallel status journals; root policy overrides historical CI wording in them.
+Дополнительные [шаблон отчёта](assets/build-report-template.md), [матрица](assets/validation-matrix-template.md), [чек-лист приёмки](assets/stage-acceptance-checklist.md) — опциональны, не открывай их для обычного запуска.

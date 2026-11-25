@@ -30,7 +30,7 @@ New suites core_inputs, audio_multi_input, audio_stop_anchor, desktop_multi_inpu
 cover persistence/Undo, simultaneous raw mono/stereo WAVs, independent L/R peaks,
 zero RT allocation, input remapping, Monitor-off capture, batch Undo and Stop anchor.
 Local CTest 73/73 and expanded GUI smoke passed. Physical ASIO acceptance pending:
-[inputs](INPUT_ROUTING.md), [Stage 2e checklist](MRS_STAGE_2E_CHECKLIST.md).
+[inputs contract](INPUT_ROUTING.md).
 
 ## Historical Stage 1d contract (superseded where noted above)
 
@@ -118,8 +118,8 @@ Project folders contain their .mrsproject, Media and Mixdown; the studio root co
 Projects and Lives. Imported WAVs are copied and archived with portable Media/... refs.
 First save consolidates legacy external/Audio sources without deleting originals.
 Save As copies content and retains source aliases/Undo and the same stopped/paused
-device handle. See PROJECT_FOLDERS.md and MRS_PROJECT_FOLDERS_CHECKLIST.md.
-User acceptance of upd1 pending; base 0.1e remains accepted.
+device handle. See the [project-folder contract](PROJECT_FOLDERS.md); historical workflow acceptance is recorded in DSH #22.
+Historical workflow acceptance does not certify the separate extended hardware/performance matrix; base 0.1e remains accepted.
 
 
 ## Included fix1: concurrent seek read-head protection

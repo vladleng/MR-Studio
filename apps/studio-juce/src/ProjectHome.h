@@ -12,7 +12,7 @@ inline HomeProjects findHomeProjects(const juce::File& root,const std::atomic<bo
     while(!ec&&it!=end){
         if(cancel&&cancel->load())return {};
         const auto entry=*it;std::error_code status;
-        if(entry.is_symlink(status))it.disable_recursion_pending();
+        if(entry.path().filename().native().starts_with(L".mrs-dawproject-")||entry.is_symlink(status))it.disable_recursion_pending();
         else if(entry.is_regular_file(status)&&(juce::String(entry.path().extension().wstring().c_str()).equalsIgnoreCase(".mrsproject")||juce::String(entry.path().extension().wstring().c_str()).equalsIgnoreCase(".mrlive"))){
             juce::File f(juce::String(entry.path().wstring().c_str()));result.files.push_back({f,juce::String(entry.path().lexically_relative(base).wstring().c_str()),f.getLastModificationTime().toMilliseconds()});
         }
@@ -132,6 +132,15 @@ public:
         create.onClick=[this]{owner.action(1);};
         open.onClick=[this]{if(live)owner.choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& file){owner.launchLive(file,false);},"*.mrlive");else owner.action(2);};
         reload.onClick=[this]{rescan();};
+#if defined(MRS_PROJECT_IMPORT_UI)
+        addAndMakeVisible(importProject);importProject.setComponentID("home-import-project");
+        importProject.onClick=[this]{
+            juce::Component::SafePointer<Desktop> safe(&owner);
+            owner.projectImportMenu().showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&importProject),[safe](int selected){
+                if(safe&&selected==Desktop::previewDawprojectAction)safe->action(selected);
+            });
+        };
+#endif
         filter.onTextChange=[this]{applyFilter();};
         startTimerHz(10);
     }
@@ -152,6 +161,9 @@ public:
         resume.setVisible(owner.canReturnToProject());resume.setBounds(pad+width-380,headY,190,32);
         create.setBounds(pad,actionsY,150,36);open.setBounds(pad+160,actionsY,116,36);reload.setBounds(pad+286,actionsY,126,36);
         createLive.setVisible(live);createLive.setBounds(pad+422,actionsY,130,36);
+#if defined(MRS_PROJECT_IMPORT_UI)
+        importProject.setVisible(!live&&!owner.standaloneLive);importProject.setBounds(pad+422,actionsY,140,36);
+#endif
         const int searchW=narrow()?juce::jmax(160,width-546):300;filter.setBounds(pad+width-searchW,actionsY,searchW,36);
         searchIcon.setBounds(filter.getX()+11,filter.getY()+11,14,14);
         const int listW=rightW?width-rightW-gap:width;
@@ -357,6 +369,9 @@ private:
     HomeAction open{juce::String::fromUTF8("Открыть…"),HomeAction::ghost,2};
     HomeAction reload{juce::String::fromUTF8("Обновить"),HomeAction::ghost,3};
     HomeAction resume{juce::String::fromUTF8("Продолжить сессию"),HomeAction::ghost};
+#if defined(MRS_PROJECT_IMPORT_UI)
+    HomeAction importProject{juce::String::fromUTF8("Импорт проекта…"),HomeAction::ghost};
+#endif
     SearchGlyph searchIcon;juce::TextEditor filter;
     std::vector<HomeProject> projects;std::vector<std::size_t> visible;std::future<HomeProjects> worker;std::atomic<bool> cancel{};bool scanning{},rescanPending{};juce::String error;
 };

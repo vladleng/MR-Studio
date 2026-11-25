@@ -169,6 +169,7 @@ public:
     virtual void process(ProcessBlock) noexcept = 0; // bounded RT implementation required
     virtual bool open_editor(void*,int&,int&) { return false; }
     virtual void close_editor() noexcept {}
+    virtual int take_output_note() noexcept { return -1; } // channel * 128 + pitch, control thread
     virtual bool edited() noexcept { return false; }
     virtual bool failed() const noexcept { return false; }
     virtual void sync_controller(std::uint32_t,float) {}
@@ -230,6 +231,7 @@ public:
     std::vector<ParameterInfo> parameter_infos(const Id&) const;
     bool open_editor(const Id&,void*,int&,int&);
     void close_editor(const Id&) noexcept;
+    int take_output_note(const Id&) noexcept;
     void close_editors() noexcept;
     void restore_node(const NodeState&); // quiescent: retain processor/editor instance
     // NON-RT, device stopped and workers quiesced. All-or-rollback settings;

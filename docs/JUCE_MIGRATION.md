@@ -2,11 +2,11 @@
 
 The user selected JUCE with future portability in mind, then explicitly narrowed
 the active migration to Windows. Mobile work is outside the current plan.
-J1 was implemented locally on 2026-10-05 as the parallel 0.1n Windows prototype.
-An official pinned JUCE source dependency was downloaded before offline configure;
-no global toolchain installation was performed. See [J1 details](JUCE_J1.md).
-The user accepted J1 and authorized J2 on 2026-10-05. The parallel target now builds
-0.1o / J2 desktop workflow; see [J2 details and boundaries](JUCE_J2.md).
+J1 / 0.1n and J2 / 0.1o were historical Windows migration slices accepted on
+2026-10-05. Their delivery reports remain in Git; architecture and licensing
+boundaries are retained below. The official pinned JUCE dependency was downloaded
+before offline configure, without global toolchain installation. Desktop component
+behavior is covered by the current [JUCE checks](../apps/studio-juce/src/Smoke.cpp).
 The preferred working interface remains 0.1m upd1 fix1. The upd2 skin is experimental.
 Code/builds remain local; GitHub issues/docs only, without code push/PR/merge/Actions.
 

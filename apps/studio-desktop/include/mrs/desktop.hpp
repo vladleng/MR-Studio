@@ -94,10 +94,13 @@ public:
     // processors retain their identity; the entire graph/model edit rolls back.
     void update_live_channels(const std::vector<Id>& owned, std::vector<Track> channels,bool explicit_parameters=false);
     void set_midi_output(const Id&,std::string port,int channel=-1);
+    void set_track_drum_map(const Id&, std::optional<DrumMapBinding>);
     std::string midi_output_status(const Id&) const;
     void reconnect_midi();
     std::string midi_status(const Id&) const;
-    bool audition_note(const Id& track,int pitch,int velocity,int channel=0,bool on=true,bool soft_release=false);
+    bool audition_note(const Id& track,int pitch,int velocity,int channel=0,bool on=true,unsigned release_ms=0);
+    int take_instrument_output_note(const Id& track);
+    std::uint64_t live_note_activity(const Id& track) const noexcept;
     void midi_panic() noexcept {engine_->midi_panic();external_midi_->panic();}
     Id add_bus(std::string name);
     Id create_track_folder(std::string name,const std::vector<Id>& tracks);
@@ -235,7 +238,7 @@ public:
     Sample clip_playback_offset(const Clip&) const;
     void set_track_stretch_backend(const Id&,stretch::Backend);
     stretch::Backend clip_stretch_backend(const Clip&) const;
-    void set_clip_stretch(const Id&,stretch::Parameters,bool reset=false);
+    void set_clip_stretch(const Id&,stretch::Parameters,bool reset=false,StretchAnchor anchor=StretchAnchor::start);
     struct StretchStatus {bool busy{};float progress{};std::string message;std::uint64_t revision{};};
     StretchStatus stretch_status() const;
     void retry_stretch();
@@ -546,6 +549,7 @@ private:
     void cache_asset(std::string, std::shared_ptr<const audio::AudioData>);
     void edit(const ICommand&,std::optional<Id> authoritative={},bool retain_inserts=false);
     bool edit_clip_state(const Project&,const ICommand*,std::optional<bool> history={});
+    bool edit_midi_velocities(const Project&,const Project&,const ICommand*,std::optional<bool> history={});
     bool refresh_clip_audio(const Project&);
     std::vector<audio::Voice> prepare_clip_voices(const Project&);
     void poll_clip_updates();

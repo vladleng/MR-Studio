@@ -1,8 +1,14 @@
 # 0.1p upd1 — plugin presets, editor shell and TH-U audible state
 
-Current library follow-up: [0.2g upd1 fix2 / #92](PRESET_LIBRARY_UPD1.md).
-Compact folder menu and durable MR preset label, schema15 reading older snapshots.
-The remainder records the original preset implementation and its historical tests.
+## Library and durable label contract
+
+- Presets stay in per-plugin library folders. Nested folders and duplicate filenames map to exact files, never basename lookup; empty folders remain visible. Existing root presets are not moved or deleted automatically.
+- New folder / Save accept relative nested names; absolute, traversal and reserved paths are rejected, enumeration does not follow symlinks. Folder/file actions are not project Undo operations.
+- `NativeInsert::preset_name` is the sole durable MR preset label, including its relative folder. It survives missing library files, project reopen and shared Undo/Redo. It records provenance, not sound equality after edits or an invented plugin-internal factory preset name. Naming alone never restores a processor.
+- The label was introduced in schema 15 (older snapshots read with an empty label); the `MRS_PLUGIN_PRESET 1` wrapper retains legacy payload reading. Older readers reject unsupported schema rather than guessing.
+- Compact selector/menu implementation and regressions: [PluginPreset.h](../apps/studio-juce/src/PluginPreset.h), [preset library checks](../apps/studio-juce/src/Smoke.cpp). Current dimensions/fonts are as-built UI, not a prohibition on an assigned redesign.
+
+The remainder records the original preset implementation and its historical tests; later in-place VST3 restoration is covered by the current implementation and synthetic editor-identity/rollback checks.
 
 Local Windows JUCE J3 follow-up, 2026-10-05. User confirms the interface works and
 Nuro Audio project-state restore works. Nuro is accepted; do not run special installed

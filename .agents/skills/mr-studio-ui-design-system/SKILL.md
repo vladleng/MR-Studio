@@ -1,31 +1,32 @@
 ---
 name: mr-studio-ui-design-system
-description: Design or modify MR Studio JUCE visual components, themes, controls, layouts, window behavior, keyboard focus, accessibility or HiDPI. Skip for engine-only, audio DSP, docs-only or unrelated build work.
+description: Detailed JUCE GUI implementation guidance for MR Studio, MR Live and native plugins: components, LookAndFeel, layout, focus, accessibility, HiDPI and window behavior. Use only when these details matter; not for DSP-only or docs-only work.
 ---
 
-# MR Studio UI Design System
+# MR Studio UI — JUCE implementation
 
-Work within the **actual accepted UI** and the user's latest visual request. A design audit alone does not authorize implementation or a global redesign. Same MR Studio/Live family; apply Live-specific larger targets only if Live/shared UI is in scope.
+## Scope and design decisions
 
-## Shared catalog
+The current user request and DSH task define the scope. This Skill provides **technical JUCE guidance**, not a second mandatory visual style. `mr-unified-gui` governs the general GUI approach; do not automatically reload it or other Skills if the applicable instructions are already known.
 
-For visual language and catalog choices, follow `../mr-unified-gui/SKILL.md`. The canonical `assets/ui/mr-uds/` catalog serves DAW and MR-owned native plugins; extend it consistently and keep previews current. A named catalog replacement applies to the requested screen and preserves functional bindings. Keep asset availability, runtime adoption and user acceptance recorded in the DSH task distinct.
+- **Fix:** preserve the appearance outside the defect.
+- **Improve:** change affected controls, layout or hierarchy when required by the UX goal.
+- **Redesign:** change requested geometry, typography, theme roles and visual composition as needed. Previous approval and existing `ui::Theme` are a baseline, not a veto on explicitly requested design changes.
 
-## Scope and visual decisions
+Stay within the requested screen/component and necessary shared dependencies; a local redesign is not authorization for a product-wide migration. Studio and Live may share controls, but Live-specific hit targets and usage constraints apply only when relevant.
 
-1. Inspect changed components and their current theme/LookAndFeel; inspect actual screenshot or fresh preview if available. If only source exists, mark appearance *unverified* rather than asserting it looks right. For unfamiliar layout/ownership use [source map](references/project-map.md) selectively.
-2. Preserve existing command/Undo/project/editor behavior. Reuse native JUCE controls, theme and geometry; no new parallel UI framework or global restyling for a local fix.
-3. Neutral DAW chrome vs track/clip/record/warn/selection/focus/meter states must remain semantically distinct. Keep compact/readable and restrained in depth; approved visual decisions take precedence over generic defaults.
-4. For changed controls inspect normal/hover/pressed/selected/disabled/**keyboard focus**, hit area, truncation, icon accessibility, tooltip, Cyrillic and logical scaling. Hit area can be larger than visible icon. Focus must not be conveyed only by selection color.
-5. For a visual reference use [reference policy](references/reference-intake-policy.md); for shared tokens use [token rules](references/token-schema.md); for JUCE code changes use [JUCE rules](references/juce-ui-rules.md). **Do not load all three on an ordinary local color adjustment.**
-6. Preserve audio/UI threading; graphical components never own RT processing or directly mutate audio graph outside accepted Commands. Do not restyle external VST editors or change native editor window ownership unless explicitly in scope.
+## Implement in the active JUCE path
 
-## Cosmetic-only shortcut
+1. Locate the **instantiated** component, actual LookAndFeel/theme, bounds/layout owner and relevant binding. Inspect the current GUI or screenshots when available. A source change alone does not prove a visible result.
+2. Prefer existing JUCE controls, theme APIs and reusable components **when they suit the requested design**. It is permitted to update them within scope; do not introduce a parallel UI framework or duplicate audio/parameter bindings. If changing shared tokens, identify affected consumers first.
+3. Keep painting, hit testing, gestures, keyboard focus and accessibility consistent with the **new** geometry. Inspect normal/hover/pressed/selected/disabled/focus states, clipping, long Cyrillic labels and logical scaling as relevant. Focus and critical transport/record/error states must not rely on color alone.
+4. Preserve Commands/Model, Undo/Redo, project persistence, plugin-editor lifecycle, automation, parameter mapping, audio/UI threading and RT safety. Never restyle vendor-owned VST editors or change their ownership as an incidental styling side effect.
+5. Open only the relevant reference: [JUCE rules](references/juce-ui-rules.md) for implementation/lifetime, [token rules](references/token-schema.md) when creating/changing shared theme roles, [reference policy](references/reference-intake-policy.md) when working from screenshots, or [project map](references/project-map.md) when ownership is unclear. **Do not preload all references.** Use the MR UDS catalog only when shared assets/components are actually involved.
 
-For a single background/color/border, SVG tint or similarly isolated visual change, invoke `mr-unified-gui` **V1 fast path**. First confirm the diff has **no** changes to geometry, hit areas, layout, interactions, bindings, model/Undo/persistence, DSP, dependencies or build configuration. Check only diff and source/resource correctness (including SVG syntax/manifest where affected); the **user** performs visual acceptance. **No automatic build, tests, GUI smoke, screenshots, preview or DPI checks**, even when the cosmetic source is C++ or an embedded asset. Build only the affected GUI target **if an updated executable is requested**; otherwise explain that the visual change appears in the next build. Do not require a full matrix, full CTest, clean rebuild, other products or packaging. Escalate if the diff exceeds V1 or an actual regression requires it.
+## Checks and delivery
 
-## Verification and delivery
+- **Cosmetic-only:** if diff does not affect layout, hit areas, behaviors, bindings, model, DSP or build configuration, follow the project AGENTS cosmetic exception: verify diff and resource correctness; no mandatory build, previews, screenshots or DPI tests. User acceptance establishes visual quality.
+- **Layout/behavior:** run targeted local build/checks as described in `mr-studio-build-test` when appropriate. Examine relevant resize, pointer, keyboard, focus and DPI behavior; avoid broad test matrices without risk justification.
+- **Substantial redesign:** where the GUI is accessible, compare before/after on comparable build, scale and state, confirming the requested **visible** change. If not accessible, mark visual verification **NOT TESTED**, and give specific manual acceptance steps. Do not require mockups, Gallery assets or a new design document by default.
 
-- Use the affected local Windows target and proportional GUI/state checks (`mr-studio-build-test`) for behavioral/layout changes. For V1 use only the cosmetic shortcut above, with no automatic preview or build unless requested. For layout/control behavior, compare the same theme/size/build, keyboard/pointer/focus/resize and relevant software DPI; physical mixed-DPI transitions and ASIO listening are **NOT TESTED** unless performed by the user.
-- Use [UI audit template](assets/ui-audit-template.md) or [component template](assets/component-redesign-template.md) only for substantial work; no mandatory giant report or new design documents for tiny fixes.
-- Describe visual changes, affected components, actual PASS/FAIL/NOT TESTED checks and user acceptance status. Shared token decisions update current canonical docs, not a second competing design-system specification. For docs-only skill edits, verify diff/links only; no application rebuild.
+Report code change, checks actually performed and acceptance separately. Update canonical design documentation only for durable shared contract changes, not every local visual experiment. UI templates in `assets/` are optional for substantial work.

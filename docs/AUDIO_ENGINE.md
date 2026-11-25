@@ -16,6 +16,23 @@ DAW не считается пригодной для серьёзной раб�
 
 Audio Engine принадлежит SHARED Core и используется Arrange/Edit/Mix и Live Mode.
 
+### Coherent state consumers: display is not edit authority
+
+`AudioEngine::try_state` performs at most 32 coherence attempts without waiting,
+locks or extra polling. It publishes a complete candidate only on success; failure
+leaves every caller output field unchanged, and a successful no-loop state clears
+the previous loop. The audio engine remains authoritative.
+Paint/refresh may retain the last coherent message-thread display projection until
+the next normal tick; device/document-clock reset clears that transient cache.
+Commands that require fresh audio state, including MIDI edit guards, fail closed; a busy timer
+cancels its gesture, never authorizes editing from the display cache. Strict
+`state()` may throw and belongs only in guarded command/quiescent paths, not paint
+or unguarded event callbacks; Space handlers contain such exceptions.
+`EngineTransport` may hold its last control/UI projection during contention.
+This adds no work to the RT publisher and persists no cache in projects/Undo.
+Implementation and existing regressions: [engine](../core/audio/src/engine.cpp),
+[snapshot tests](../tests/audio_tests.cpp), [GUI guards](../apps/studio-juce/src/Smoke.cpp).
+
 ---
 
 ## 2. Основной Windows audio path

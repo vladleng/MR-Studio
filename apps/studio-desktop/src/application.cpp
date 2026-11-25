@@ -1,6 +1,7 @@
 #include <mrs/desktop.hpp>
 #include <mrs/playback_preflight.hpp>
 #include <mrs/midi_import.hpp>
+#include <mrs/drum_maps.hpp>
 #ifdef MRS_HAS_VST3
 #include <mrs/vst3.hpp>
 #endif
@@ -51,7 +52,7 @@ bool same_metadata(const Project& a,const Project& b){
 bool same_mix_only(const Project& a,const Project& b){
     const auto base=[](const Project& p){return std::tie(p.version,p.id,p.title,p.artist,p.sample_rate,p.time,p.folders,p.clips,p.markers,p.chords,p.sections,p.master_outputs,p.master_inserts,p.ara_bindings,p.separation_results);};
     if(base(a)!=base(b)||a.tracks.size()!=b.tracks.size())return false;
-    const auto track=[](const Track& t){return std::tie(t.id,t.name,t.kind,t.folder,t.output,t.sends,t.input,t.input_stereo,t.input_monitor,t.hardware_outputs,t.inserts,t.midi_input,t.midi_channel,t.midi_monitor,t.midi_output,t.midi_output_channel,t.stretch_backend,t.fx_channel,t.color);};
+    const auto track=[](const Track& t){return std::tie(t.id,t.name,t.kind,t.folder,t.output,t.sends,t.input,t.input_stereo,t.input_monitor,t.hardware_outputs,t.inserts,t.midi_input,t.midi_channel,t.midi_monitor,t.midi_output,t.midi_output_channel,t.stretch_backend,t.fx_channel,t.color,t.drum_map);};
     for(std::size_t i=0;i<a.tracks.size();++i)if(track(a.tracks[i])!=track(b.tracks[i]))return false;
     return true;
 }
@@ -1564,10 +1565,34 @@ void Application::rebuild_audio(bool retain_inserts) {
         device_config_ = c; device_->start(); poll();
     } catch (...) { disconnect(); throw; }
 }
+bool Application::edit_midi_velocities(const Project& before,const Project& after,const ICommand* command,std::optional<bool> history) {
+    if(before.clips.size()!=after.clips.size())return false;
+    bool changed=false;
+    auto normalized=before;
+    for(std::size_t i=0;i<before.clips.size();++i){
+        auto& clip=normalized.clips[i];const auto& target=after.clips[i];
+        if(clip==target)continue;
+        if(!clip.midi||!target.midi||clip.midi->notes.size()!=target.midi->notes.size())return false;
+        for(std::size_t n=0;n<clip.midi->notes.size();++n){auto& note=clip.midi->notes[n];const auto velocity=target.midi->notes[n].velocity;changed|=note.velocity!=velocity;note.velocity=velocity;}
+        if(clip!=target)return false;
+    }
+    if(!changed||normalized!=after)return false;
+    require_not_playing();require_not_recording();
+    std::optional<audio::AudioEngine::TimingPlan> plan;
+    if(device_)plan=engine_->prepare_timing(after,mixer_tracks_);
+    auto transaction=services_.projects->prepare_transaction(command,history);
+    require(transaction!=nullptr,"Project store cannot stage velocity edits");
+    transaction->commit();
+    try {if(plan)engine_->publish_midi_velocities(std::move(*plan));}
+    catch(...){transaction->rollback();throw;}
+    transaction->finish();unsaved_=true;
+    return true;
+}
 void Application::edit(const ICommand& command,std::optional<Id> authoritative,bool retain_inserts) {
     require_not_playing();
     auto candidate = *services_.projects->state().project;
     command.apply(candidate); candidate.validate();
+    if(edit_midi_velocities(*services_.projects->state().project,candidate,&command))return;
     if(same_except_clips(*services_.projects->state().project,candidate)&&same_midi_clips(*services_.projects->state().project,candidate)&&
        edit_clip_state(candidate,&command))return;
     {std::vector<Id> tracks;for(const auto& t:candidate.tracks)if(t.kind!=TrackKind::midi)tracks.push_back(t.id);(void)audio::compile_midi_clips(candidate,tracks);(void)audio::compile_midi_events(candidate,tracks);}
@@ -1867,6 +1892,11 @@ void Application::set_midi_input(const Id& id,std::string port,int channel,bool 
     publish_mix();publish_midi_routes();
 }
 void Application::set_midi_output(const Id& id,std::string port,int channel){edit(SetMidiOutput{id,std::move(port),channel},{},true);publish_midi_routes();}
+void Application::set_track_drum_map(const Id& id, std::optional<DrumMapBinding> binding) {
+    require_not_recording();
+    // Display metadata only; do not prepare a graph or republish MIDI routes.
+    services_.projects->execute(SetTrackDrumMap{id, std::move(binding)});
+}
 void Application::reconnect_midi(){require_not_recording();require_not_playing();midi_inputs_.reset();midi_route_revision_=~std::uint64_t{};rebuild_audio(true);if(midi_outputs_)midi_outputs_->reconnect();publish_midi_routes();}
 std::string Application::midi_output_status(const Id& id)const{
     const auto p=services_.projects->state().project;const auto t=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& track){return track.id==id;});
@@ -1991,6 +2021,7 @@ bool Application::history(bool redo) {
     require_not_recording();
     const auto target = services_.projects->history_target(redo);
     if (!target) return false;
+    if(edit_midi_velocities(*services_.projects->state().project,*target,nullptr,redo))return true;
     if(same_except_clips(*services_.projects->state().project,*target)&&same_midi_clips(*services_.projects->state().project,*target)&&
        edit_clip_state(*target,nullptr,redo))return true;
     const auto& currentSnapshot=*services_.projects->state().project;
@@ -2270,10 +2301,22 @@ void Application::move_clips(std::vector<Id> ids,Sample delta,int track_delta){
 
 void Application::remove_clips(std::vector<Id> ids){struct RemoveClips final:ICommand{std::vector<Id> ids;std::string_view name()const override{return "Remove selected clips";}void apply(Project& p)const override{for(const auto& id:ids)RemoveClip{id}.apply(p);}} command;command.ids=std::move(ids);require(!command.ids.empty(),"Select clips to delete");const auto p=services_.projects->state().project;const bool onlyMidi=std::all_of(command.ids.begin(),command.ids.end(),[&](const auto& id){const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==id;});return c!=p->clips.end()&&c->midi.has_value();});if(onlyMidi){auto candidate=*p;command.apply(candidate);edit_timing(std::move(candidate),&command,{},true,true);}else edit(command);}
 Id Application::create_midi_clip(const Id& track,Tick start,Tick length){Clip c;c.id=new_id();c.track=track;c.name="MIDI clip";c.midi=MidiClip{start,length,0,{}};edit(AddMidiClip{c});return c.id;}
-bool Application::audition_note(const Id& track,int pitch,int velocity,int channel,bool on,bool soft_release){
+std::uint64_t Application::live_note_activity(const Id& track) const noexcept {
+    const auto at = std::find(mixer_tracks_.begin(), mixer_tracks_.end(), track);
+    return at == mixer_tracks_.end() ? 0 : engine_->live_note_activity(static_cast<std::size_t>(at - mixer_tracks_.begin()));
+}
+int Application::take_instrument_output_note(const Id& id) {
+    const auto runtime = insert_runtime_.find(id.value);
+    if (runtime == insert_runtime_.end() || !runtime->second.graph) return -1;
+    const auto p = services_.projects->state().project;
+    const auto track = std::find_if(p->tracks.begin(), p->tracks.end(), [&](const auto& t) { return t.id == id; });
+    if (track == p->tracks.end() || track->kind != TrackKind::instrument || track->inserts.empty()) return -1;
+    return runtime->second.graph->take_output_note(track->inserts.front().id);
+}
+bool Application::audition_note(const Id& track,int pitch,int velocity,int channel,bool on,unsigned release_ms){
     if(recording()||pitch<0||pitch>127||velocity<1||velocity>127||channel<0||channel>15)return false;
     const auto at=std::find(mixer_tracks_.begin(),mixer_tracks_.end(),track);if(at==mixer_tracks_.end())return false;
-    return engine_->enqueue_audition_midi({engine_->midi_generation(),static_cast<std::size_t>(at-mixer_tracks_.begin()),{0,on?processing::MidiKind::note_on:processing::MidiKind::note_off,static_cast<std::uint8_t>(channel),static_cast<std::uint8_t>(pitch),static_cast<std::uint8_t>(velocity)},0,soft_release&&!on?70U:0U});
+    return engine_->enqueue_audition_midi({engine_->midi_generation(),static_cast<std::size_t>(at-mixer_tracks_.begin()),{0,on?processing::MidiKind::note_on:processing::MidiKind::note_off,static_cast<std::uint8_t>(channel),static_cast<std::uint8_t>(pitch),static_cast<std::uint8_t>(velocity)},0,on?0U:release_ms});
 }
 void Application::edit_midi_notes(const Id& id,std::vector<Id> selected,const NoteEdit& settings){
     require_not_recording();require_not_playing();const auto p=services_.projects->state().project;const auto at=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});require(at!=p->clips.end()&&at->midi.has_value(),"select a MIDI clip");

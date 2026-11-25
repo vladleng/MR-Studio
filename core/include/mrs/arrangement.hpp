@@ -14,13 +14,16 @@ public:
     void apply(Project&) const override;
 private: Id id_; stretch::Backend backend_;
 };
+enum class StretchAnchor { start, end };
+// Geometry only; shared by the arrangement preview and the committed command.
+void stretch_audio_source(Clip&,stretch::Parameters,StretchAnchor);
 class SetAudioStretch final : public ICommand {
 public:
-    SetAudioStretch(Id id,stretch::Parameters parameters,bool reset=false)
-        : id_(std::move(id)), parameters_(parameters), reset_(reset) {}
+    SetAudioStretch(Id id,stretch::Parameters parameters,bool reset=false,StretchAnchor anchor=StretchAnchor::start)
+        : id_(std::move(id)), parameters_(parameters), reset_(reset), anchor_(anchor) {}
     std::string_view name() const override { return "Audio clip time / pitch"; }
     void apply(Project&) const override;
-private: Id id_; stretch::Parameters parameters_; bool reset_{};
+private: Id id_; stretch::Parameters parameters_; bool reset_{}; StretchAnchor anchor_;
 };
 class RemoveTrack final : public ICommand {
 public:

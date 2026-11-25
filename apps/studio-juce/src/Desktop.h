@@ -7,6 +7,9 @@
 #include "Playhead.h"
 #include "LiveDocument.h"
 #include "LiveEditProtocol.h"
+#if defined(MRS_PROJECT_IMPORT_UI)
+#include "ProjectImportCommit.h"
+#endif
 #include <mrs/desktop.hpp>
 #include <mrs/midi_import.hpp>
 #include <mrs/diagnostics.hpp>
@@ -29,10 +32,10 @@ class Arrangement;
 class ChordTrack;
 class Strip;
 class TrackFolderHeader;
+class ChannelInspector;
 class Browser;
 class LibraryFoundationPanel;
 class FxPanel;
-class ChannelInspector;
 class ProjectHome;
 class LiveWorkspace;
 class EditorWindow final : public juce::DocumentWindow {
@@ -62,6 +65,21 @@ public:
     juce::PopupMenu getMenuForIndex(int,const juce::String&) override;
     void menuItemSelected(int,int) override;
     void action(int);
+#if defined(MRS_PROJECT_IMPORT_UI)
+    static constexpr int previewDawprojectAction=718;
+    juce::PopupMenu projectImportMenu() const;
+    void startProjectImportPreview(const juce::File&);
+    void pollProjectImportPreview();
+    std::future<mrs::project_import::Preview> projectImportPreview;
+    void startProjectImportCreate(mrs::project_import::CreateRequest);
+    void pollProjectImportCreate();
+    void resolveProjectImportMedia(mrs::project_import::CreateRequest,std::vector<mrs::project_import::RelinkRequest>);
+    std::optional<mrs::project_import::CreateRequest> projectImportRequest;
+    std::future<mrs::project_import::CreateResult> projectImportCreate;
+    std::stop_source projectImportStop;
+    juce::File projectImportSource;
+    juce::Component::SafePointer<juce::AlertWindow> projectImportDialog;
+#endif
     void navigationMenu(bool sections);
     juce::ComboBox navigationMode;
     juce::PopupMenu channelMenu(std::optional<mrs::Id>);
@@ -280,6 +298,9 @@ public:
     juce::String liveBrowserItem;
     std::uint64_t liveSelectionRevision{};
     juce::String livePendingItem, liveFailedPlaybackKey, liveNextKey, liveNextItem, liveNextStatus, livePreloadError;
+    // B1 diagnostics: monotonic start of the current Item switch, 0 when idle.
+    juce::uint32 liveSwitchStartMs{};
+    juce::String liveSwitchItem;
     std::shared_ptr<mrs::desktop::Application::PlaybackPreparation> prepareLivePlayback(const juce::String&);
     void syncLivePreload();
     void stepLiveItem(int direction);
@@ -384,6 +405,9 @@ public:
     void attachClipEditor(juce::Component*,mrs::Id,bool,bool persist=true);
     std::unique_ptr<juce::Component> dockedEditor;
     std::optional<mrs::Id> dockedClip;
+    std::unique_ptr<juce::DocumentWindow> drumMapWindow;
+    void openDrumMaps(std::optional<mrs::Id> track);
+    std::optional<mrs::Id> activeMidiEditorTrack() const;
     std::vector<mrs::Clip> recordingPreview;
     std::vector<mrs::desktop::AudioRecordingPreview> audioRecordingPreview;
     void updateRecordingPreview();
@@ -502,6 +526,7 @@ public:
     kit::MRNativeParameterHost& parameterHost();
     std::vector<mrs::MidiNote> noteClipboard;
     std::optional<mrs::Id> selectedTrack,selectedClip;
+    std::optional<mrs::Id> selectedFolder; // UI-only folder selection for the inspector.
     std::set<std::string> selectedClips,selectedTracks;
     std::vector<mrs::processing::VstPlugin> catalog;
     std::array<mrs::audio::StereoPeak,mrs::audio::max_mixer_tracks> peaks{};
@@ -525,8 +550,14 @@ public:
     int mixerColumnCount{};
     void rebuildMixerFolders();
     std::unique_ptr<Strip> master;
+    std::unique_ptr<ChannelInspector> channelInspector;
+    bool inspectorVisible{};
+    void syncInspector();
+    void toggleInspector();
+    bool inspectorPanelVisible() const;
+    std::optional<mrs::Id> inspectorPanelChannel() const;
+    std::optional<mrs::Id> inspectorPanelFolder() const;
     std::unique_ptr<Browser> browser;
-    std::optional<mrs::Id> selectedFolder; // UI-only folder selection for the inspector.
     std::unique_ptr<ProjectHome> home;
     std::vector<std::unique_ptr<EditorWindow>> windows;
     mrs::desktop::Preferences prefs;
@@ -550,13 +581,6 @@ private:
     friend void clipCopySmoke();
     friend void clipStretchSmoke();
     mutable mrs::audio::RealtimeState lastDisplayState;
-    std::unique_ptr<ChannelInspector> channelInspector;
-    bool inspectorVisible{};
-    void syncInspector();
-    void toggleInspector();
-    bool inspectorPanelVisible() const;
-    std::optional<mrs::Id> inspectorPanelChannel() const;
-    std::optional<mrs::Id> inspectorPanelFolder() const;
     void timerCallback() override;
     void remember();
     bool homeVisible{};
@@ -683,6 +707,7 @@ public:
     void focusLost(FocusChangeType) override;
     bool keyPressed(const juce::KeyPress&) override;
     void cancelGesture();
+    bool stretchDragging() const {return stretchDrag.has_value();}
     void mouseWheelMove(const juce::MouseEvent&,const juce::MouseWheelDetails&) override;
     void mouseDoubleClick(const juce::MouseEvent&) override;
     bool isInterestedInFileDrag(const juce::StringArray&) override;
@@ -706,6 +731,8 @@ public:
     mrs::Sample snapSample(mrs::Sample) const;
     mrs::Sample sampleAt(float) const;
     mrs::Sample seekSampleAt(float) const;
+    std::optional<mrs::LoopRange> rememberedLoop() const;
+    bool selectingLoop() const {return rulerLoop.has_value();}
     int edgeAt(const mrs::Clip&,juce::Point<float>) const;
     std::optional<mrs::Id> clipAt(juce::Point<float>) const;
     void clipMenu(mrs::Id,juce::Point<int>);
@@ -720,8 +747,10 @@ public:
     // collapsed aggregate preview.
     struct FolderRow {mrs::Folder folder;int y{},depth{},height{36},header{-1},channel{-1};};
     std::vector<FolderRow> folderRows;
+    std::vector<std::vector<std::size_t>> folderMembers;
     std::vector<std::unique_ptr<TrackFolderHeader>> folderHeaders;
     std::vector<int> trackPositions;
+    void syncFolderChannels();
     int contentHeight{},layoutTrackHeight{};
     std::vector<std::unique_ptr<Strip>> rows;
     juce::Component rowsBody;
@@ -744,10 +773,8 @@ private:
     struct DropWave {std::uint64_t frames{};std::uint32_t rate{};};
     struct PendingWavDrop {
         std::weak_ptr<mrs::IProjectStore> store;
-    std::vector<std::vector<std::size_t>> folderMembers;
         std::uint64_t importRevision{};
         std::optional<mrs::Id> target;
-    void syncFolderChannels();
         mrs::Sample start{};
         juce::StringArray files;
         std::vector<DropWave> waves;
@@ -766,12 +793,32 @@ private:
     std::optional<mrs::Id> araDropClip;
     std::optional<mrs::Id> midiDropTarget(int y) const;
     mrs::Tick midiDropTick(int x) const;
+    struct StretchDrag {
+        mrs::Clip original, preview;
+        std::shared_ptr<mrs::IProjectStore> store;
+        std::uint64_t revision;
+        mrs::stretch::Backend backend;
+        int edge;
+        float originX;
+    };
+    std::optional<StretchDrag> stretchDrag;
+    void updateStretchDrag(float x,bool useSnap);
     std::optional<mrs::Clip> drag;
     std::optional<mrs::Id> dragTrack;
     mrs::Sample dragStart{};
     mrs::Sample trimStart{},trimEnd{},dragSourceFrames{};
     void updateTrim(mrs::Sample delta,bool useSnap);
     bool rulerSeeking{};
+    struct RulerLoopDrag {
+        std::weak_ptr<mrs::IProjectStore> project;
+        float originX;
+        mrs::Sample anchor;
+        std::optional<mrs::LoopRange> preview;
+    };
+    std::optional<RulerLoopDrag> rulerLoop;
+    std::weak_ptr<mrs::IProjectStore> loopProject;
+    std::optional<mrs::LoopRange> customLoop;
+    void updateRulerLoop(float x);
     float dragX{};
     int trim{};std::vector<mrs::Clip> dragGroup;int dragTrackDelta{};
     std::vector<mrs::Clip> trimPreviews;
@@ -841,11 +888,15 @@ void j2Smoke(Desktop&,const juce::File& fixture={});
 void j2PluginSmoke(Desktop&,const juce::File&);
 void j3Smoke(Desktop&);
 void projectHomeSmoke();
+#if defined(MRS_PROJECT_IMPORT_UI)
+void dawprojectPreviewSmoke(const juce::File& screenshot);
+#endif
 void liveInterfaceSmoke(const juce::File&);
 void controllerScrollSmoke();
 void noteEditorLayoutSmoke();
 void midi4aSmoke(Desktop&,const juce::File&);
 void midi4bSmoke(Desktop&,const juce::File&);
+void pianoAuditionSmoke(const juce::File&);
 void pianoRoll214Smoke();
 void midi4cSmoke(Desktop&,const juce::File&);
 void j3AudioSmoke(Desktop&);

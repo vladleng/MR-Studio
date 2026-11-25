@@ -34,7 +34,8 @@ existing radius with 4/6/8/12 or change point-height semantics simply because a
 candidate schema suggests them. Several local colors remain outside the shared
 palette; consolidate only the categories touched by the task or a requested audit.
 
-Relevant history: `docs/JUCE_FIX1.md`, `JUCE_FIX2.md`, `JUCE_FIX3.md`, `JUCE_J3.md`.
+Relevant history: `docs/JUCE_FIX2.md`, `JUCE_FIX3.md`, `JUCE_J3.md`;
+preset/editor boundaries: [plugin presets](../../../../docs/PLUGIN_PRESETS.md).
 Read only the documents relevant to affected behavior. Working source + a verified
 current screenshot take precedence over historical implementation descriptions;
 explicit user preferences govern the intended design.

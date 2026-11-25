@@ -70,7 +70,7 @@ Do not start the next subtask automatically. Full Live pedal 05G requires curren
 - **[#187 Generic TONEX WAV / IR Collections importer](https://github.com/vladleng/MR-Studio/issues/187)** — **отменить как отдельный продукт**. Только практичный `Import My IR` и manual role/artwork/tags, external asset identity, safe missing/relink и нужные WAV formats идут в [#199](https://github.com/vladleng/MR-Studio/issues/199). **Не переносить** универсальный каталог микрофонов, многофирменные вендорские профили и полноценный import wizard.
 - **[#188 Cab-only modular/QA](https://github.com/vladleng/MR-Studio/issues/188)** — **отменить как отдельный этап**. Общие ограничения RT, shared host, module extension, PDC и QA распределить в [#198](https://github.com/vladleng/MR-Studio/issues/198), [#201](https://github.com/vladleng/MR-Studio/issues/201), [#204](https://github.com/vladleng/MR-Studio/issues/204). Не реализовывать второй аудиодвижок.
 
-Архивные документы [MR_CAB_COLLECTIONS.md](MR_CAB_COLLECTIONS.md), [MR_CAB_ROADMAP.md](MR_CAB_ROADMAP.md), [MR_CAB_CODEX_HANDOFF.md](MR_CAB_CODEX_HANDOFF.md) — **справка о принятых Cab этапах, не активное ТЗ**. Спецификация дальнейшей разработки только в `MR_RIG_*.md` + активных #197–204.
+Архивный [Cab collections contract](MR_CAB_COLLECTIONS.md) и история Git/DSH #182 — **справка о принятых Cab этапах, не активное ТЗ**. Спецификация дальнейшей разработки только в `MR_RIG_*.md` + активных #197–204.
 
 ## 3. Единственная активная последовательность
 

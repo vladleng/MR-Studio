@@ -1,14 +1,14 @@
 # MR Cab 2.0 — Full Combo IR (Polytone / Fender / generic full-chain WAV)
 
-**Дата решения:** 2026-10-14. **Статус:** реализовано локально в **0.4b Full Combo IR**, ожидает ручной приёмки #196. [Поставка/проверки/инструкция](MR_CAB_FULL_COMBO_196_DELIVERY.md).
+**Исторический принятый WAV/IR baseline #196:** 0.4b upd3 принят пользователем 2026-10-15; история поставки/ограничений — Git и DSH #196. Дальнейший продуктовый scope задаёт [актуальная NAM-first архитектура MR Rig](MR_RIG_ARCHITECTURE.md), не старый Full Combo roadmap.
 **Issue:** [#196 — Full Combo IR](https://github.com/vladleng/MR-Studio/issues/196), логический parent [#182](https://github.com/vladleng/MR-Studio/issues/182) в [#111 Native Plugins](https://github.com/vladleng/MR-Studio/issues/111).
 **Готовый baseline:** [#185 — Simple GUI, preset/state, smooth IR switching](https://github.com/vladleng/MR-Studio/issues/185), **accepted/closed 2026-10-14**, локальная версия 0.4a upd1; не открывать/переписывать.
-**Параллельное развитие:** [#187 — generic WAV importer](https://github.com/vladleng/MR-Studio/issues/187) и [#188 — modular/QA](https://github.com/vladleng/MR-Studio/issues/188).
-**Канон Cab:** [MR_CAB_COLLECTIONS.md](MR_CAB_COLLECTIONS.md); [MR_CAB_ROADMAP.md](MR_CAB_ROADMAP.md). **Рабочие правила:** [AGENTS.md](../AGENTS.md), [LOCAL_BUILD_POLICY.md](LOCAL_BUILD_POLICY.md), [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
+**Отменённый прежний план:** [#187 — generic WAV importer](https://github.com/vladleng/MR-Studio/issues/187) и [#188 — modular/QA](https://github.com/vladleng/MR-Studio/issues/188), не отдельные активные задания.
+**Справочник Cab:** [MR_CAB_COLLECTIONS.md](MR_CAB_COLLECTIONS.md). **Рабочие правила:** [AGENTS.md](../AGENTS.md), [LOCAL_BUILD_POLICY.md](LOCAL_BUILD_POLICY.md), [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
 
 ## MR Rig #197 — product reuse (2026-10-15)
 
-Текущий Full Combo WAV функционал #196 (локальная 0.4b upd2, ожидает **отдельной** пользовательской приёмки) будет фигурировать как **curated ToneModel** в [#197 MR Rig](https://github.com/vladleng/MR-Studio/issues/197): карточка с названием/изображением/метаданными и возможность сохранить **RigPreset** со всей Pre/Core/Post FX цепью. Нельзя считать статический WAV полноценной динамической эмуляцией Fender/Polytone. Вкладка NAM должна использовать отдельный neural runtime, а не здесь. #196 владеет только Full Combo WAV import/role/browser; #197 отвечает за GUI/педали/модельную библиотеку/нейросети; [спецификация](MR_RIG_ARCHITECTURE.md) и [roadmap](MR_RIG_ROADMAP.md). No change to code or 0.4b approval via this note.
+Принятый #196 — исторический WAV import/role/browser фундамент. Ранний план использовать Full Combo WAV как Amp Core заменён [NAM-first архитектурой](MR_RIG_ARCHITECTURE.md): NAM — amplifier Core, WAV convolver — optional Cabinet IR после amp-only NAM, не второй конкурирующий Amp. Статический WAV не становится динамической эмуляцией Fender/Polytone; прежние source/state/accepted binaries не удаляются этим решением. Разделы ниже — контракт того WAV-среза, не новый Rig roadmap.
 
 ## 1. Что нужно пользователю
 
@@ -57,6 +57,13 @@ MR Cab
 **Названия — примеры, не утверждение что у пользователя уже есть такие WAV или что эти presets существуют.** Можно отобразить внутренний общий `Collection → Device/Model → IR Variant` с `device_role=Cabinet|Combo`, не выдумывая второй catalog. В Full Combo UI не требовать mic or cab facet, если производитель их не сообщает. `Amp Gain`, `Bass/Mid/Treble` как реальные поворотные регуляторы **не добавлять**, если на IR они не влияют: можно показывать именованные статические варианты capture (Bright/Clean/Warm) при наличии.
 
 Текущие #185 filter menus по пользовательскому решению **фильтруют WAV list, не auto-select и не автоматически переключают пресет**. Это сохраняется, пока пользователь отдельно не примет другой UX.
+
+Browser role/facets/search/toggles are per-insert local view preferences, not project/
+preset state or Undo. Close/reopen and late asynchronous catalog completion retain
+intended filter choices. Cab preset changes retain the same window and refresh the
+actual loaded WAV/digest identity, not merely a reused loader revision. Existing
+[Cab editor checks](../apps/studio-juce/src/Editors.cpp) cover these accepted follow-ups;
+their delivery history remains in DSH #196 and Git.
 
 ## 3. Signal flow / DSP
 

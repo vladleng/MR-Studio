@@ -1,6 +1,6 @@
 # MR UI Kit + Gallery — stages, checks, adoption plan
 
-**Parent:** [#189](https://github.com/vladleng/MR-Studio/issues/189), category [#78](https://github.com/vladleng/MR-Studio/issues/78). **Статус:** backlog, 2026-10-14; не запускать реализацию автоматически. **Spec:** [MR_UI_KIT.md](MR_UI_KIT.md), [Gallery](MR_UI_GALLERY.md), [Codex handoff](MR_UI_KIT_CODEX_HANDOFF.md). Issues #190–#195 связаны этим checklist; **GitHub-native sub-issue links not yet verified**.
+**Parent:** [#189](https://github.com/vladleng/MR-Studio/issues/189), category [#78](https://github.com/vladleng/MR-Studio/issues/78). **Статус:** backlog, 2026-10-14; не запускать реализацию автоматически. **Spec:** [MR_UI_KIT.md](MR_UI_KIT.md), [Gallery](MR_UI_GALLERY.md). Issues #190–#195 связаны этим checklist; **GitHub-native sub-issue links not yet verified**.
 
 | Этап | Issue | Результат | Gate |
 |---|---|---|---|
@@ -33,5 +33,5 @@
 
 ## Source/collaboration rules
 
-Read [AGENTS.md](../AGENTS.md), [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md), [LOCAL_BUILD_POLICY.md](LOCAL_BUILD_POLICY.md), [UI_REFERENCE_UPD9.md](UI_REFERENCE_UPD9.md), [REVERB_EDITOR_IMPLEMENTATION.md](REVERB_EDITOR_IMPLEMENTATION.md), [NATIVE_INSERTS.md](NATIVE_INSERTS.md).
+Read [AGENTS.md](../AGENTS.md), [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md), [LOCAL_BUILD_POLICY.md](LOCAL_BUILD_POLICY.md), [REVERB_EDITOR_IMPLEMENTATION.md](REVERB_EDITOR_IMPLEMENTATION.md), [NATIVE_INSERTS.md](NATIVE_INSERTS.md).
 Source/configure/build/test/GUI snapshots/packages **locally**, docs/issues on GitHub only [skip ci], no Actions/source push/merge/PR. Stage P1 audits before modifying. Track native GitHub attachment separately; Markdown checklist is not native sub-issues.

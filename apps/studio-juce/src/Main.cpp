@@ -1,5 +1,10 @@
 #include "LibraryBrowserView.h"
 #include "Desktop.h"
+namespace ui { void noteGridSmoke(); }
+#if defined(MRS_DRUM_MAP_UI)
+#include "DrumMapEditor.h"
+namespace ui { void drumGridSmoke(); }
+#endif
 #if defined(MRS_TRANSCRIPTION_UI)
 #include "TranscriptionView.h"
 #endif
@@ -55,6 +60,15 @@ public:
 #endif
         if(args.contains("--separation-project-smoke")){try{ui::separationProjectSmoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("separation-project-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}
         if(args.contains("--separation-models-smoke")){try{ui::separationModelsSmoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("separation-models-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}
+        if(args.contains("--piano-audition-smoke")){
+            try{
+                const auto tokens=juce::StringArray::fromTokens(args,true);
+                const int at=tokens.indexOf("--piano-audition-smoke");
+                ui::pianoAuditionSmoke(at>=0&&at+1<tokens.size()?juce::File(tokens[at+1].unquoted()):juce::File());
+                setApplicationReturnValue(0);
+            }catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("piano-audition-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}
+            quit();return;
+        }
         if(args.contains("--piano214-smoke")){try{ui::pianoRoll214Smoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("piano214-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}
         if(args.contains("--channel213-smoke")){try{ui::channel213Smoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("channel213-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}
         if(args.contains("--compact-fader215-smoke")){try{ui::compactFader215Smoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("compact215-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}
@@ -137,6 +151,14 @@ public:
             catch(const std::exception& e){failure.replaceWithText(e.what());setApplicationReturnValue(1);}
             quit();return;
         }
+        if(args.contains("--dawproject-preview-smoke")){
+            const auto folder=juce::File::getCurrentWorkingDirectory();
+            const auto failure=folder.getChildFile("dawproject-preview-failure.txt");
+            failure.deleteFile();
+            try{ui::dawprojectPreviewSmoke(folder.getChildFile("dawproject-preview.png"));setApplicationReturnValue(0);}
+            catch(const std::exception& e){failure.replaceWithText(e.what());setApplicationReturnValue(1);}
+            quit();return;
+        }
         if(args.contains("--wav-drop-smoke")){
             const auto failure=juce::File::getCurrentWorkingDirectory().getChildFile("wav-drop-failure.txt");failure.deleteFile();
             try{ui::wavDrop263Smoke();setApplicationReturnValue(0);}
@@ -161,6 +183,26 @@ public:
             catch(const std::exception& e){failure.replaceWithText(e.what());setApplicationReturnValue(1);}
             quit();return;
         }
+        if(args.contains("--note-grid-smoke")){
+            try{ui::noteGridSmoke();setApplicationReturnValue(0);}
+            catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("note-grid-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}
+            quit();return;
+        }
+#if defined(MRS_DRUM_MAP_UI)
+        if (args.contains("--drum-grid-smoke")) {
+            try { ui::drumGridSmoke(); setApplicationReturnValue(0); }
+            catch (const std::exception& e) { juce::File::getCurrentWorkingDirectory().getChildFile("drum-grid-failure.txt").replaceWithText(juce::String::fromUTF8(e.what())); setApplicationReturnValue(1); }
+            quit(); return;
+        }
+        if (args.contains("--drum-map-editor-smoke")) {
+            try { ui::drumMapEditorSmoke(); setApplicationReturnValue(0); }
+            catch (const std::exception& e) {
+                juce::File::getCurrentWorkingDirectory().getChildFile("drum-map-editor-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));
+                setApplicationReturnValue(1);
+            }
+            quit(); return;
+        }
+#endif
         if(args.contains("--library-browser-smoke")){
             juce::File::getCurrentWorkingDirectory().getChildFile("library261-failure.txt").deleteFile();
             try{ui::libraryBrowserSmoke();setApplicationReturnValue(0);}

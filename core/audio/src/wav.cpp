@@ -74,7 +74,14 @@ WavFile inspect_wav(const std::filesystem::path& path) {
             data_offset = payload; data_size = size; have_data = true;
         }
         offset = payload + size + (size & 1U);
-        if (offset > declared_end) throw std::invalid_argument("missing WAV chunk padding");
+        if (offset > declared_end) {
+            // Studio Pro can omit the final pad byte of odd-sized PCM data.
+            // Accept only terminal data with all payload bytes physically present;
+            // interior chunks still require padding and bounds remain unchanged.
+            if (!std::memcmp(chunk.data(), "data", 4) && payload + size == declared_end
+                && declared_end == static_cast<std::uint64_t>(file_size)) break;
+            throw std::invalid_argument("missing WAV chunk padding");
+        }
     }
     if (!have_format || !have_data || data_size == 0 || data_size % block_align != 0)
         throw std::invalid_argument("missing or misaligned WAV data");

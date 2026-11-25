@@ -123,6 +123,8 @@ void shellDesignSmoke() {
             const std::array<float,4> scales{1,1.25f,1.5f,2};
             for(std::size_t i=0;i<scales.size();++i){before[i]=d.createComponentSnapshot(d.getLocalBounds(),true,scales[i],juce::SoftwareImageType{});save(before[i],"accepted-"+juce::String(scene)+"-"+juce::String(size.x)+"x"+juce::String(size.y)+"-"+juce::String(static_cast<int>(scales[i]*100)));}
             d.setShellDesign(true);
+            check(d.inspectorButton.getRight()<d.shellStatus.getX()&&d.inspectorButton.getRight()<d.cpuReadout.getX(),"Footer status and CPU label stay to the right of the inspector toggle");
+            check(d.cpuReadout.getRight()<d.audioCpuBar.getX()&&d.audioCpuBar.getRight()<d.latencyReadout.getX()&&d.latencyReadout.getRight()<d.navigationMode.getX(),"Footer CPU and latency readouts have separate space before transport");
             check(d.arrangeArea==area&&d.mixArea==mix&&d.browser->getBounds()==browser,"Shell leaves content geometry intact");
             check(!d.theme.isPreview()&&d.theme.findColour(juce::TextButton::buttonColourId)==originalTheme,"Parent Theme isolated");
             juce::Component* buttons[]{&d.pointerTool,&d.knifeTool,&d.undo,&d.redo,&d.duplicate,&d.zoomIn,&d.zoomOut,&d.fit,&d.snapButton,&d.clickButton,&d.countButton,&d.play,&d.pause,&d.stop,&d.record,&d.previous,&d.next,&d.loop,&d.editButton,&d.mixButton,&d.brows,&d.navigationMode};

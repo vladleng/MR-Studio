@@ -1,86 +1,53 @@
 ---
 name: mr-unified-gui
-description: "Use for the approved MR Studio-wide GUI visual style, native JUCE plugin editors, DAW/Live screens, theme, controls, SVG/icon creation, UI Gallery previews, and UI visual regression. Do not use for DSP-only work."
+description: "Use for designing, improving, redesigning or checking MR Studio, MR Live and MR-owned native plugin GUIs: JUCE screens, layout, controls, themes, icons/SVG, usability and visual validation. Not for DSP-only tasks."
 ---
 
-# mr-unified-gui — MR Studio + all native plugins
+# MR Unified GUI — flexible design, safe implementation
 
-## When to use
-A task concerns new/redesigned MR Studio screens (Arrange, Mixer, Browser, Inspector, Live, host chrome), native plugin GUI (MR Rig, MR Reverb, MR Strip, Spatial, Saturator, Harma Waves), JUCE controls, icons/SVGs, theme, DPI, or visual acceptance.
+## Scope and design freedom
 
-This skill is **not execution permission**; use only the assigned DSH task and phase. Do not start a redesign just because a feature names a plugin.
+The current user request and assigned DSH task define **what may change**. Do not treat historical approvals, screenshots, UI tokens, exact dimensions or the current `ui::Theme` as permanent design restrictions. They describe the existing implementation or a useful reference, **not a prohibition on explicitly requested changes**.
 
-## Minimal reading (do NOT load entire docs or all skills)
-1. Root AGENTS.md and assigned DSH task; load `dsh-task-manager-workflow` before journal operations; verify local git status, current branch and HEAD.
-2. docs/MR_UNIFIED_DESIGN_SYSTEM.md — sections 1–5: **approved visual target**.
-3. docs/MR_UI_KIT.md + docs/MR_UI_KIT_ROADMAP.md **only for shared components/LookAndFeel/Gallery** (#189, #190–195).
-4. Read **one relevant product document**, e.g. docs/MR_RIG_GUI.md, docs/MR_REVERB.md, docs/UI_UX_CONCEPT.md, or exact DAW UI module document.
-5. Search actual local code for current ui::Theme, Controls.h, editor lifetime and parameter-binding APIs; follow existing docs/UI_REFERENCE_UPD9.md and approved #145/#146 as the **as-built** baseline. Do not assume a specification means code already migrated.
-6. If a local mr-studio-ui-design-system skill exists, read it only when needed, reconcile overlap without creating a second Theme implementation. This skill owns **approved style**; MR UI Kit owns **implementation**.
+Choose the approach from the intent of the request (no special mode command required):
 
-## Design language
-- Flat dark blue-graphite; neutral text; delicate cool blue-gray 1–1.6 SVG contour art; very restrained pale blue focus/selection. Green enabled, red recording/error, amber cue/warning; no color-only meaning.
-- No skeuomorphic/photoreal physical controls, decorative neon glow, copied amp images/product logos, big gradients or redundant decorative meters. Restrained active-icon glow is allowed by the user's button presentation rule below.
-- 4 logical-px rhythm; compact panels + real hit targets/focus and unit legibility. Larger high-priority controls in Live Mode.
-- Device illustrations: original thin-line amplifiers/cabs/pedals/microphones for MR Rig; outline spaces/devices for MR Reverb, not screenshots or third-party branding.
-- Target palette and proportions are in docs/MR_UNIFIED_DESIGN_SYSTEM.md; do not globally overwrite accepted current Theme colors without an approved migration slice.
+- **Fix** — correct the stated defect; otherwise preserve the current visual design.
+- **Improve** — change the affected layout, hierarchy, sizing, controls or presentation as needed to solve the UX problem; do not limit the result to cosmetic tweaks.
+- **Redesign** — allow substantial changes to the requested screen/component, including layout, geometry, visual language and relevant shared tokens. Retain only the functional contracts and the boundaries of the requested scope. Do not silently redesign unrelated screens.
 
-**Icon and button presentation (user decision, 2026-10-16):** Prefer icons without frames. Icon-only buttons have no visible button rectangle, border or plate; activation highlights the glyph itself with a restrained glow. Text-labelled buttons retain their frames. Preserve clear hover/pressed/disabled and keyboard-focus feedback, accessible names and real hit areas without restoring a persistent icon-button box. This applies to DAW and MR-owned plugin UI in the assigned migration slice, not an automatic global repaint.
+If the user asks for a visible redesign, the implementation must produce a **meaningful visible difference**, not merely new color constants or a refactor of unused UI code. A previously accepted design remains the default only until the user requests a change. MR UDS provides reusable assets and optional visual continuity, not a frozen mandatory palette, icon treatment or control geometry. For broad cross-product changes, establish the intended scope before changing shared assets/tokens.
 
-## Canonical local asset location
+## Read only what the task requires
 
-- **MR UDS library root:** `assets/ui/mr-uds/`. Existing SVG folders are nested: `svg/controls/`, `svg/icons/`, `svg/rig/`, `svg/reverb/`; concepts: `previews/`. **Do not flatten `svg/`: `manifest.json` and `build_kit.py` require that level.**
-- Keep **`tokens/` directory, `manifest.json`, `build_kit.py` and the asset-kit `README.md` at the root `assets/ui/mr-uds/`** (not in `.codex/skills/`, not in `docs/`). This keeps the generator's relative paths together. Do not run `build_kit.py` automatically: first inspect its dependencies, output paths and overwritten files in the task checkout.
-- First inspect `assets/ui/mr-uds/manifest.json` and matching `svg/` files, then `assets/ui/icons/transport/` for existing transport assets; reuse before drawing. Do not silently move/overwrite existing transport icons.
-- Treat this as the canonical tracked repository path. If missing, inspect the current local branch and Git history; do not invent asset filenames or pretend to have previews.
-- All new art should be added to the same library and its manifest, with original/license notes and size/state variants. Source/assets are versioned in local Git; builds and artifacts follow the local policy in AGENTS.md. Tasks and acceptance are tracked in DSH Task Manager.
+1. Follow the global and project `AGENTS.md`, the assigned DSH task and current local checkout. Use `dsh-task-manager-workflow` **only when interacting with the task journal**. Before editing, check current branch, HEAD and working diff.
+2. Locate the **active** JUCE component, layout code, LookAndFeel/theme and affected binding; verify that the edited component is used by the actual target. Do not mistake a design document, old issue, Gallery concept or unused control for the running UI.
+3. Read **only relevant sections** of `docs/MR_UNIFIED_DESIGN_SYSTEM.md` when shared visual roles or assets matter. It is a reference for design choices, not a mandatory full-document read or a fixed target during redesign.
+4. Use `mr-studio-ui-design-system` only when its detailed JUCE implementation guidance is necessary (geometry, focus, DPI, window behavior). Use `mr-studio-build-test` only for applicable build/test procedures. Do not automatically chain other Skills.
+5. Open product-specific docs only for the component or behavior being changed: e.g. `docs/MR_RIG_GUI.md`, `docs/MR_REVERB.md`, `docs/MR_FADER_SYSTEM.md`, `docs/MR_SVG_RUNTIME.md`, or MR UI Kit documents for actual shared catalog/LookAndFeel/Gallery work. Do not open these by default.
 
-## Shared DAW and native-plugin catalog
+## Functional constraints — always preserve unless explicitly in scope
 
-- Develop one catalog for DAW, Live and MR-owned native plugins, with shared palette, contours, control geometry and states. Add plugin-specific controls/art to the same library; reuse existing assets before adding variants. Inspect `previews/concept_pack.html`, `catalogs/fader_control_track_utility_v1.json` and `tokens/concept_pack.json` under the library root for exact ids/paths.
-- A user can select an element by name or screenshot and request replacement in a specific screen. Adapt visible size and layout while preserving actual parameter mapping, gestures, Undo, keyboard focus and accessibility. Catalog inclusion does not mean runtime adoption or acceptance of every screen.
-- Keep previews, manifest and catalog entries consistent when changing assets. For the concept extension use `build_concept_pack.py`, `validate_concept_pack.py` and `render_concept_pack.cjs`; inspect their write scope first. Legacy `build_kit.py` overwrites base library files and must not rebuild the extension.
-- Static meter/waveform examples are design references; runtime displays must reflect actual host data. Follow `docs/MR_SVG_RUNTIME.md` for current adoption boundaries. Catalog expansion and plugin-editor adoption are separate slices (#208 assets, #206 native editors, #205 DAW); a future direction does not start all three.
-- Record dated acceptance and exact source/package scope in the relevant DSH task, not as a growing history in this skill. Preserve accepted visual changes in later work unless the user requests replacement.
+- Keep real audio/MIDI/parameter bindings, units, range/default values, automation, gestures, Undo/Redo, persistence, routing, transport and existing project compatibility intact. A visual change must not silently change DSP, graph, PDC or audio-thread behavior.
+- Respect JUCE component/editor lifetime, threading, focus, keyboard operation, pointer hit areas and accessibility. Do not perform UI work in the audio callback. Verify changes to window ownership, resizing and editor reopening when affected.
+- Preserve meaningful state feedback (normal, hover, pressed, selected, disabled, focus, error, recording/cue as relevant); do not rely solely on color. Provide legibility and adequate hit targets. Live-performance controls deserve particular attention to clarity and accidental activation.
+- Prefer existing shared components and a consistent design source **when they fit the new design**. It is permitted to modify/refactor them within the agreed scope; do not create a competing global Theme, duplicated host binding or parallel UI framework just to realize a new look.
+- UI must represent genuine functionality and live data; no fake working meters, controls or plugin capabilities. Do not restyle vendor-owned VST3 editors. Respect third-party rights for artwork/branding.
 
-## Fast path — cosmetic-only changes (V1)
+## SVG and shared assets — when relevant
 
-For isolated changes to background, color, contour stroke width or icon tint **without affecting geometry, hit areas, layout, interaction, bindings, model/persistence or DSP**, use V1. Check the diff before classifying; shared theme tokens can affect several screens. User visual acceptance of V1 does **not** automatically require L4 / full CTest.
+- The local MR UDS asset root is `assets/ui/mr-uds/`; inspect `manifest.json` and existing `svg/`, `tokens/` and `previews/` **only if assets are involved**. Keep repository-relative paths and manifest references consistent; do not flatten the SVG tree or move the transport icon library without a separate task.
+- Reuse suitable existing assets; create or revise assets where a new design needs them. Icons should remain legible, scalable and original; SVGs need a valid `viewBox`, transparent background when appropriate, no embedded scripts/remote resources, and provenance/license notes. Exact sizes, line weights and frame treatment depend on the requested design, not a universal fixed prescription.
+- Inspect generator output paths and overwritten files before running `build_kit.py` or concept-pack scripts. Do not regenerate the entire kit for one icon.
+- Fader families (`MR Micro`, `MR Slide`, `MR Precision`) and `docs/MR_FADER_SYSTEM.md` are prior design references, **not immutable geometry**. When changing a fader, preserve gain/automation bindings, gestures, scale and meter semantics; use vector/Gallery previews if genuinely useful and available, not as an automatic gate for every adjustment.
 
-1. Read the relevant task, palette role and affected asset/source, rather than the full UI documentation.
-2. Change the smallest existing Theme token or asset; avoid needlessly touching headers shared across many targets.
-3. For cosmetic-only work check diff/source/resource correctness; visual acceptance is by the user. No automatic tests, screenshots, previews or DPI runs. Build only the affected GUI target if an updated executable is requested.
-4. Do not automatically run clean/reconfigure, build all targets, full CTest, every DPI/window-size/state combination, repeated editor/preset cycles, packaging or shortcut updates. Escalate only when change scope/risk, failure or explicit request justifies it.
-5. Report PASS/FAIL/NOT TESTED accurately; keep comprehensive acceptance tests for substantive changes and release candidates.
+## Execution and proportionate verification
 
-## Procedure for one screen or SVG
-1. **Inventory first**: show what already exists, what is accepted and the exact scope; locate existing similar components/icons.
-2. **Define roles/states**: component meaning + normal, hover, pressed, focus, selected, enabled, disabled, error, loading/missing as appropriate. Selected is not a synonym for On.
-3. **Reuse the shared JUCE component**, adapting through one audited semantic Theme / LookAndFeel. If #189 components are still pending, use existing approved UI controls or scoped prototype; never invent competing controls/host bindings.
-4. **For SVG**: original vector with viewBox and transparent background, consistent line weight and palette, no image/font/link/script embedding. Icons 24x24 (compact 16/20 LOD when needed); equipment 320x200; stable snake_case asset id and provenance. Confirm existing kit is physically in local workspace before using it; earlier conversation ZIP is not in GitHub.
-5. **Functional integrity**: real parameter metadata/units/default/range, one Undo action per gesture, keyboard/fine/reset, automation and persistence. Maintain native window owner/reopen/focus/Space behavior; do not paint in audio callback or alter DSP/graph/PDC for appearance.
-6. **Compare and validate proportionally**: for cosmetic-only V1 use the fast path above. For a new/changed geometry, significant component/screen redesign or explicitly agreed milestone, check before/after screenshots, Gallery if ready, software 100/125/150/200%, min/nominal/max windows, legible text/contrast/focus, mouse/keyboard, zoom, editor close/reopen/presets and affected regressions. Actual hardware mixed-DPI and ASIO explicitly NOT TESTED unless run.
-7. **Report**: exact implemented/simulated parts, test PASS/FAIL/NOT TESTED, source/asset rights, visual differences and user acceptance pending; record meaningful results in the assigned DSH task within the agreed scope and report in chat. Stop before next slice.
+1. **Identify intent and scope.** For an improvement/redesign, state briefly what should look or work differently. Inspect the current UI and relevant code before implementing; use a screenshot/reference when available, without making its absence a blocker for code work.
+2. **Implement in the running path.** Confirm that the changed component and theme are actually instantiated and no other LookAndFeel, resource or cached/old executable overrides the change. Keep edits restricted to the agreed screen and any necessary shared dependencies.
+3. **Check according to risk:**
+   - **Cosmetic only** (color, tint, stroke/background with no geometry, hit-area, layout, bindings, behavior or build-system change): inspect diff and asset/source correctness. No mandatory build, screenshots, GUI smoke or DPI matrix. Build only when an updated executable is requested or technically needed.
+   - **Layout or interaction**: build/test the affected local target and changed behavior; check meaningful states, keyboard/pointer/focus, sizing and relevant DPI cases, using available tools. Avoid automatic full CTest, cross-product rebuilds or packaging.
+   - **Substantial redesign**: where GUI execution or screenshots are available, compare **before and after on the same target/build/scale** and assess whether the requested change is actually visible and usable. Run only the relevant functional regressions. Do not require a full DPI matrix, vector mockup or Gallery preview unless justified by scope or explicitly requested.
+4. **Report accurately.** Distinguish code changed, build/test PASS, appearance visually verified, and user acceptance. If the actual GUI cannot be run or inspected, mark visual verification **NOT TESTED** and give concise manual acceptance steps; never claim that a code diff proves the new interface looks correct. Record significant results in the DSH task when that work is authorized.
 
-## Product-specific cautions
-- **MR Rig**: PRE FX → Rig Core → POST FX; one selected module inspector; don't draw non-existent dynamic-amp controls for static WAV, or suggest NAM sounds before NAM backend exists. #197/#200 control the product implementation.
-- **MR Reverb**: #128 is accepted/closed; GUI refresh is separate UI-only work and must preserve actual Pre-delay/Tone/Mix and IR browsing. No new effect/processor in a GUI task.
-- **Main DAW**: no regression to Arrange, Mixer, routing, clip editing, browser selection or project save/Undo; migration incrementally.
-- **Live Mode**: same style but larger clarity, cue priority and performance safety. Preserve moving Chord Track.
-- **External VST3 editors**: no restyling vendor-owned UI. Only MR host chrome and MR-owned generic controls.
-
-## Completion checklist
-- [ ] follows approved dark blue-graphite / fine contour style
-- [ ] shares design roles/components with MR UI Kit; no parallel Theme
-- [ ] all required state/keyboard/accessibility/units visible
-- [ ] no fake controls or unverified DSP meters
-- [ ] 100/125/150/200 matrix for new geometry / substantial layouts (N/A for cosmetic V1); actual physical DPI recorded as NOT TESTED unless measured
-- [ ] existing functional behavior and RT safety unchanged
-- [ ] source/license for SVG/icon noted; original and redistributable
-- [ ] checks proportional to V1/component/release gate recorded; user signoff pending until explicitly given
-
-**Local Git owns source/docs/assets/skills; DSH Task Manager owns task requirements, status and acceptance. Publication and merge require separate authorization under AGENTS.md.**
-
-## MR Fader visual selection (2026-10-16)
-
-For DAW faders, read **`docs/MR_FADER_SYSTEM.md`** only when task concerns fader design / mixer / track headers. Approved direction: **MR Micro** (thin matte vertical Mixer/Bus), **MR Slide** (strict horizontal Track Header/Send), **MR Precision** (large/expanded, same family). Use existing accepted #192 `MRFader` and #194 bindings; do not rebuild three components. **Only when choosing or changing fader geometry** (track, thumb, travel, orientation, scale, hit area or new family variant), the user visual gate requires BOTH a **vector geometry reference** and a **real JUCE Gallery in-context preview** with state/DPI variations. A change limited to color, tint or contour stroke width that preserves the existing geometry, hit areas, behavior and readability is **V1 cosmetic**: verify source/resource correctness and the diff; no automatic rendered preview; do not require a new geometry reference, Gallery matrix or L4 tests. If a stroke change alters effective bounds or layout, escalate to the geometry gate. Separate fader gain from measured signal meter. Rollout #205 P2/P3, do not start from the skill alone.
+Do not initiate unrelated redesigns, new tasks, Git push/merge or releases from this Skill. Authorization and task state remain governed by project `AGENTS.md` and DSH Task Manager.

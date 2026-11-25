@@ -140,7 +140,7 @@ engine/MIDI/click, synthetic VST3 context. После кода — локаль�
 
 ## Основания
 
-[Риски](STAGE_5_RISK_REVIEW.md), [musical contracts](MUSICAL_TIMELINE.md),
+[Musical contracts](MUSICAL_TIMELINE.md),
 [persistence](PERSISTENCE.md), [Live workflow](LIVE_WORKFLOW.md),
 [UI](UI_UX_CONCEPT.md), [roadmap](ROADMAP.md),
 [metronome](METRONOME_PRECOUNT.md), [MIDI](MIDI_MUSICAL_EDIT.md),

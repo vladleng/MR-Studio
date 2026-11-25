@@ -82,6 +82,23 @@ using SaveHook = std::function<void(SavePoint)>; // fault injection/diagnostics
 void save_project(const std::filesystem::path&, const ProjectDocument&, SaveHook = {});
 void save_show(const std::filesystem::path&, const ShowDocument&, SaveHook = {});
 ProjectDocument load_project(const std::filesystem::path&);
+
+// User library root, independent of project paths and plugin library locations.
+// One writer per path, off the audio callback. Updates must explicitly opt in.
+void save_drum_map(const std::filesystem::path& library, const DrumMapProfile&, bool replace_existing = false);
+std::optional<DrumMapProfile> load_drum_map(const std::filesystem::path& library, const Id&);
+struct DrumMapCatalogEntry { Id id; std::string name; };
+struct DrumMapCatalog { std::vector<DrumMapCatalogEntry> entries; std::vector<std::string> warnings; };
+DrumMapCatalog list_drum_maps(const std::filesystem::path& library);
+void delete_drum_map(const std::filesystem::path& library, const Id&);
+DrumMapProfile import_drum_map_file(const std::filesystem::path& file);
+void export_drum_map_file(const std::filesystem::path& file, const DrumMapProfile&);
+enum class DrumMapSource { library, snapshot_missing, snapshot_unreadable };
+struct ResolvedDrumMap {
+    DrumMapProfile profile;
+    DrumMapSource source;
+};
+ResolvedDrumMap resolve_drum_map(const std::filesystem::path& library, const DrumMapBinding&);
 ShowDocument load_show(const std::filesystem::path&);
 void save_autosave(const std::filesystem::path& project_path, const ProjectDocument&);
 struct Recovery {

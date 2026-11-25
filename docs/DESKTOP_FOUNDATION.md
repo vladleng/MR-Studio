@@ -163,8 +163,8 @@ Project folders contain their .mrsproject, Media and Mixdown; the studio root co
 Projects and Lives. Imported WAVs are copied and archived with portable Media/... refs.
 First save consolidates legacy external/Audio sources without deleting originals.
 Save As copies content and retains source aliases/Undo and the same stopped/paused
-device handle. See PROJECT_FOLDERS.md and MRS_PROJECT_FOLDERS_CHECKLIST.md.
-User acceptance of upd1 pending; base 0.1e remains accepted.
+device handle. See the [project-folder contract](PROJECT_FOLDERS.md); historical workflow acceptance is recorded in DSH #22.
+Historical workflow acceptance does not certify the separate extended hardware/performance matrix; base 0.1e remains accepted.
 
 
 ## Included fix1: concurrent seek read-head protection

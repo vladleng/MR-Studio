@@ -4,14 +4,14 @@
 
 
 **Документ создан:** 2026-10-14. **Статус:** действующий проектный контракт; актуальную реализацию и приёмку проверять в Issue #189 и коде (не выводить статус из даты создания этого документа). **Parent:** [#189](https://github.com/vladleng/MR-Studio/issues/189) (категория [#78 MRS FEATURES](https://github.com/vladleng/MR-Studio/issues/78)); это общая UI-инфраструктура, НЕ модуль #111 Native Plugins.
-**Gallery contract:** [MR_UI_GALLERY.md](MR_UI_GALLERY.md); **этапы:** [MR_UI_KIT_ROADMAP.md](MR_UI_KIT_ROADMAP.md); **handoff:** [MR_UI_KIT_CODEX_HANDOFF.md](MR_UI_KIT_CODEX_HANDOFF.md).
-**База:** [UI_REFERENCE_UPD9.md](UI_REFERENCE_UPD9.md) (действующие `ui::Theme` / `Controls.h`; последние уточнения #145/#146), [REVERB_EDITOR_IMPLEMENTATION.md](REVERB_EDITOR_IMPLEMENTATION.md), [MR_REVERB.md](MR_REVERB.md), [NATIVE_INSERTS.md](NATIVE_INSERTS.md), [AGENTS.md](../AGENTS.md). **Не переписывать принятую тему из эстетического вкуса.**
+**Gallery contract:** [MR_UI_GALLERY.md](MR_UI_GALLERY.md); **этапы:** [MR_UI_KIT_ROADMAP.md](MR_UI_KIT_ROADMAP.md).
+**База:** [реализация Theme / Controls](../apps/studio-juce/src/Controls.h) (исторические решения #145/#146 и последующее уточнение menu/browser font #148), [REVERB_EDITOR_IMPLEMENTATION.md](REVERB_EDITOR_IMPLEMENTATION.md), [MR_REVERB.md](MR_REVERB.md), [NATIVE_INSERTS.md](NATIVE_INSERTS.md), [AGENTS.md](../AGENTS.md). **Не переписывать принятую тему из эстетического вкуса.**
 
 ## 1. Цель / product boundary
 
 Одна библиотека **MR UI Kit** — controls, semantic tokens, gestures и binding contracts, и отдельная **MR UI Gallery** — интерактивная витрина/тестовый стенд для live preview и выбора стилевых решений. Однажды проверенный компонент применяется в DAW и редакторах MR Cab, MR Strip, Reverb, Saturator, Amp, Harma Waves; каждый editor сохраняет собственную информационную архитектуру/расположение. Не превращать все плагины в одинаковый rack.
 
-**Реальная исходная точка:** в принятом UI есть `ui::Theme`, `Controls.h`, host chrome, Reverb browser/editor, native insert shell, сохранившаяся typographic exception для mixer buttons 12/scale1; обычные buttons Segoe UI 14 logical, compact <=22 →13, scale 1.04 (по UI_REFERENCE_UPD9 #146). Tokens для reference theme: surface #212830, raised control #2D353E, card in accepted Reverb #2D353E, button accepted #2F3841, tree/list #212830, canvas Arrange #262E37; эти значения **не заменять автоматически**. Проверить актуальную локальную реализацию прежде любого изменения.
+**Реальная исходная точка:** в принятом UI есть `ui::Theme`, `Controls.h`, host chrome, Reverb browser/editor, native insert shell, сохранившаяся typographic exception для mixer buttons 12/scale1; обычные buttons Segoe UI 14 logical, compact <=22 →13, scale 1.04 (историческая reference theme #145/#146; menu/browser font уточнён в #148, актуальные роли проверять в коде). Tokens для reference theme: surface #212830, raised control #2D353E, card in accepted Reverb #2D353E, button accepted #2F3841, tree/list #212830, canvas Arrange #262E37; эти значения **не заменять автоматически**. Проверить актуальную локальную реализацию прежде любого изменения.
 
 ### Принципы
 - Native JUCE C++ controls и общий `juce::LookAndFeel` **интегрированы с существующей Theme**, не создавать альтернативный источник палитры. Имена исходных классов/папок ниже — **предложение**, локальный audit обязателен.
@@ -105,7 +105,7 @@ Do not invent generic parameter writes to third-party VST3 plugin GUIs. For our 
 - Candidate user acceptance: full CTest once + full affected GUI smoke, manual focus/DPI/hit gesture in packaged candidate, explicit NOT TESTED for unavailable physical mixed DPI.
 - Existing #145/#146 and MR Reverb / MR Cab (in progress) accepted GUI remains unchanged until opt-in pilot and separate acceptance. Do not regress Windows 100%/150% keyboard and Segoe font exceptions.
 
-**Rollout:** audit → tokens → controls → Gallery → host bindings → pilot adopter + QA → user approval → subsequent native plugins use kit. Don't block current MR Cab #185 before Kit is ready. No automatic mass migration of old native plugin GUIs; legacy old Cab migration not required per current [MR_CAB_ROADMAP](MR_CAB_ROADMAP.md) user override, but accepted Reverb and existing DAW project behavior must remain stable.
+**Rollout:** audit → tokens → controls → Gallery → host bindings → pilot adopter + QA → user approval → subsequent native plugins use kit. Don't block current MR Cab #185 before Kit is ready. No automatic mass migration of old native plugin GUIs; legacy old Cab migration not required per current [MR Rig architecture §4](MR_RIG_ARCHITECTURE.md) user override, but accepted Reverb and existing DAW project behavior must remain stable.
 
 ## 7. Out of scope
 

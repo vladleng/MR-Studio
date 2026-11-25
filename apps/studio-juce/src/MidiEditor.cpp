@@ -12,8 +12,25 @@ class MidiClipPanel final : public juce::Component {
 public:
     MidiClipPanel(Desktop& d,mrs::Id clip):owner(d),id(std::move(clip)),roll(d,id),controllerLane(d,id){
         setLookAndFeel(&owner.theme);setName("Piano roll");
+        velocityHeight=owner.view.midiVelocityHeight;laneHeight=owner.view.midiControllerHeight;
+        for(auto* b:{&drumMode,&drumMap,&expand,&collapse})b->setVisible(false);
         addAndMakeVisible(controllerLane);controllerLane.setComponentID("embedded-controllers");controllerLane.setEmbedded();controllerLane.setVisible(owner.view.controllersOpen);
-        viewport.changed=[this]{alignControllers();};roll.viewChanged=[this]{alignControllers();};
+        viewport.changed=[this]{alignControllers();velocity.repaint();};roll.viewChanged=[this]{
+            if(roll.drums && viewport.getWidth()>0 && lastRollExtent!=juce::Point<int>{roll.getWidth(),roll.getHeight()})
+                layoutEditorPanes(viewport.getX(),viewport.getWidth());
+            alignControllers();velocity.repaint();
+        };
+        roll.followPosition=[this](float x){followPlayback(x);};
+#if defined(MRS_DRUM_MAP_UI)
+        if(!owner.standaloneLive){
+            for(auto* b:{&drumMode,&drumMap,&expand,&collapse})sideBody.addAndMakeVisible(*b);
+            drumMode.setComponentID("midi-view-mode");drumMap.setComponentID("midi-display-map");
+            drumMode.onClick=[this]{setDrumMode(!roll.drums);};drumMap.onClick=[this]{chooseMap();};
+            expand.onClick=[this]{foldAll(false);};collapse.onClick=[this]{foldAll(true);};
+            roll.toggleDrumGroup=[this](const auto& group){updateFold([&](auto& binding){const auto at=std::find(binding.collapsed.begin(),binding.collapsed.end(),group);if(at==binding.collapsed.end())binding.collapsed.push_back(group);else binding.collapsed.erase(at);});};
+            addAndMakeVisible(velocity);velocity.setVisible(false);
+        }
+#endif
         roll.wheel=[this](float delta,juce::ModifierKeys mods,float x,float y){wheel(delta,mods,x,y);};
         controllerLane.wheel=[this](const juce::MouseEvent& e,const juce::MouseWheelDetails& w){
             // Translate lane coordinates into the shared roll, including scroll offset.
@@ -24,13 +41,13 @@ public:
         };
         addAndMakeVisible(sideViewport);sideViewport.setViewedComponent(&sideBody,false);sideViewport.setScrollBarsShown(true,false);
         addAndMakeVisible(viewport);viewport.setViewedComponent(&roll,false);viewport.setScrollBarsShown(true,true);
-        controllerLane.toFront(false);addAndMakeVisible(divider);
+        controllerLane.toFront(false);addAndMakeVisible(divider);addAndMakeVisible(blockDivider);
         for(std::size_t i=0;i<quickCC.size();++i){auto& b=quickCC[i];const int cc=ccNumbers[i];divider.addAndMakeVisible(b);b.setButtonText("CC"+juce::String(cc));b.setTitle("Show controller "+juce::String(cc)+" lane");b.setComponentID("controller-cc"+juce::String(cc));b.getProperties().set("channelFont",true);b.onClick=[this,cc]{roll.cancel();controllerLane.selectCC(cc);};}
         controllerLane.laneChanged=[this]{updateQuickCC();};updateQuickCC();
-        addAndMakeVisible(snap);snap.addItem("Snap off",1);snap.addItem("1/4",2);snap.addItem("1/8",3);snap.addItem("1/16",4);snap.addItem("1/32",5);snap.setSelectedId(4);snap.setTitle("Piano roll snap");snap.onChange=[this]{const std::array<mrs::Tick,5> values{0,mrs::ppq,mrs::ppq/2,mrs::ppq/4,mrs::ppq/8};roll.grid=values[static_cast<std::size_t>(snap.getSelectedId()-1)];roll.repaint();};
+        addAndMakeVisible(noteGrid);noteGrid.setState(noteGridFromView(),owner.view.midiGridSnap);roll.setNoteGrid(noteGrid.spec(),noteGrid.snapEnabled());noteGrid.onClick=[this]{chooseNoteGrid();};
         for(auto* b:{&zoomIn,&zoomOut,&copy,&paste,&selectAll,&musical,&controllers,&attach,&details,&fullScreen})addAndMakeVisible(b);
-        zoomIn.onClick=[this]{zoom(1.25f);};zoomOut.onClick=[this]{zoom(.8f);};copy.onClick=[this]{roll.copy();};paste.onClick=[this]{roll.paste();};selectAll.onClick=[this]{for(const auto& n:roll.notes)roll.selected.insert(n.id.value);roll.repaint();};
-        musical.setComponentID("musical-edit-open");musical.onClick=[this]{roll.cancel();auto* musicalPanel=new MusicalEditPanel(owner.theme,[safe=juce::Component::SafePointer<MidiClipPanel>(this)](bool all,const mrs::NoteEdit& edit){if(!safe||!safe->isShowing())throw std::runtime_error("Piano roll is closed");const auto p=safe->owner.project();const auto& clip=*safe->current(*p).midi;std::vector<mrs::Id> selected;for(const auto& n:clip.notes)if(all?(n.start<clip.source_offset+clip.length&&n.start+n.length>clip.source_offset):safe->roll.selected.contains(n.id.value))selected.push_back(n.id);if(selected.empty())throw std::runtime_error("Select notes in piano roll or choose Whole clip");safe->owner.app.edit_midi_notes(safe->id,std::move(selected),edit);safe->owner.refresh();safe->roll.sync();safe->reload();});auto window=std::make_unique<EditorWindow>("Musical note edit",musicalPanel);window->getProperties().set("mrs-midi-clip",true);window->setOwner(owner);owner.windows.push_back(std::move(window));};
+        zoomIn.onClick=[this]{zoom(1.25f);};zoomOut.onClick=[this]{zoom(.8f);};copy.onClick=[this]{roll.copy();};paste.onClick=[this]{roll.paste();};selectAll.onClick=[this]{if(roll.drums)roll.selectVisible();else{for(const auto& n:roll.notes)roll.selected.insert(n.id.value);roll.repaint();}};
+        musical.setComponentID("musical-edit-open");musical.onClick=[this]{roll.cancel();auto* musicalPanel=new MusicalEditPanel(owner.theme,[safe=juce::Component::SafePointer<MidiClipPanel>(this)](bool all,const mrs::NoteEdit& edit){if(!safe||!safe->isShowing())throw std::runtime_error("Piano roll is closed");safe->roll.cancel();safe->roll.sync();const auto p=safe->owner.project();const auto& clip=*safe->current(*p).midi;std::vector<mrs::Id> selected;for(const auto& n:clip.notes)if((!safe->roll.drums||safe->roll.noteVisible(n))&&(all?(n.start<clip.source_offset+clip.length&&n.start+n.length>clip.source_offset):safe->roll.selected.contains(n.id.value)))selected.push_back(n.id);if(selected.empty())throw std::runtime_error("Select visible notes or choose Whole clip");if(safe->roll.drums&&edit.kind==mrs::NoteEditKind::transpose){const auto next=mrs::transform_midi_notes(clip,selected,edit);std::set<std::string> targets;for(const auto& note:selected)targets.insert(note.value);for(const auto& n:next)if(targets.contains(n.id.value)&&!safe->roll.drumAddressVisible(n))throw std::runtime_error("Show the destination drum rows before transposing");}safe->owner.app.edit_midi_notes(safe->id,std::move(selected),edit);safe->owner.refresh();safe->roll.sync();safe->reload();});auto window=std::make_unique<EditorWindow>("Musical note edit",musicalPanel);window->getProperties().set("mrs-midi-clip",true);window->setOwner(owner);owner.windows.push_back(std::move(window));};
         controllers.setComponentID("controller-edit-open");controllers.onClick=[this]{roll.cancel();controllerLane.cancelGesture();controllerLane.setVisible(!controllerLane.isVisible());owner.view.controllersOpen=controllerLane.isVisible();owner.saveSettings();resized();};
         fullScreen.setComponentID("editor-fullscreen");fullScreen.setTitle("Toggle MIDI editor full screen (F11)");fullScreen.onClick=[this]{deferFullScreen();};attach.setComponentID("editor-attach");attach.onClick=[this]{deferAttach();};details.onClick=[this]{roll.cancel();controllerLane.cancelGesture();showDetails=!showDetails;resized();};
         roll.error=[this](auto text){hint.setText(text,juce::dontSendNotification);};roll.changed=[this]{reload();};
@@ -39,8 +56,8 @@ public:
         pointer.setComponentID("piano-pointer");split.setComponentID("piano-split");pointer.setTitle("Pointer (1)");split.setTitle("Split notes (3)");pointer.setTooltip(pointer.getTitle());split.setTooltip("Split notes (3); S splits selected notes at the cursor");
         pointer.onClick=[this]{roll.setSplitTool(false);roll.grabKeyboardFocus();};split.onClick=[this]{roll.setSplitTool(true);roll.grabKeyboardFocus();};
         roll.toolChanged=[this]{pointer.setToggleState(!roll.splitTool,juce::dontSendNotification);split.setToggleState(roll.splitTool,juce::dontSendNotification);};roll.toolChanged();
-        addAndMakeVisible(noteColors);noteColors.setComponentID("piano-note-colors");noteColors.setTitle("Note color mode");noteColors.setTooltip("Velocity colors or clip color; note fill always shows velocity");noteColors.addItem("Velocity colors",1);noteColors.addItem("Clip color",2);noteColors.setSelectedId(owner.view.noteClipColors?2:1,juce::dontSendNotification);
-        noteColors.onChange=[this]{roll.cancel();owner.view.noteClipColors=noteColors.getSelectedId()==2;owner.saveSettings();roll.repaint();};
+        addAndMakeVisible(noteColors);noteColors.setComponentID("piano-note-colors");noteColors.setTitle("Note color mode");noteColors.setTooltip("Velocity, clip or drum group color");noteColors.addItem("Velocity colors",1);noteColors.addItem("Clip color",2);noteColors.addItem("Instrument color",3);noteColors.setSelectedId(owner.view.noteInstrumentColors?3:owner.view.noteClipColors?2:1,juce::dontSendNotification);
+        noteColors.onChange=[this]{roll.cancel();owner.view.noteClipColors=noteColors.getSelectedId()==2;owner.view.noteInstrumentColors=noteColors.getSelectedId()==3;owner.saveSettings();roll.sync();};
         addAndMakeVisible(selector);selector.setTitle("Select MIDI note");selector.onChange=[this]{loadNote();const int index=selector.getSelectedId()-1;if(index>=0&&index<static_cast<int>(notes.size())){roll.selected={notes[static_cast<std::size_t>(index)].id.value};roll.repaint();}};
         const std::array<juce::String,5> names{"Pitch (0..127)","Start (beats)","Length (beats)","Velocity (1..127)","Channel (1..16)"};
         for(std::size_t i=0;i<fields.size();++i){labels[i].setText(names[i],juce::dontSendNotification);labels[i].setFont(owner.theme.font(13));addAndMakeVisible(labels[i]);fields[i].setFont(owner.theme.font(13));fields[i].setTitle(names[i]);fields[i].setComponentID("midi-note-"+juce::String(static_cast<int>(i)));addAndMakeVisible(fields[i]);}
@@ -48,13 +65,21 @@ public:
         add.setComponentID("midi-note-add");apply.setComponentID("midi-note-apply");remove.setComponentID("midi-note-delete");
         add.onClick=[this]{edit(0);};apply.onClick=[this]{edit(1);};remove.onClick=[this]{edit(2);};
         hint.setFont(Theme::channelFont());hint.setJustificationType(juce::Justification::topLeft);addAndMakeVisible(hint);
-        for(auto* c:std::array<juce::Component*,15>{&snap,&zoomIn,&zoomOut,&copy,&paste,&selectAll,&musical,&controllers,&attach,&details,&fullScreen,&selector,&add,&apply,&remove}){sideBody.addAndMakeVisible(c);c->getProperties().set("channelFont",true);}
+        for(auto* c:std::array<juce::Component*,14>{&zoomIn,&zoomOut,&copy,&paste,&selectAll,&musical,&controllers,&attach,&details,&fullScreen,&selector,&add,&apply,&remove}){sideBody.addAndMakeVisible(c);c->getProperties().set("channelFont",true);}
         for(auto& l:labels){sideBody.addAndMakeVisible(l);l.setFont(Theme::channelFont());}
         for(auto& f:fields){sideBody.addAndMakeVisible(f);f.setFont(Theme::channelFont());}
         sideBody.addAndMakeVisible(hint);sideBody.addAndMakeVisible(controllerLane.controlsContent());
         details.setButtonText("Notes");details.setTitle("Show note details");
         const std::array<juce::String,5> compactNames{"Pitch","Start beat","Length","Velocity","Channel"};for(std::size_t i=0;i<labels.size();++i)labels[i].setText(compactNames[i],juce::dontSendNotification);
+        addAndMakeVisible(follow);follow.setComponentID("midi-follow-playhead");follow.setClickingTogglesState(true);
+        follow.setToggleState(owner.view.midiFollowPlayhead,juce::dontSendNotification);
+        follow.onClick=[this]{
+            owner.view.midiFollowPlayhead=follow.getToggleState();roll.refreshPlayhead();
+            juce::Component::SafePointer<Desktop> safe(&owner);
+            juce::MessageManager::callAsync([safe]{if(safe)safe->saveSettings();});
+        };
         reload();setSize(1000,800);
+        if(drumMode.isVisible() && owner.view.midiDrumMode)setDrumMode(true,false);
     }
     bool keyPressed(const juce::KeyPress& key) override{if(owner.workspaceShortcut(key))return true;if(key.getKeyCode()==juce::KeyPress::F11Key){deferFullScreen();return true;}for(auto* c=juce::Component::getCurrentlyFocusedComponent();c&&c!=this;c=c->getParentComponent())if(dynamic_cast<juce::TextEditor*>(c)||dynamic_cast<juce::ComboBox*>(c))return false;return roll.keyPressed(key);}
     void activate(mrs::Id next){id=next;roll.activate(next);controllerLane.activate(next);showDetails=false;controllerLane.setVisible(owner.view.controllersOpen);reload();resized();}
@@ -63,12 +88,15 @@ public:
         const int sideWidth=juce::jlimit(156,196,getWidth()/4);
         sideViewport.setBounds(0,0,sideWidth,getHeight());
         const int width=sideWidth-14,w=width-12,half=(w-4)/2;
-        snap.setBounds(6,6,w,24);
-        zoomIn.setBounds(6,34,half,24);zoomOut.setBounds(10+half,34,half,24);
-        copy.setBounds(6,62,half,24);paste.setBounds(10+half,62,half,24);
-        selectAll.setBounds(6,90,w,24);musical.setBounds(6,118,w,24);
-        controllers.setBounds(6,146,half,24);details.setBounds(10+half,146,half,24);
-        attach.setBounds(6,174,half,24);fullScreen.setBounds(10+half,174,half,24);
+        const int drumTools=drumMode.isVisible()?(roll.drums?84:28):0;
+        drumMode.setBounds(6,6,w,24);
+        drumMap.setVisible(roll.drums);expand.setVisible(roll.drums);collapse.setVisible(roll.drums);
+        drumMap.setBounds(6,34,w,24);expand.setBounds(6,62,half,24);collapse.setBounds(10+half,62,half,24);
+        zoomIn.setBounds(6,6+drumTools,half,24);zoomOut.setBounds(10+half,6+drumTools,half,24);
+        copy.setBounds(6,34+drumTools,half,24);paste.setBounds(10+half,34+drumTools,half,24);
+        selectAll.setBounds(6,62+drumTools,w,24);musical.setBounds(6,90+drumTools,w,24);
+        controllers.setBounds(6,118+drumTools,half,24);details.setBounds(10+half,118+drumTools,half,24);
+        attach.setBounds(6,146+drumTools,half,24);fullScreen.setBounds(10+half,146+drumTools,half,24);
         fullScreen.setButtonText(fullScreenActive?"Restore":"Full screen");
         attach.setButtonText(static_cast<bool>(getProperties()["mrs-attached"])?"Detach":"Attach");
         controllers.setToggleState(controllerLane.isVisible(),juce::dontSendNotification);
@@ -76,18 +104,22 @@ public:
         selector.setVisible(showDetails);for(auto& l:labels)l.setVisible(showDetails);
         for(auto& f:fields)f.setVisible(showDetails);
         for(auto* b:{&add,&apply,&remove})b->setVisible(showDetails);hint.setVisible(showDetails);
-        int y=206;selector.setBounds(6,y,w,24);y+=28;
+        int y=178+drumTools;selector.setBounds(6,y,w,24);y+=28;
         for(std::size_t i=0;i<fields.size();++i){labels[i].setBounds(6,y,76,24);fields[i].setBounds(82,y,w-76,24);y+=28;}
         add.setBounds(6,y,w,24);apply.setBounds(6,y+28,half,24);remove.setBounds(10+half,y+28,half,24);
         hint.setBounds(6,y+56,w,58);hint.setTooltip(hint.getText());
-        if(!showDetails)y=206;else y+=118;
+        if(!showDetails)y=178+drumTools;else y+=118;
         auto& form=controllerLane.controlsContent();form.setVisible(controllerLane.isVisible());
         controllerLane.layoutControls(width);form.setTopLeftPosition(0,y);
         sideBody.setSize(width,juce::jmax(getHeight(),y+(form.isVisible()?form.getHeight():0)));
-        // Roll always owns the full content area; only the foreground overlay changes.
-        pointer.setBounds(sideWidth+4,2,32,28);split.setBounds(sideWidth+38,2,32,28);noteColors.setBounds(sideWidth+82,4,juce::jmin(156,juce::jmax(90,getWidth()-sideWidth-94)),24);
-        viewport.setBounds(sideWidth+4,36,juce::jmax(90,getWidth()-sideWidth-12),juce::jmax(90,getHeight()-44));
-        layoutOverlay();alignControllers();
+        pointer.setBounds(sideWidth+4,2,32,28);split.setBounds(sideWidth+38,2,32,28);
+        const int toolbarLeft=sideWidth+74;
+        const int gridWidth=juce::jlimit(72,104,getWidth()-toolbarLeft-190);
+        noteGrid.setBounds(toolbarLeft,2,gridWidth,28);
+        const int colorsX=toolbarLeft+gridWidth+6;
+        const int colorWidth=juce::jlimit(60,156,getWidth()-colorsX-130);
+        noteColors.setBounds(colorsX,4,colorWidth,24);follow.setBounds(colorsX+colorWidth+6,4,118,24);
+        layoutEditorPanes(sideWidth+4,juce::jmax(90,getWidth()-sideWidth-12));alignControllers();
         if(firstLayout){firstLayout=false;viewport.setViewPosition(static_cast<int>(static_cast<double>(roll.clip.start)/mrs::ppq*roll.beatWidth),PianoRoll::ruler+(127-78)*static_cast<int>(roll.rowHeight));}
     }
     void paint(juce::Graphics& g) override{g.fillAll(juce::Colour(background));}
@@ -95,39 +127,258 @@ private:
     friend void controllerScrollSmoke();
     friend void noteEditorLayoutSmoke();
     friend void pianoRoll214Smoke();
+    friend void drumGridSmoke();
+    friend void noteGridChecks(MidiClipPanel&,Desktop&);
+    friend void noteGridSmoke();
+    friend class Desktop;
     Desktop& owner;mrs::Id id;
+    juce::TextButton drumMode{"Piano Roll / Drums"},drumMap{"Display map..."},expand{"Expand all"},collapse{"Collapse all"};
+    int pianoY{},drumsY{};
+    static int followedScrollX(int x,int left,int span,int maximum){
+        return span>0 && (x<left || x>=left+span) ? std::clamp(x-span/8,0,maximum) : left;
+    }
+    void followPlayback(float timelineX){
+        if(!follow.getToggleState() || !isShowing() || !roll.isEnabled() || velocity.grabbed)return;
+        mrs::audio::RealtimeState state;
+        if(!owner.app.engine()->try_state(state) || state.playback!=mrs::PlaybackState::playing)return;
+        const auto visible=viewport.getViewArea();
+        const int x=static_cast<int>(std::clamp(timelineX,0.f,static_cast<float>(roll.getWidth())));
+        const auto next=followedScrollX(x,visible.getX(),visible.getWidth()-roll.railWidth(),std::max(0,roll.getWidth()-visible.getWidth()));
+        if(next!=visible.getX())viewport.setViewPosition(next,visible.getY());
+    }
+    void setDrumMode(bool active,bool persist=true){
+        if(roll.drums==active)return;
+        (roll.drums?drumsY:pianoY)=viewport.getViewPositionY();
+        const auto x=viewport.getViewPositionX();
+        roll.cancel();roll.sync();if(!roll.isEnabled())return;
+        controllerLane.cancelGesture();roll.setDrums(active);setName(active?"Drum Grid":"Piano roll");
+        drumMode.setToggleState(active,juce::dontSendNotification);drumMode.setButtonText(active?"Drum Grid / Piano":"Piano Roll / Drums");
+        velocity.setVisible(active);reload();resized();viewport.setViewPosition(x,active?drumsY:pianoY);if(roll.isShowing())roll.grabKeyboardFocus();
+        if(persist && owner.view.midiDrumMode!=active){owner.view.midiDrumMode=active;owner.saveSettings();}
+    }
+    const mrs::Track* currentTrack(const mrs::Project& project) const{
+        const auto at=std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t){return t.id==roll.trackId();});
+        return at==project.tracks.end()?nullptr:&*at;
+    }
+    template<class Edit> void updateFold(Edit edit){try{
+        roll.cancel();roll.sync();if(!roll.isEnabled())return;const auto p=owner.project();const auto* track=currentTrack(*p);if(!track||!track->drum_map)return;
+        auto binding=*track->drum_map;edit(binding);
+        owner.app.set_track_drum_map(track->id,std::move(binding));owner.refresh();roll.sync();reload();
+    }catch(const std::exception& e){hint.setText(juce::String::fromUTF8(e.what()),juce::dontSendNotification);}}
+    void foldAll(bool folded){updateFold([folded](auto& b){b.collapsed.clear();if(folded)for(const auto& c:b.snapshot.categories){b.collapsed.push_back(c.id);for(const auto& i:c.instruments)b.collapsed.push_back(i.id);}});}
+    NoteGridSpec noteGridFromView() const{
+        return canonicalNoteGrid({owner.view.midiGridDivisor,owner.view.midiGridSwing,static_cast<NoteGridSpec::Shape>(owner.view.midiGridShape)});
+    }
+    void chooseNoteGrid(){
+        roll.cancel();controllerLane.cancelGesture();
+        juce::Component::SafePointer<MidiClipPanel> safe(this);
+        showNoteGridMenu(noteGrid,noteGrid.spec(),noteGrid.snapEnabled(),[safe](const NoteGridSpec& spec,bool snap){
+            if(safe)safe->applyNoteGrid(spec,snap);
+        });
+    }
+    // The grid is a view preference for both the piano roll and the drum grid.
+    void applyNoteGrid(const NoteGridSpec& spec,bool snap){
+        const auto canonical=canonicalNoteGrid(spec);
+        owner.view.midiGridDivisor=canonical.divisor;owner.view.midiGridShape=static_cast<int>(canonical.shape);
+        owner.view.midiGridSwing=canonical.swing;owner.view.midiGridSnap=snap;
+        noteGrid.setState(canonical,snap);roll.setNoteGrid(canonical,snap);
+        owner.saveSettings();roll.grabKeyboardFocus();
+    }
+#if defined(MRS_DRUM_MAP_UI)
+    void chooseMap(){try{
+        roll.cancel();roll.sync();if(!roll.isEnabled())return;const auto p=owner.project();const auto* track=currentTrack(*p);
+        if(!track||track->kind!=mrs::TrackKind::instrument)throw std::runtime_error("Drum maps require an instrument track");
+        const auto root=owner.prefsFile.parent_path()/"DrumMaps";const auto catalog=mrs::persistence::list_drum_maps(root);
+        juce::PopupMenu menu;menu.setLookAndFeel(&owner.theme);
+        menu.addItem(9999,"Open Drum Maps…");
+        menu.addItem(1,"No display map",track->drum_map.has_value());
+        if(track->drum_map)menu.addItem(2,"Project snapshot: "+juce::String::fromUTF8(track->drum_map->snapshot.name.c_str()),false,true);
+        std::vector<mrs::Id> catalogIds;
+        for(const auto& entry:catalog.entries){catalogIds.push_back(entry.id);menu.addItem(2+static_cast<int>(catalogIds.size()),juce::String::fromUTF8(entry.name.c_str()));}
+        if(catalogIds.empty())menu.addItem(3,"No saved maps. Use Options > Drum Maps.",false);
+        auto safe=juce::Component::SafePointer<MidiClipPanel>(this);const auto store=owner.app.services().projects;
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&drumMap),[safe,store,trackId=track->id,root,catalogIds=std::move(catalogIds)](int choice){
+            if(!safe||!choice||!safe->roll.drums||safe->roll.trackId()!=trackId||safe->owner.app.services().projects!=store)return;
+            try{
+                if (choice == 9999) { safe->owner.openDrumMaps(trackId); return; }
+                std::optional<mrs::DrumMapBinding> binding;
+                if(choice>=3&&static_cast<std::size_t>(choice-3)<catalogIds.size()){
+                    auto profile=mrs::persistence::load_drum_map(root,catalogIds[static_cast<std::size_t>(choice-3)]);
+                    if(!profile)throw std::runtime_error("The map no longer exists");
+                    const auto pNow=safe->owner.project();const auto* t=safe->currentTrack(*pNow);
+                    if(t&&t->drum_map&&t->drum_map->snapshot==*profile)return;
+                    binding=mrs::DrumMapBinding{std::move(*profile),{}};
+                }else if(choice!=1)return;
+                safe->owner.app.set_track_drum_map(trackId,std::move(binding));safe->owner.refresh();safe->roll.sync();safe->reload();
+            }catch(const std::exception& e){juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,"Drum Grid",juce::String::fromUTF8(e.what()));}
+        });
+    }catch(const std::exception& e){juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,"Drum Grid",juce::String::fromUTF8(e.what()));}}
+#endif
+    struct VelocityPane final:juce::Component {
+        MidiClipPanel& panel;
+        std::optional<mrs::MidiNote> grabbed;
+        std::shared_ptr<mrs::IProjectStore> store;
+        mrs::Id clipId;
+        int preview{}, delta{};
+        double lastAudition{};
+        std::unordered_map<std::string,int> originalVelocity;
+        explicit VelocityPane(MidiClipPanel& p):panel(p){setTitle("Drum velocity");setComponentID("drum-velocity");}
+        void paint(juce::Graphics& g) override{
+            g.fillAll(juce::Colour(surface));g.setColour(juce::Colour(outline));g.drawHorizontalLine(0,0.f,static_cast<float>(getWidth()));
+            g.setFont(panel.owner.theme.font(12));g.setColour(juce::Colours::lightgrey);g.drawText("Velocity",10,0,panel.roll.railWidth()-20,getHeight(),juce::Justification::centredLeft);
+            const auto& clips=panel.roll.contextClips;
+            const auto clip=std::find_if(clips.begin(),clips.end(),[this](const auto& c){return c.id==panel.id;});
+            if(clip==clips.end() || !panel.roll.isEnabled())return;
+            const auto left=panel.roll.railWidth(),right=panel.viewport.getViewWidth();
+            for(const auto& n:panel.roll.notes){if(!panel.roll.noteDisplayed(n))continue;const auto x=panel.roll.displayedNoteRect(n).getCentreX()-panel.viewport.getViewPositionX();if(x<left||x>=right)continue;
+                const auto value=originalVelocity.contains(n.id.value)?std::clamp(n.velocity+delta,1,127):n.velocity;
+                const auto y=static_cast<float>(getHeight()-4)-value/127.f*std::max(1,getHeight()-9);
+                g.setColour(panel.roll.displayedNoteColour(n,*clip,true,value));
+                g.drawLine(x,y,x,static_cast<float>(getHeight()-3),1.f);g.fillEllipse(x-2.5f,y-2.5f,5.f,5.f);
+                if(panel.roll.selected.contains(n.id.value)){g.setColour(juce::Colour(accent));g.drawEllipse(x-3.5f,y-3.5f,7.f,7.f,1.f);}
+            }
+        }
+        void cancel() { grabbed.reset(); store.reset(); originalVelocity.clear(); delta=0; repaint(); }
+        void begin(juce::Point<float> point,bool sameLevel=false) {
+            cancel(); panel.roll.cancel(); panel.roll.sync();
+            if (point.x < panel.roll.railWidth() || point.x >= panel.viewport.getViewWidth()) return;
+            float best = 8.f;
+            for (const auto& n : panel.roll.notes) {
+                if (!panel.roll.noteDisplayed(n)) continue;
+                const float x = panel.roll.displayedNoteRect(n).getCentreX()-panel.viewport.getViewPositionX();
+                const float y = static_cast<float>(getHeight()-4)-n.velocity/127.f*std::max(1,getHeight()-9);
+                const float distance = point.getDistanceFrom({x,y});
+                if (distance < best) { best = distance; grabbed = n; }
+            }
+            if (grabbed) {
+                preview=grabbed->velocity; lastAudition=-1000.;
+                store=panel.owner.app.services().projects;clipId=panel.id;
+                const bool selectedGroup=panel.roll.selected.contains(grabbed->id.value);
+                for(const auto& n:panel.roll.notes)if(panel.roll.noteDisplayed(n) &&
+                    (n.id==grabbed->id || (sameLevel?n.velocity==grabbed->velocity:selectedGroup&&panel.roll.selected.contains(n.id.value))))
+                    originalVelocity.emplace(n.id.value,n.velocity);
+                repaint();
+            }
+        }
+        void drag(float deltaY) {
+            if (!grabbed) return;
+            delta=-static_cast<int>(std::lround(deltaY*127.f/std::max(1,getHeight()-9)));
+            const int next=std::clamp(grabbed->velocity+delta,1,127);
+            const auto now=juce::Time::getMillisecondCounterHiRes();
+            if(next!=preview && now-lastAudition>=125. && store==panel.owner.app.services().projects && clipId==panel.id){
+                const auto track=panel.roll.trackId();
+                if(panel.owner.app.audition_note(track,grabbed->pitch,next,grabbed->channel))
+                    panel.owner.app.audition_note(track,grabbed->pitch,next,grabbed->channel,false,PianoRoll::velocityPreviewTailMs);
+                lastAudition=now;
+            }
+            preview=next;repaint();
+        }
+        void commit() {
+            if (!grabbed) return;
+            const bool current = store==panel.owner.app.services().projects && clipId==panel.id;
+            const int offset=delta;auto targets=std::move(originalVelocity);cancel();
+            if (!current || !offset) return;
+            try {
+                auto next = panel.current(*panel.owner.project()).midi->notes;
+                std::set<std::string> selection;bool changed=false;
+                for(auto& n:next)if(const auto at=targets.find(n.id.value);at!=targets.end()){
+                    if(n.velocity!=at->second || !panel.roll.noteDisplayed(n))return;
+                    selection.insert(n.id.value);const int nextValue=std::clamp(n.velocity+offset,1,127);
+                    changed|=nextValue!=n.velocity;n.velocity=nextValue;
+                }
+                if(!changed || selection.size()!=targets.size())return;
+                panel.owner.app.set_midi_notes(panel.id,std::move(next));
+                panel.owner.refresh(); panel.roll.sync(); panel.roll.selected=std::move(selection); panel.reload();
+            } catch (const std::exception& e) { panel.hint.setText(juce::String::fromUTF8(e.what()),juce::dontSendNotification); }
+        }
+        void mouseDown(const juce::MouseEvent& e) override { if(e.mods.isLeftButtonDown())begin(e.position,e.mods.isCtrlDown()&&e.mods.isShiftDown()); }
+        void mouseDrag(const juce::MouseEvent& e) override { drag(static_cast<float>(e.getDistanceFromDragStartY())); }
+        void mouseUp(const juce::MouseEvent&) override { commit(); }
+        void visibilityChanged() override { if(!isShowing()) cancel(); }
+    } velocity{*this};
     struct RollViewport : juce::Viewport {std::function<void()> changed;void visibleAreaChanged(const juce::Rectangle<int>&) override{if(changed)changed();}};
-    PianoRoll roll;ControllerPanel controllerLane;RollViewport viewport;bool showDetails{};juce::ComboBox snap;bool firstLayout{true};
+    PianoRoll roll;ControllerPanel controllerLane;RollViewport viewport;bool showDetails{};bool firstLayout{true};
     bool fullScreenActive{},returnAttached{};
-    juce::TextButton pointer{""},split{""};juce::ComboBox noteColors;
+    juce::TextButton pointer{""},split{""},follow{"Follow playhead"};juce::ComboBox noteColors;NoteGridButton noteGrid;
     juce::Component sideBody;juce::Viewport sideViewport;
     static constexpr std::array<int,3> ccNumbers{1,11,64};
     std::array<juce::TextButton,3> quickCC;
-    int overlayHeight{180};
+    int laneHeight{180}, velocityHeight{62};
+    juce::Point<int> lastRollExtent;
     struct Divider final : juce::Component {
-        MidiClipPanel& owner;int startHeight{};bool dragging{};
-        explicit Divider(MidiClipPanel& p):owner(p){setComponentID("controller-divider");setName("Resize controller overlay");setMouseCursor(juce::MouseCursor::UpDownResizeCursor);setWantsKeyboardFocus(true);}
+        MidiClipPanel& owner;bool total{};int startHeight{}, screenY{};bool dragging{};
+        explicit Divider(MidiClipPanel& p,bool whole=false):owner(p),total(whole){setComponentID(total?"midi-lanes-divider":"controller-divider");setName(total?"Resize MIDI lanes":"Resize controller pane");setMouseCursor(juce::MouseCursor::UpDownResizeCursor);setWantsKeyboardFocus(true);}
         void paint(juce::Graphics& g) override{g.fillAll(juce::Colour(panel));g.setColour(juce::Colour(menuBorder));g.drawHorizontalLine(0,0.f,static_cast<float>(getWidth()));g.setColour(juce::Colours::lightgrey.withAlpha(isMouseOver()?.8f:.35f));const float x=(getWidth()+160.f)*.5f;g.drawLine(x-16,9,x+16,9,1);g.drawLine(x-16,13,x+16,13,1);}
-        void mouseDown(const juce::MouseEvent& e) override{if(!e.mods.isLeftButtonDown())return;owner.roll.cancel();owner.controllerLane.cancelGesture();startHeight=owner.controllerLane.getHeight();dragging=true;grabKeyboardFocus();}
-        void mouseDrag(const juce::MouseEvent& e) override{if(dragging&&e.mods.isLeftButtonDown())owner.setOverlayHeight(startHeight-e.getDistanceFromDragStartY());}
-        void mouseUp(const juce::MouseEvent&) override{dragging=false;}
-        void focusLost(FocusChangeType) override{dragging=false;}
-        bool keyPressed(const juce::KeyPress& k) override{if(k.getKeyCode()==juce::KeyPress::upKey||k.getKeyCode()==juce::KeyPress::downKey){owner.roll.cancel();owner.controllerLane.cancelGesture();owner.setOverlayHeight(owner.controllerLane.getHeight()+(k.getKeyCode()==juce::KeyPress::upKey?16:-16));return true;}if(k==juce::KeyPress::escapeKey&&dragging){dragging=false;owner.setOverlayHeight(startHeight);return true;}return false;}
-    } divider{*this};
+        void mouseDown(const juce::MouseEvent& e) override{if(!e.mods.isLeftButtonDown())return;owner.roll.cancel();owner.controllerLane.cancelGesture();owner.velocity.cancel();startHeight=height();screenY=e.getScreenY();dragging=true;grabKeyboardFocus();}
+        void mouseDrag(const juce::MouseEvent& e) override{if(dragging&&e.mods.isLeftButtonDown())apply(startHeight+screenY-e.getScreenY());}
+        void mouseUp(const juce::MouseEvent&) override{if(dragging)owner.saveMidiLaneHeights();dragging=false;}
+        void focusLost(FocusChangeType) override{if(dragging)owner.saveMidiLaneHeights();dragging=false;}
+        bool keyPressed(const juce::KeyPress& k) override{if(k.getKeyCode()==juce::KeyPress::upKey||k.getKeyCode()==juce::KeyPress::downKey){owner.roll.cancel();owner.controllerLane.cancelGesture();apply(height()+(k.getKeyCode()==juce::KeyPress::upKey?16:-16));owner.saveMidiLaneHeights();return true;}if(k==juce::KeyPress::escapeKey&&dragging){dragging=false;apply(startHeight);return true;}return false;}
+        int height() const {return total ? owner.velocity.getHeight()+owner.controllerLane.getHeight()*owner.controllerLane.isVisible() : owner.controllerLane.getHeight();}
+        void apply(int h) { if(total) owner.setBlockHeight(h); else owner.setLaneHeight(h); }
+    } divider{*this},blockDivider{*this,true};
     void updateQuickCC(){for(std::size_t i=0;i<quickCC.size();++i)quickCC[i].setToggleState(controllerLane.displayedCC()==ccNumbers[i],juce::dontSendNotification);}
-    void setOverlayHeight(int height){overlayHeight=juce::jlimit(90,juce::jmax(90,viewport.getHeight()-70),height);layoutOverlay();}
-    void layoutOverlay(){
-        divider.setVisible(controllerLane.isVisible());
-        const int h=juce::jlimit(90,juce::jmax(90,viewport.getHeight()-70),overlayHeight);
-        controllerLane.setBounds(viewport.getX(),viewport.getBottom()-14-h,viewport.getWidth(),h);
-        divider.setBounds(viewport.getX(),controllerLane.getY()-22,viewport.getWidth(),22);
-        for(std::size_t i=0;i<quickCC.size();++i)quickCC[i].setBounds(4+static_cast<int>(i)*52,2,48,18);
+    static constexpr int rollTop=36,dividerHeight=22,maxRowHeight=48;
+    int clampLaneHeight(int height) const{
+        // Keep room for the ruler, a full pitch row even at maximum zoom, and the scrollbar.
+        const int minRollHeight=PianoRoll::ruler+maxRowHeight+viewport.getScrollBarThickness();
+        const int maxHeight=juce::jmax(0,getHeight()-rollTop-dividerHeight-minRollHeight);
+        return juce::jlimit(juce::jmin(90,maxHeight),maxHeight,height);
+    }
+    static constexpr int minVelocityHeight=24;
+    int blockCapacity() const {
+        const int minRollHeight=PianoRoll::ruler+maxRowHeight+viewport.getScrollBarThickness();
+        return std::max(0,getHeight()-rollTop-minRollHeight-dividerHeight*(controllerLane.isVisible()?2:1));
+    }
+    void saveMidiLaneHeights(){
+        if(owner.view.midiVelocityHeight==velocityHeight && owner.view.midiControllerHeight==laneHeight)return;
+        owner.view.midiVelocityHeight=velocityHeight;owner.view.midiControllerHeight=laneHeight;owner.saveSettings();
+    }
+    void setBlockHeight(int height) {
+        const int cc=controllerLane.isVisible()?controllerLane.getHeight():0;
+        if(velocity.getHeight()>velocityHeight && height<=cc+velocity.getHeight())return;
+        velocityHeight=std::max(minVelocityHeight,std::min(height,blockCapacity())-cc);
+        layoutEditorPanes(viewport.getX(),viewport.getWidth());
+    }
+    void setLaneHeight(int height){
+        if (velocity.isVisible() && controllerLane.isVisible()) {
+            const int sum=velocity.getHeight()+controllerLane.getHeight();
+            const int autoFill=std::max(0,velocity.getHeight()-velocityHeight);
+            laneHeight=std::clamp(height,std::min(90,std::max(0,sum-minVelocityHeight)),std::max(0,sum-minVelocityHeight));
+            velocityHeight=std::max(minVelocityHeight,sum-laneHeight-autoFill);
+        } else laneHeight=clampLaneHeight(height);
+        layoutEditorPanes(viewport.getX(),viewport.getWidth());
+    }
+    void layoutEditorPanes(int x,int width){
+        const bool showLane=controllerLane.isVisible(), showVelocity=velocity.isVisible();
+        lastRollExtent={roll.getWidth(),roll.getHeight()};
+        divider.setVisible(showLane); blockDivider.setVisible(showVelocity);
+        juce::Rectangle<int> rollArea{x,rollTop,width,juce::jmax(0,getHeight()-rollTop)};
+        const int capacity=blockCapacity();
+        const int ccHeight=showLane?(showVelocity?std::min(laneHeight,std::max(0,capacity-minVelocityHeight)):clampLaneHeight(laneHeight)):0;
+        if(showLane){
+            controllerLane.setBounds(rollArea.removeFromBottom(ccHeight));
+            divider.setBounds(rollArea.removeFromBottom(dividerHeight));
+            for(std::size_t i=0;i<quickCC.size();++i)quickCC[i].setBounds(4+static_cast<int>(i)*52,2,48,18);
+        }
+        if(showVelocity){
+            const int scrollbar=roll.getWidth()>width?viewport.getScrollBarThickness():0;
+            const int gridExtent=roll.getHeight()+scrollbar;
+            const int spareHeight=rollArea.getHeight()-dividerHeight-gridExtent;
+            const int effectiveVelocity=std::max(std::min(velocityHeight,std::max(0,capacity-ccHeight)),spareHeight);
+            velocity.setBounds(rollArea.removeFromBottom(effectiveVelocity));
+            blockDivider.setBounds(rollArea.removeFromBottom(dividerHeight));
+        }
+        if(viewport.getBounds()==rollArea)return;
+        const bool atBottom=viewport.getViewPositionY()>0&&viewport.getViewArea().getBottom()>=roll.getHeight();
+        viewport.setBounds(rollArea);
+        if(atBottom)viewport.setViewPosition(viewport.getViewPositionX(),roll.getHeight());
     }
     juce::TextButton fullScreen{"Full screen"},zoomIn{"Zoom +"},zoomOut{"Zoom -"},copy{"Copy"},paste{"Paste"},selectAll{"Select all"},musical{"Musical edit..."},controllers{"Controllers"},attach{"Attach"},details{"Note details"};
     void deferFullScreen(){juce::Component::SafePointer<MidiClipPanel> safe(this);juce::MessageManager::callAsync([safe]{if(!safe)return;safe->roll.cancel();safe->controllerLane.cancelGesture();if(!safe->fullScreenActive){safe->returnAttached=static_cast<bool>(safe->getProperties()["mrs-attached"]);if(safe->returnAttached){safe->owner.attachClipEditor(safe,safe->id,false,false);safe->owner.view.editorAttached=true;}if(auto* w=safe->findParentComponentOfClass<EditorWindow>()){safe->fullScreenActive=true;w->onClose=[safe]{if(!safe)return;if(safe->fullScreenActive){if(auto* host=safe->findParentComponentOfClass<EditorWindow>())host->setFullScreen(false);safe->fullScreenActive=false;if(safe->returnAttached){safe->owner.attachClipEditor(safe,safe->id,true,false);safe->setVisible(false);}safe->resized();}safe->owner.setWorkspace(mrs::desktop::Workspace::arrange);};w->setFullScreen(true);safe->resized();}}else{if(auto* w=safe->findParentComponentOfClass<EditorWindow>())w->setFullScreen(false);safe->fullScreenActive=false;if(safe->returnAttached)safe->owner.attachClipEditor(safe,safe->id,true,false);safe->resized();}});}
     void deferAttach(){juce::Component::SafePointer<MidiClipPanel> safe(this);juce::MessageManager::callAsync([safe]{if(safe){safe->roll.cancel();safe->controllerLane.cancelGesture();if(safe->fullScreenActive){if(auto* w=safe->findParentComponentOfClass<EditorWindow>())w->setFullScreen(false);safe->fullScreenActive=false;}safe->owner.attachClipEditor(safe,safe->id,!static_cast<bool>(safe->getProperties()["mrs-attached"]));}});}
-    void alignControllers(){if(viewport.getWidth()<=0)return;controllerLane.setTimeView(roll.clip.source_offset-roll.clip.start+static_cast<double>(viewport.getViewPositionX())/roll.beatWidth*mrs::ppq,juce::jmax(1,viewport.getWidth()-PianoRoll::keys-16)/roll.beatWidth*mrs::ppq);}
-    void wheel(float delta,juce::ModifierKeys mods,float x,float y){roll.cancel();const auto vx=viewport.getViewPositionX(),vy=viewport.getViewPositionY();if(mods.isCtrlDown()){if(mods.isShiftDown()){const float before=roll.beatWidth;roll.beatWidth=juce::jlimit(24.f,384.f,before*std::pow(1.25f,delta*4));roll.sync();viewport.setViewPosition(juce::jmax(0,static_cast<int>((x-PianoRoll::keys)*roll.beatWidth/before-(x-vx-PianoRoll::keys))),vy);}else{const float before=roll.rowHeight;roll.rowHeight=juce::jlimit(8.f,48.f,before+std::round(delta*24));roll.sync();viewport.setViewPosition(vx,juce::jmax(0,static_cast<int>((y-PianoRoll::ruler)*roll.rowHeight/before-(y-vy-PianoRoll::ruler))));}}else if(mods.isShiftDown())viewport.setViewPosition(juce::jmax(0,vx-static_cast<int>(delta*160)),vy);else viewport.setViewPosition(vx,juce::jmax(0,vy-static_cast<int>(delta*128)));alignControllers();}
+    void alignControllers(){if(viewport.getWidth()<=0)return;controllerLane.setTimeView(roll.clip.source_offset-roll.clip.start+static_cast<double>(viewport.getViewPositionX())/roll.beatWidth*mrs::ppq,juce::jmax(1,viewport.getWidth()-roll.railWidth()-ControllerPanel::timeViewRightInset)/roll.beatWidth*mrs::ppq,roll.railWidth());}
+    void wheel(float delta,juce::ModifierKeys mods,float x,float y){roll.cancel();const auto vx=viewport.getViewPositionX(),vy=viewport.getViewPositionY();if(mods.isCtrlDown()){if(mods.isShiftDown()){const float before=roll.beatWidth;roll.beatWidth=juce::jlimit(24.f,384.f,before*std::pow(1.25f,delta*4));roll.sync();viewport.setViewPosition(juce::jmax(0,static_cast<int>((x-roll.railWidth())*roll.beatWidth/before-(x-vx-roll.railWidth()))),vy);}else{const float before=roll.rowHeight;roll.rowHeight=juce::jlimit(8.f,static_cast<float>(maxRowHeight),before+std::round(delta*24));roll.sync();viewport.setViewPosition(vx,juce::jmax(0,static_cast<int>((y-PianoRoll::ruler)*roll.rowHeight/before-(y-vy-PianoRoll::ruler))));}}else if(mods.isShiftDown())viewport.setViewPosition(juce::jmax(0,vx-static_cast<int>(delta*160)),vy);else viewport.setViewPosition(vx,juce::jmax(0,vy-static_cast<int>(delta*128)));alignControllers();}
     void zoom(float factor){const auto x=viewport.getViewPositionX();roll.cancel();roll.beatWidth=juce::jlimit(24.f,384.f,roll.beatWidth*factor);roll.sync();viewport.setViewPosition(static_cast<int>(x*factor),viewport.getViewPositionY());alignControllers();}
     juce::ComboBox selector;
     std::array<juce::Label,5> labels;std::array<juce::TextEditor,5> fields;
@@ -137,19 +388,242 @@ private:
     double number(std::size_t i) const{std::istringstream in(fields[i].getText().toStdString());in.imbue(std::locale::classic());double value{};if(!(in>>value)||!std::isfinite(value))throw std::runtime_error("Enter a valid number in every field");in>>std::ws;if(!in.eof())throw std::runtime_error("Unexpected characters in note field");return value;}
     void loadNote(){const int index=selector.getSelectedId()-1;mrs::MidiNote n;if(index>=0&&index<static_cast<int>(notes.size()))n=notes[static_cast<std::size_t>(index)];else{const auto p=owner.project();n.start=current(*p).midi->source_offset;}
         fields[0].setText(juce::String(n.pitch));fields[1].setText(juce::String(static_cast<double>(n.start)/mrs::ppq,6));fields[2].setText(juce::String(static_cast<double>(n.length)/mrs::ppq,6));fields[3].setText(juce::String(n.velocity));fields[4].setText(juce::String(n.channel+1));apply.setEnabled(index>=0);remove.setEnabled(index>=0);}
-    void reload(int selected=1){const auto p=owner.project();const auto& c=current(*p);notes=c.midi->notes;selector.clear(juce::dontSendNotification);for(std::size_t i=0;i<notes.size();++i){const auto& n=notes[i];selector.addItem("Note "+juce::String(static_cast<int>(i)+1)+" | pitch "+juce::String(n.pitch)+" | beat "+juce::String(static_cast<double>(n.start)/mrs::ppq,3),static_cast<int>(i)+1);}selector.setTextWhenNothingSelected("Empty MIDI clip — add a note");selector.setSelectedId(juce::jlimit(0,static_cast<int>(notes.size()),selected),juce::dontSendNotification);loadNote();
-        hint.setText("Start and length use quarter-note beats. Start is relative to the original clip source;\nDouble click: create/remove. Ctrl/Shift click or drag empty space: select. Drag: move; both edges: trim. Alt-drag: copy; Ctrl+Alt-drag: velocity.\nD: duplicate; S: split; Shift+Up/Down: octave; Ctrl+Shift: octave copy. Ctrl+C/V/A/Z/Y; Delete.",juce::dontSendNotification);}
-    void edit(int operation){try{const auto p=owner.project();auto next=current(*p).midi->notes;const int index=selector.getSelectedId()-1;
+    void reload(int selected=1){const auto p=owner.project();const auto& c=current(*p);notes=c.midi->notes;if(roll.drums)std::erase_if(notes,[&](const auto& n){return !roll.noteVisible(n);});velocity.repaint();selector.clear(juce::dontSendNotification);for(std::size_t i=0;i<notes.size();++i){const auto& n=notes[i];selector.addItem("Note "+juce::String(static_cast<int>(i)+1)+" | pitch "+juce::String(n.pitch)+" | beat "+juce::String(static_cast<double>(n.start)/mrs::ppq,3),static_cast<int>(i)+1);}selector.setTextWhenNothingSelected("Empty MIDI clip — add a note");selector.setSelectedId(juce::jlimit(0,static_cast<int>(notes.size()),selected),juce::dontSendNotification);loadNote();
+        hint.setText("Start and length use quarter-note beats. Start is relative to the original clip source;\nDouble click: create/remove. Ctrl/Shift click or drag empty space: select. Drag: move; both edges: trim. Alt-drag: copy; Ctrl+Shift-drag: velocity.\nD: duplicate; S: split; Shift+Up/Down: octave; Ctrl+Shift: octave copy. Ctrl+C/V/A/Z/Y; Delete.",juce::dontSendNotification);}
+    void edit(int operation){try{if(roll.drums){roll.cancel();roll.sync();}const auto p=owner.project();auto next=current(*p).midi->notes;const int index=selector.getSelectedId()-1;
         if(operation!=0&&(index<0||index>=static_cast<int>(notes.size())))throw std::runtime_error("Select a note");
-        auto at=next.end();if(operation!=0){at=std::find_if(next.begin(),next.end(),[&](const auto& n){return n.id==notes[static_cast<std::size_t>(index)].id;});if(at==next.end())throw std::runtime_error("Note changed; reopen this editor");}
+        auto at=next.end();if(operation!=0){at=std::find_if(next.begin(),next.end(),[&](const auto& n){return n.id==notes[static_cast<std::size_t>(index)].id;});if(at==next.end()||(roll.drums&&!roll.noteVisible(*at)))throw std::runtime_error("Note is no longer visible; reopen its drum group");}
         int selected=index+1;
-        if(operation==2){next.erase(at);}else{mrs::MidiNote n;n.id=operation==0?mrs::new_id():at->id;const auto pitch=number(0),start=number(1),length=number(2),velocity=number(3),channel=number(4);
-            if(pitch<0||pitch>127||std::floor(pitch)!=pitch||velocity<1||velocity>127||std::floor(velocity)!=velocity||channel<1||channel>16||std::floor(channel)!=channel||start<0||start>static_cast<double>(mrs::max_tick)/mrs::ppq||length<=0||length>static_cast<double>(mrs::max_tick)/mrs::ppq)throw std::runtime_error("Note values are outside their allowed ranges");
-            n.pitch=static_cast<int>(pitch);n.velocity=static_cast<int>(velocity);n.channel=static_cast<int>(channel)-1;n.start=static_cast<mrs::Tick>(std::llround(start*mrs::ppq));n.length=static_cast<mrs::Tick>(std::llround(length*mrs::ppq));if(operation==0){next.push_back(n);selected=static_cast<int>(next.size());}else *at=n;
+        if(operation==2){next.erase(at);}else{mrs::MidiNote n;n.id=operation==0?mrs::new_id():at->id;const auto pitch=number(0),start=number(1),length=number(2),vel=number(3),channel=number(4);
+            if(pitch<0||pitch>127||std::floor(pitch)!=pitch||vel<1||vel>127||std::floor(vel)!=vel||channel<1||channel>16||std::floor(channel)!=channel||start<0||start>static_cast<double>(mrs::max_tick)/mrs::ppq||length<=0||length>static_cast<double>(mrs::max_tick)/mrs::ppq)throw std::runtime_error("Note values are outside their allowed ranges");
+            n.pitch=static_cast<int>(pitch);n.channel=static_cast<int>(channel)-1;if(roll.drums&&!roll.drumAddressVisible(n))throw std::runtime_error("Choose a visible drum row and channel");n.velocity=static_cast<int>(vel);n.start=static_cast<mrs::Tick>(std::llround(start*mrs::ppq));n.length=static_cast<mrs::Tick>(std::llround(length*mrs::ppq));if(operation==0){next.push_back(n);selected=static_cast<int>(next.size());}else *at=n;
         }
         owner.app.set_midi_notes(id,std::move(next));owner.refresh();roll.sync();reload(selected);
     }catch(const std::exception& e){hint.setText(juce::String::fromUTF8(e.what()),juce::dontSendNotification);}}
 };
+
+// Note grid: complete value list, swing displacement, palette hit testing and
+// the shared piano roll / drum grid projection of the chosen grid.
+void noteGridChecks(MidiClipPanel& editor,Desktop& d){
+    const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+    auto& roll=editor.roll;
+    auto mouse=[](juce::Component& c,juce::Point<float> p,int mods){return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),p,juce::ModifierKeys(mods),1,0,0,0,0,&c,&c,juce::Time::getCurrentTime(),p,juce::Time::getCurrentTime(),1,true);};
+    const NoteGridSpec defaultGrid,tripletEighth{8,0,NoteGridSpec::Shape::triplet},swingEighth{8,60,NoteGridSpec::Shape::swing};
+    const NoteGridSpec septupletEighth{8,0,NoteGridSpec::Shape::septuplet},lastGrid{16,100,NoteGridSpec::Shape::swing};
+    const auto& choices=noteGridChoices();
+    check(choices.size()==27&&choices.front().divisor==1&&choices.back()==lastGrid,"note grid lists every size including swing");
+    check(NoteGridSpec{16,0,NoteGridSpec::Shape::straight}.snap(mrs::ppq/4-30)==mrs::ppq/4,"straight grid snaps to the nearest sixteenth");
+    check(tripletEighth.position(3)==mrs::ppq&&tripletEighth.snap(mrs::ppq-40)==mrs::ppq,"triplet grid keeps three lines per quarter");
+    check(swingEighth.position(1)==mrs::ppq/2+96&&swingEighth.snap(swingEighth.position(1)+20)==swingEighth.position(1),"swing displaces the weak eighth and snaps to it");
+    check(swingEighth.position(-1)==-mrs::ppq/2+96&&swingEighth.snap(-300)==swingEighth.position(-1),"negative drag deltas continue the same grid pattern");
+    check(septupletEighth.position(7)==4*mrs::ppq,"7:8 septuplet returns to the shared PPQ boundary");
+    NoteGridSpec chosen;bool chosenSnap=true;NoteGridMenu palette{defaultGrid,true};
+    palette.choose=[&](const NoteGridSpec& spec,bool snap){chosen=spec;chosenSnap=snap;};
+    palette.mouseDown(mouse(palette,{90.f,72.f},juce::ModifierKeys::leftButtonModifier));
+    check(chosen==tripletEighth&&chosenSnap,"grid palette selects the triplet eighth cell");
+    palette.mouseDown(mouse(palette,{202.f,203.f},juce::ModifierKeys::leftButtonModifier));
+    check(!chosenSnap&&chosen==defaultGrid,"grid palette turns snap off from the footer");
+    check(editor.noteGrid.getComponentID()=="piano-note-grid"&&editor.noteGrid.getBounds().getRight()<=editor.getWidth()&&
+          editor.noteGrid.getBounds().getY()<PianoRoll::ruler+8,"grid menu button sits on the piano roll top toolbar");
+    editor.applyNoteGrid(tripletEighth,true);
+    check(roll.gridSpec==tripletEighth&&roll.snapGrid&&roll.grid==mrs::ppq/3&&d.view.midiGridDivisor==8&&d.view.midiGridShape==1,"grid selection drives the piano roll and settings");
+    // Painted lines follow the same grid: the triplet line is only inked when selected.
+    const auto gridPixels=[&](mrs::Tick tick){
+        const int x=roll.railWidth()+static_cast<int>(static_cast<double>(tick)/mrs::ppq*roll.beatWidth);
+        const auto image=roll.createComponentSnapshot({x-2,static_cast<int>(PianoRoll::ruler+roll.rowHeight)+6,5,1},true,1.f,juce::SoftwareImageType{});
+        juce::Array<juce::uint32> values;for(int i=0;i<5;++i)values.add(image.getPixelAt(i,0).getARGB());
+        return values;
+    };
+    const auto tripletLine=gridPixels(tripletEighth.position(1));
+    editor.applyNoteGrid(defaultGrid,true);
+    const auto sixteenthLine=gridPixels(tripletEighth.position(1));
+    check(tripletLine!=sixteenthLine,"piano roll grid lines follow the selected note grid");
+    editor.applyNoteGrid(defaultGrid,false);
+    check(!roll.snapGrid&&roll.grid==mrs::ppq/4&&!d.view.midiGridSnap,"snap off keeps the nominal step in ticks");
+    const auto settings=ViewSettings::decode(d.view.encode());
+    check(settings.midiGridDivisor==16&&settings.midiGridShape==0&&settings.midiGridSwing==0&&!settings.midiGridSnap,"note grid preference survives a settings round trip");
+    editor.applyNoteGrid(defaultGrid,true);
+    check(roll.snapGrid&&d.view.midiGridSnap,"snap stays on after the grid checks");
+}
+void noteGridSmoke(){
+    const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
+    Desktop d(true);d.app.new_project();
+    const auto track=d.app.add_instrument_track("Note grid fixture");
+    const auto clip=d.app.create_midi_clip(track,0,16*mrs::ppq);
+    MidiClipPanel editor(d,clip);editor.setSize(1000,800);editor.setVisible(true);
+    noteGridChecks(editor,d);
+    // Snapping itself follows the chosen grid, including displaced swing lines.
+    auto& roll=editor.roll;
+    const auto tickX=[&](mrs::Tick tick){
+        return editor.viewport.getViewPositionX()+roll.railWidth()+static_cast<float>(tick)/mrs::ppq*roll.beatWidth;
+    };
+    const auto doubleClick=[&](mrs::Tick tick){
+        const auto point=juce::Point<float>{tickX(tick),static_cast<float>(editor.viewport.getViewPositionY()+PianoRoll::ruler)+6.f};
+        roll.mouseDoubleClick(juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),point,
+            juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier),1,0,0,0,0,&roll,&roll,
+            juce::Time::getCurrentTime(),point,juce::Time::getCurrentTime(),1,true));
+    };
+    editor.applyNoteGrid(NoteGridSpec{8,0,NoteGridSpec::Shape::triplet},true);
+    doubleClick(2*mrs::ppq+30);
+    check(roll.notes.size()==1&&roll.notes.front().start==2*mrs::ppq,"triplet double click snaps the new note to a triplet line");
+    d.app.undo();roll.sync();
+    const NoteGridSpec swing{8,60,NoteGridSpec::Shape::swing};
+    editor.applyNoteGrid(swing,true);
+    doubleClick(swing.position(1)+40);
+    check(roll.notes.size()==1&&roll.notes.front().start==swing.position(1),"swing double click snaps to the displaced eighth line");
+    d.app.undo();roll.sync();
+    editor.applyNoteGrid(NoteGridSpec{},true);
+    const auto folder=juce::File::getCurrentWorkingDirectory();
+    auto save=[&](juce::Component& component,const juce::String& name,float scale){
+        auto stream=folder.getChildFile(name+"-"+juce::String(static_cast<int>(scale*100))+".png").createOutputStream();
+        if(!stream)throw std::runtime_error("Note grid preview stream");
+        stream->setPosition(0);stream->truncate();
+        if(!juce::PNGImageFormat().writeImageToStream(component.createComponentSnapshot(component.getLocalBounds(),true,scale,juce::SoftwareImageType{}),*stream))
+            throw std::runtime_error("Note grid preview PNG");
+    };
+    NoteGridMenu menu{NoteGridSpec{},true};
+    for(float scale:{1.f,1.5f})save(menu,"note-grid-menu",scale);
+    save(editor,"note-grid-toolbar",1.f);
+}
+
+#if defined(MRS_DRUM_MAP_UI)
+void drumGridSmoke(){
+    const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    Desktop d(true);d.app.new_project();const auto track=d.app.add_instrument_track("Drums");
+    const auto id=d.app.create_midi_clip(track,0,16*mrs::ppq);
+    mrs::DrumMapProfile map;map.id={"map"};map.name="Test kit";
+    const mrs::DrumMapInstrument rack{{"rack"},"Rack Tom",{{{"rack-center"},"Center",48,{},{}},{{"rack-rim"},"Rimshot",82,1,{}}}};
+    const mrs::DrumMapInstrument floor{{"floor"},"Floor Tom",{{{"floor-center"},"Center",43,{},{}}}};
+    const mrs::DrumMapInstrument ride{{"ride"},"Ride",{{{"ride-bell"},"Bell",53,{},{}}}};
+    map.categories={{{"toms"},"Toms",{rack,floor}},{{"cymbals"},"Cymbals",{ride}}};
+    {
+        auto compactMap=map;
+        const mrs::DrumMapInstrument hh{{"hh"},"HH",{{{"closed"},"Closed",42,{},{}}}};
+        compactMap.categories.push_back({{"hi-hat"},"Hi-Hat",{hh}});
+        mrs::DrumMapBinding binding{compactMap,{}};DrumGridRows rows;rows.rebuild(&binding,{});
+        const auto at=rows.index(42,0);
+        check(at>0&&rows.rows[static_cast<std::size_t>(at)].depth==1&&rows.rows[static_cast<std::size_t>(at-1)].group==mrs::Id{"hi-hat"},"single Hi-Hat layer keeps note assignment");
+        check(rows.rows[static_cast<std::size_t>(rows.index(53,0))].depth==2,"Cymbals keep nested instruments");
+        binding.collapsed={{"hi-hat"}};rows.rebuild(&binding,{});
+        check(rows.index(42,0)<0&&rows.index(53,0)>=0,"compact group folds independently");
+    }
+    map.categories.front().instruments.front().articulations.front().alternate_notes = {50};
+    map.categories.front().color = 0xf07468;
+    map.categories.front().instruments.back().color=0x53bce4;
+    const mrs::MidiNote a{{"a"},0,240,50,100,0},b{{"b"},480,240,43,86,0},c{{"c"},960,240,53,110,0},u{{"u"},1440,240,99,86,0};
+    d.app.set_midi_notes(id,{a,b,c,u});d.app.set_track_drum_map(track,mrs::DrumMapBinding{map,{}});
+    MidiClipPanel editor(d,id);editor.setSize(1100,650);editor.setDrumMode(true);
+    auto& roll=editor.roll;const auto original=d.project()->clips.front().midi->notes;
+    check(!roll.noteRect(a).isEmpty()&&!roll.noteRect(u).isEmpty(),"mapped and unmapped notes visible");
+    check(roll.drumLayout().index(48,0)==roll.drumLayout().index(50,0),"default and alternate share one row");
+    editor.noteColors.setSelectedId(3,juce::sendNotificationSync);
+    check(roll.noteColour(a,d.project()->clips.front()).getARGB()==0xfff07468u && ViewSettings::decode(d.view.encode()).noteInstrumentColors,"third mode inherits category RGB and persists");
+    check(roll.noteColour(b,d.project()->clips.front()).getARGB()==0xff53bce4u && ViewSettings::decode(d.view.encode()).midiDrumMode,"instrument overrides category and drum mode persists");
+    roll.selectVisible();check(roll.selected.size()==4,"select all visible");
+    roll.toggleDrumGroup({"rack"});check(roll.noteRect(a).isEmpty()&&!roll.noteRect(b).isEmpty()&&!roll.noteRect(c).isEmpty(),"independent instrument fold");
+    check(roll.selected.contains("a")&&d.project()->clips.front().midi->notes==original,"fold keeps displayed selection and events");
+    const int foldedRow=roll.drumLayout().summaryIndex(50,0);
+    check(foldedRow>=0 && roll.drumLayout().rows[static_cast<std::size_t>(foldedRow)].group==mrs::Id{"rack"},"folded alternate note projects onto instrument header only");
+    d.resetDevice();
+    const auto foldedPoint=roll.displayedNoteRect(a).getCentre();
+    const auto foldedEvent=[&](int mods){return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),foldedPoint,juce::ModifierKeys(mods),1,0,0,0,0,&roll,&roll,juce::Time::getCurrentTime(),foldedPoint,juce::Time::getCurrentTime(),1,false);};
+    roll.selected.clear();roll.mouseDown(foldedEvent(juce::ModifierKeys::leftButtonModifier));
+    check(roll.selected.contains(a.id.value)&&roll.auditionPitch()==a.pitch,"folded diamond selects and auditions the actual alternate note");
+    roll.mouseUp(foldedEvent(0));roll.selected={a.id.value,b.id.value};
+    editor.velocity.begin({foldedPoint.x-editor.viewport.getViewPositionX(),static_cast<float>(editor.velocity.getHeight()-4)-a.velocity/127.f*std::max(1,editor.velocity.getHeight()-9)});
+    check(editor.velocity.originalVelocity.size()==2&&editor.velocity.originalVelocity.contains(a.id.value),"folded diamond has a velocity handle and joins the selected group");
+    editor.velocity.drag(-4.f);editor.velocity.commit();
+    const auto editedFold=d.project()->clips.front().midi->notes;
+    check(editedFold[0].velocity>a.velocity&&editedFold[1].velocity>b.velocity&&editedFold[2]==c,"mixed folded and open selection edits velocity only");
+    check(d.app.undo(),"undo folded velocity group");roll.sync();check(roll.notes==original,"undo restores folded group velocities");
+    roll.selectVisible();
+    roll.erase();check(d.project()->clips.front().midi->notes==std::vector<mrs::MidiNote>{a},"delete does not touch hidden notes");
+    check(d.app.undo(),"undo visible delete");roll.sync();check(roll.notes==original&&roll.noteRect(a).isEmpty(),"undo retains fold");
+    roll.toggleDrumGroup({"toms"});roll.toggleDrumGroup({"toms"});check(roll.noteRect(a).isEmpty()&&!roll.noteRect(b).isEmpty(),"parent retains nested fold state");
+    editor.foldAll(true);check(roll.noteRect(c).isEmpty()&&!roll.noteRect(u).isEmpty(),"collapse all retains unmapped access");
+    editor.foldAll(false);check(!roll.noteRect(a).isEmpty()&&!roll.noteRect(c).isEmpty(),"expand all returns mapped notes");
+    for(const auto& note:original){
+        const auto tickX=roll.railWidth()+static_cast<float>(roll.clip.start+note.start-roll.clip.source_offset)/mrs::ppq*roll.beatWidth;
+        check(std::abs(roll.noteRect(note).getCentreX()-tickX)<.01f,"diamond centre aligns with the MIDI onset");
+    }
+    roll.selected.clear();
+    const juce::Point<float> velocityHandle{roll.noteRect(b).getCentreX()-editor.viewport.getViewPositionX(),static_cast<float>(editor.velocity.getHeight()-4)-b.velocity/127.f*std::max(1,editor.velocity.getHeight()-9)};
+    editor.velocity.begin(velocityHandle);
+    check(editor.velocity.grabbed && editor.velocity.preview==b.velocity && d.project()->clips.front().midi->notes==original,"grabbing does not jump or edit MIDI");
+    editor.velocity.drag(-8.f);
+    check(editor.velocity.preview>b.velocity && d.project()->clips.front().midi->notes==original,"velocity drag remains a local preview");
+    editor.velocity.commit();
+    check(d.project()->clips.front().midi->notes[1].velocity!=b.velocity&&d.project()->clips.front().midi->notes[0]==a,"velocity edit is isolated");
+    check(d.app.undo(),"undo velocity");roll.sync();check(roll.notes==original,"undo restores original events");
+    editor.velocity.begin(velocityHandle,true); editor.velocity.drag(-6.f); editor.velocity.commit();
+    const auto grouped=d.project()->clips.front().midi->notes;
+    check(grouped[1].velocity>b.velocity && grouped[1].velocity==grouped[3].velocity && grouped[0]==a && grouped[2]==c,"Shift drag applies only to original velocity peers");
+    check(d.app.undo(),"undo grouped velocity in one step");roll.sync();check(roll.notes==original,"group undo restores all events");
+    d.view.midiFollowPlayhead=true;
+    { const auto savedView=ViewSettings::decode(d.view.encode()); MidiClipPanel reopened(d,id);
+      check(savedView.midiDrumMode && savedView.midiFollowPlayhead && reopened.roll.drums && reopened.follow.getToggleState(),"editor restores drum mode and follow toggle"); }
+    editor.controllerLane.setVisible(true); editor.resized();
+    const auto preferredVelocity=editor.velocityHeight;
+    const auto preferredControllers=editor.laneHeight;
+    editor.foldAll(true);
+    const int expectedGridHeight=roll.getHeight()+editor.viewport.getScrollBarThickness();
+    check(editor.viewport.getHeight()==expectedGridHeight && editor.blockDivider.getY()==editor.viewport.getBottom() &&
+          editor.velocity.getHeight()>preferredVelocity && editor.velocityHeight==preferredVelocity && editor.laneHeight==preferredControllers,
+          "short folded grid fills spare height with Velocity without changing saved sizes");
+    editor.foldAll(false);
+    check(editor.viewport.getHeight()>expectedGridHeight && editor.velocityHeight==preferredVelocity && editor.laneHeight==preferredControllers,
+          "unfolding immediately recovers room for drum rows");
+    const int beforeTop=editor.blockDivider.getY(), beforeCC=editor.controllerLane.getHeight();
+    editor.setBlockHeight(editor.velocity.getHeight()+beforeCC+32);
+    check(editor.blockDivider.getY()==beforeTop-32 && editor.controllerLane.getHeight()==beforeCC,"top splitter grows total lanes upwards");
+    const int resizedTop=editor.blockDivider.getY();
+    editor.setLaneHeight(beforeCC+16);
+    check(editor.blockDivider.getY()==resizedTop && editor.controllerLane.getHeight()==beforeCC+16,"internal splitter redistributes fixed total height");
+    editor.saveMidiLaneHeights();
+    const auto savedSizes=ViewSettings::decode(d.view.encode());
+    { MidiClipPanel reopened(d,id);reopened.setSize(1100,650);
+      check(reopened.velocity.getHeight()==editor.velocity.getHeight() && savedSizes.midiVelocityHeight==editor.velocity.getHeight() &&
+            savedSizes.midiControllerHeight==editor.controllerLane.getHeight(),"saved lane sizes survive reopening and preference round-trip"); }
+    auto image=editor.createComponentSnapshot(editor.getLocalBounds(),true,1.f,juce::SoftwareImageType{});
+    auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("drum-grid-smoke.png").createOutputStream();
+    check(stream&&stream->setPosition(0)&&stream->truncate().wasOk()&&juce::PNGImageFormat().writeImageToStream(image,*stream),"write Drum Grid preview");
+    editor.setDrumMode(false);check(roll.railWidth()==PianoRoll::keys&&roll.notes==original,"Piano Roll round trip");
+    editor.setDrumMode(true);editor.foldAll(true);
+    const auto bytes=mrs::persistence::encode(d.app.snapshot());const auto restored=mrs::persistence::decode_project(bytes);
+    check(restored.project==*d.project()&&restored.project.clips.front().midi->notes==original,"project round trip preserves folds and events");
+    editor.foldAll(false);
+    const auto click=[&](juce::Point<float> point,int modifiers){return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),point,juce::ModifierKeys(modifiers),1,0,0,0,0,&roll,&roll,juce::Time::getCurrentTime(),point,juce::Time::getCurrentTime(),1,false);};
+    constexpr int velocityMods=juce::ModifierKeys::leftButtonModifier|juce::ModifierKeys::ctrlModifier|juce::ModifierKeys::shiftModifier;
+    roll.selected={a.id.value,b.id.value};
+    const auto grab=roll.noteRect(b).getCentre();
+    roll.mouseDown(click(grab,velocityMods));roll.mouseDrag(click(grab.translated(3.f,-12.f),velocityMods));
+    roll.mouseUp(click(grab.translated(3.f,-12.f),0));
+    auto expected=original;expected[0].velocity+=8;expected[1].velocity+=8;
+    check(roll.notes==expected,"Ctrl+Shift changes selected velocities without moving note starts or pitches");
+    check(d.app.undo(),"undo Ctrl+Shift velocity");roll.sync();
+    roll.selected={b.id.value};roll.keyPressed(juce::KeyPress(juce::KeyPress::upKey));
+    auto rowMove=original;rowMove[1].pitch=82;rowMove[1].channel=1;
+    check(roll.notes==rowMove,"Up follows the preceding articulation across an instrument header and takes its MIDI channel");
+    check(d.app.undo(),"undo Up articulation move");roll.sync();
+    roll.selected={a.id.value};roll.keyPressed(juce::KeyPress(juce::KeyPress::downKey));
+    rowMove=original;rowMove[0].pitch=82;rowMove[0].channel=1;
+    check(roll.notes==rowMove,"Down follows the next articulation rather than the next MIDI pitch");
+    check(d.app.undo(),"undo Down articulation move");roll.sync();
+    check(MidiClipPanel::followedScrollX(105,100,100,500)==100 && MidiClipPanel::followedScrollX(200,100,100,500)==188 &&
+          MidiClipPanel::followedScrollX(0,100,100,500)==0 && MidiClipPanel::followedScrollX(700,500,100,500)==500,"follow page and loop wrap clamp without redundant scroll");
+    const auto p=roll.noteRect(a).getCentre().withX(roll.railWidth()+4*roll.beatWidth);
+    roll.mouseDoubleClick(click(p,juce::ModifierKeys::leftButtonModifier));
+    check(roll.notes.size()==5&&std::any_of(roll.notes.begin(),roll.notes.end(),[](const auto& note){return note.pitch==48&&note.start==4*mrs::ppq;}),"double click creates mapped note at snap grid");
+    check(d.app.undo(),"undo creation");roll.sync();
+    auto dense=original;for(int i=0;i<4096;++i)dense.push_back({{"dense-"+std::to_string(i)},i*3,3,i%128,84,0});
+    d.app.set_midi_notes(id,std::move(dense));roll.sync();roll.selectVisible();
+    check(roll.selected.size()==4100,"dense clip complete selection");editor.foldAll(true);
+    check(roll.selected.size()==4100&&roll.notes.size()==4100,"dense fold keeps all displayed hits selected");
+    editor.viewport.setViewPosition(200,480);editor.alignControllers();
+    check(editor.viewport.getViewPositionX()>0&&editor.viewport.getViewPositionY()>0,"dense grid scrolls on both axes");
+    d.app.remove_clips({id});editor.setDrumMode(false);check(!roll.isEnabled(),"switch safely refused after clip deletion");
+}
+#endif
 
 void controllerScrollSmoke(){
     auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
@@ -181,42 +655,91 @@ void noteEditorLayoutSmoke(){
     const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
     Desktop d(true);d.app.new_project();const auto track=d.app.add_instrument_track("Layout fixture");
     const auto id=d.app.create_midi_clip(track,0,16*mrs::ppq);
-    mrs::MidiNote n;n.id=mrs::new_id();n.start=2*mrs::ppq;n.pitch=60;n.length=mrs::ppq;d.app.set_midi_notes(id,{n});
+    mrs::MidiNote n;n.id=mrs::new_id();n.start=2*mrs::ppq;n.pitch=60;n.length=mrs::ppq;
+    auto lowest=n;lowest.id=mrs::new_id();lowest.pitch=0;
+    d.app.set_midi_notes(id,{n,lowest});
     std::vector<mrs::MidiChannelEvent> events;for(int cc:{1,11,64}){mrs::MidiChannelEvent e;e.id=mrs::new_id();e.kind=2;e.data1=cc;e.data2=80;e.start=n.start;events.push_back(e);}d.app.set_midi_events(id,events);
     d.view.controllersOpen=true;MidiClipPanel editor(d,id);editor.setSize(1000,800);editor.setVisible(true);
     const auto before=*d.project();const auto revision=d.app.services().projects->state().revision;
     auto& lane=editor.controllerLane;auto& vp=editor.viewport;auto& roll=editor.roll;
     check(lane.channel.getSelectedId()==1&&lane.channel.getText()=="1","compact caption preserves MIDI channel selection");
     auto mouse=[](juce::Component& c,juce::Point<float> p,juce::Point<float> origin,int mods){return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),p,juce::ModifierKeys(mods),1,0,0,0,0,&c,&c,juce::Time::getCurrentTime(),origin,juce::Time::getCurrentTime(),1,true);};
+    const auto checkBottomDock=[&]{
+        const auto& scrollbar=vp.getHorizontalScrollBar();
+        check(lane.getBottom()==editor.getHeight()&&lane.getY()==editor.divider.getBottom(),
+              "controller pane reaches the editor bottom without a gap");
+        check(vp.getBottom()==editor.divider.getY(),"piano roll ends at the divider without overlap or a gap");
+        if(scrollbar.isVisible()){
+            const auto point=vp.getPosition()+scrollbar.getBounds().getCentre();
+            check(editor.getComponentAt(point)==&scrollbar,"horizontal scrollbar stays reachable above the divider");
+        }
+    };
     const auto bounds=vp.getBounds();const auto scroll=vp.getViewPosition();
+    const auto lowestPoint=[&]{return editor.getLocalPoint(&roll,roll.noteRect(lowest).getCentre().toInt());};
+    vp.setViewPosition(0,roll.getHeight());
+    check(editor.getComponentAt(lowestPoint())==&roll,"lowest MIDI note is reachable with Controllers open");
+    vp.setViewPosition(scroll);
+    check(vp.getHorizontalScrollBar().isVisible(),"layout fixture has horizontal overflow");
+    checkBottomDock();
+    const float beatWidth=roll.beatWidth;
+    roll.beatWidth=24.f;roll.sync();
+    check(!vp.getHorizontalScrollBar().isVisible(),"zooming out removes horizontal overflow");
+    checkBottomDock();
+    roll.beatWidth=beatWidth;roll.sync();vp.setViewPosition(scroll);
+    checkBottomDock();
     const auto origin=juce::Point<float>{300,10};
     editor.divider.mouseDown(mouse(editor.divider,origin,origin,juce::ModifierKeys::leftButtonModifier));
     editor.divider.mouseDrag(mouse(editor.divider,origin.translated(0,-120),origin,juce::ModifierKeys::leftButtonModifier));
-    check(lane.getHeight()==300&&vp.getBounds()==bounds&&vp.getViewPosition()==scroll,"controller overlay expands without shrinking/moving roll");
-    editor.divider.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));check(lane.getHeight()==180,"overlay Escape restores height");
-    editor.divider.keyPressed(juce::KeyPress(juce::KeyPress::upKey));check(lane.getHeight()==196&&vp.getBounds()==bounds,"overlay keyboard resize");
-    editor.setOverlayHeight(10000);check(editor.divider.getY()>=vp.getY()+34,"overlay leaves roll header reachable");
-    editor.setOverlayHeight(-100);check(lane.getHeight()==90,"overlay minimum graph height");
-    editor.setOverlayHeight(220);
+    check(lane.getHeight()==300&&vp.getBounds()==bounds.withTrimmedBottom(120)&&vp.getViewPosition()==scroll,"growing the controller pane gives up roll height without changing its scroll origin");
+    checkBottomDock();
+    editor.divider.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));check(lane.getHeight()==180&&vp.getBounds()==bounds,"Escape restores both pane heights");
+    editor.divider.keyPressed(juce::KeyPress(juce::KeyPress::upKey));check(lane.getHeight()==196&&vp.getBounds()==bounds.withTrimmedBottom(16),"keyboard resize updates both panes");
+    vp.setViewPosition(0,roll.getHeight());
+    editor.setLaneHeight(10000);
+    check(editor.getComponentAt(lowestPoint())==&roll,"resizing at the bottom keeps the lowest note in view");
+    editor.setLaneHeight(-100);check(lane.getHeight()==90,"controller pane minimum graph height");
+    vp.setViewPosition(scroll);
+    editor.setLaneHeight(220);
     for(std::size_t i=0;i<editor.quickCC.size();++i){editor.quickCC[i].onClick();check(lane.displayedCC()==editor.ccNumbers[i]&&lane.matches(events[i]),"quick CC selects correct lane");for(std::size_t j=0;j<editor.quickCC.size();++j)check(editor.quickCC[j].getToggleState()==(i==j),"CC button state follows lane");}
     lane.kind.setSelectedId(5,juce::sendNotificationSync);for(auto& b:editor.quickCC)check(!b.getToggleState(),"pitch bend clears CC toggle");
     lane.setEnabled(false);check(!lane.controlsContent().isEnabled(),"reparented controller form follows disabled state");lane.setEnabled(true);
     lane.selectCC(1);auto p=lane.point(events.front());lane.graph.mouseDown(mouse(lane.graph,p,p,juce::ModifierKeys::leftButtonModifier));lane.graph.mouseDrag(mouse(lane.graph,p.translated(50,-10),p,juce::ModifierKeys::leftButtonModifier));editor.quickCC[1].onClick();lane.graph.mouseUp(mouse(lane.graph,p,p,0));check(!lane.dragging&&lane.events==events,"switch CC cancels controller preview without commit");
     lane.selectCC(1);p=lane.point(events.front());lane.graph.mouseDown(mouse(lane.graph,p,p,juce::ModifierKeys::leftButtonModifier));lane.graph.mouseDrag(mouse(lane.graph,p.translated(40,-8),p,juce::ModifierKeys::leftButtonModifier));lane.controlsContent().keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));lane.graph.mouseUp(mouse(lane.graph,p,p,0));check(!lane.dragging&&lane.events==events,"reparented form retains controller Escape route");
     const auto graphPoint=lane.getPosition()+lane.graph.getPosition()+lane.plot().getCentre().toInt();
-    check(editor.getComponentAt(graphPoint)==&lane.graph,"overlay intercepts covered roll");
-    const auto exposed=juce::Point<int>{vp.getX()+100,vp.getY()+80};check(editor.getComponentAt(exposed)==&roll,"uncovered roll retains hit testing");
+    check(editor.getComponentAt(graphPoint)==&lane.graph,"automation pane retains hit testing");
+    const auto exposed=juce::Point<int>{vp.getX()+100,vp.getY()+80};check(editor.getComponentAt(exposed)==&roll,"piano roll retains hit testing");
     const auto ccPoint=editor.divider.getPosition()+editor.quickCC.front().getBounds().getCentre();check(editor.getComponentAt(ccPoint)==&editor.quickCC.front(),"CC buttons own their hit region");
-    editor.details.onClick();check(editor.showDetails&&lane.isVisible(),"note fields coexist with controller lane");check(vp.getBounds()==bounds,"details do not shrink roll");
+    const auto splitBounds=vp.getBounds();
+    editor.details.onClick();check(editor.showDetails&&lane.isVisible(),"note fields coexist with controller lane");check(vp.getBounds()==splitBounds,"details do not shrink roll");
+    editor.controllers.onClick();check(!lane.isVisible()&&!editor.divider.isVisible()&&vp.getBottom()==editor.getHeight(),"hiding automation gives the roll the full height");
+    editor.controllers.onClick();check(vp.getBounds()==splitBounds,"reopening automation restores the split");
     editor.setSize(720,300);check(editor.sideViewport.getHeight()==300&&editor.sideBody.getHeight()>300,"small editor scrolls all sidebar controls");
     editor.sideViewport.setViewPosition(0,10000);auto& form=lane.controlsContent();check(editor.sideViewport.getViewPositionY()>0&&form.getBottom()<=editor.sideBody.getHeight(),"controller controls reachable at sidebar bottom");
-    check(lane.getBounds().getIntersection(vp.getBounds())==lane.getBounds()&&editor.divider.getY()>=vp.getY(),"small window clamps overlay");
-    editor.setSize(1000,800);editor.details.onClick();editor.sideViewport.setViewPosition(0,0);editor.setOverlayHeight(220);
+    roll.rowHeight=static_cast<float>(MidiClipPanel::maxRowHeight);roll.sync();vp.setViewPosition(0,roll.getHeight());
+    editor.setLaneHeight(10000);
+    checkBottomDock();
+    const auto lowBounds=editor.getLocalArea(&roll,roll.noteRect(lowest).getSmallestIntegerContainer());
+    check(lowBounds.getY()>=vp.getY()+PianoRoll::ruler&&editor.getComponentAt(lowestPoint())==&roll,
+          "small editor at maximum zoom and lane height still exposes the full lowest pitch row");
+    roll.rowHeight=18.f;roll.sync();
+    editor.setSize(1000,800);editor.details.onClick();editor.sideViewport.setViewPosition(0,0);editor.setLaneHeight(220);
     vp.setViewPosition(0,static_cast<int>(roll.noteRect(n).getY())-100);editor.alignControllers();lane.selectCC(64);
     check(*d.project()==before&&d.app.services().projects->state().revision==revision,"layout/CC/resize preserve MIDI model and Undo revision");
+    noteGridChecks(editor,d);
     for(float scale:{1.f,1.5f}){auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-note-layout-"+juce::String(static_cast<int>(scale*100))+"-preview.png").createOutputStream();check(stream!=nullptr,"note layout preview stream");stream->setPosition(0);stream->truncate();check(juce::PNGImageFormat().writeImageToStream(editor.createComponentSnapshot(editor.getLocalBounds(),true,scale,juce::SoftwareImageType{}),*stream),"note layout preview");}
     editor.setSize(720,300);editor.details.onClick();editor.sideViewport.setViewPosition(0,10000);
+    vp.setViewPosition(0,roll.getHeight());
     auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-note-layout-small-preview.png").createOutputStream();check(stream!=nullptr,"small layout preview stream");stream->setPosition(0);stream->truncate();juce::PNGImageFormat().writeImageToStream(editor.createComponentSnapshot(editor.getLocalBounds(),true,1.f,juce::SoftwareImageType{}),*stream);
+    auto* target=editor.getComponentAt(lowestPoint());
+    check(target==&roll,"lowest note receives pointer input in the small editor");
+    const auto from=roll.noteRect(lowest).getCentre(),to=from.translated(roll.beatWidth/4,0);
+    const int left=juce::ModifierKeys::leftButtonModifier;
+    target->mouseDown(mouse(*target,from,from,left));
+    target->mouseDrag(mouse(*target,to,from,left));
+    target->mouseUp(mouse(*target,to,from,0));
+    check(std::any_of(roll.notes.begin(),roll.notes.end(),[&](const auto& note){return note.id==lowest.id&&note.pitch==0&&note.start==lowest.start+mrs::ppq/4;}),
+          "lowest note can be moved with the controller pane open");
+    d.app.undo();check(*d.project()==before,"Undo restores the lowest note and preserves controllers");
 }
 
 void pianoRoll214Smoke(){
@@ -247,6 +770,30 @@ void pianoRoll214Smoke(){
     const int left=juce::ModifierKeys::leftButtonModifier,shift=juce::ModifierKeys::shiftModifier,ctrl=juce::ModifierKeys::ctrlModifier,alt=juce::ModifierKeys::altModifier;
     check(roll.clip.source_offset==2*mrs::ppq,"Trimmed-source fixture");
     check(PianoRoll::noteName(60)=="C4"&&PianoRoll::noteName(61)=="C#4"&&PianoRoll::noteName(127)=="G9","Pitch labels use C4=60");
+    auto sharp=base.front();sharp.pitch=61;
+    const auto y=roll.noteRect(sharp).getCentreY();
+    const auto originalScroll=vp.getViewPosition();
+    vp.setViewPosition(0,static_cast<int>(y)-80);
+    juce::Image initialKeyboard;
+    for(const auto x:{0,173}){
+        vp.setViewPosition(x,vp.getViewPositionY());
+        check(vp.getViewPositionX()==x,"keyboard fixture can pan the timeline");
+        const auto area=vp.getLocalBounds().withWidth(PianoRoll::keys).withTrimmedTop(PianoRoll::ruler).withHeight(108);
+        const auto keyboard=vp.createComponentSnapshot(area,true,1.f,juce::SoftwareImageType{});
+        const int keyY=static_cast<int>(y)-vp.getViewPositionY()-PianoRoll::ruler;
+        check(keyboard.getPixelAt(8,keyY).getBrightness()<.35f&&keyboard.getPixelAt(38,keyY+3).getBrightness()>.8f,
+              "a dark accidental covers only the left side of the white keys");
+        if(x==0)initialKeyboard=keyboard;
+        else for(int py=0;py<keyboard.getHeight();++py)for(int px=0;px<keyboard.getWidth();++px)
+            check(keyboard.getPixelAt(px,py)==initialKeyboard.getPixelAt(px,py),"timeline scrolling never shows through the keyboard");
+        const juce::Point<float> black{vp.getViewPositionX()+8.f,y},white{vp.getViewPositionX()+38.f,y+3.f};
+        roll.mouseDown(mouse(black,black,left));check(roll.auditionPitch()==61,"short black key auditions C sharp");
+        roll.mouseUp(mouse(black,black,0));
+        roll.mouseDown(mouse(white,white,left));check(roll.auditionPitch()==60,"white key beside the black tip auditions C natural");
+        roll.mouseUp(mouse(white,white,0));check(roll.auditionPitch()==-1,"keyboard mouse up releases the audition");
+    }
+    check(PianoRoll::keys==43,"keyboard width is one third shorter");
+    vp.setViewPosition(originalScroll);
     auto point=roll.noteRect(base[0]).getCentre();roll.selected={base[2].id.value};const auto selectionRevision=rev();
     roll.mouseDown(mouse(point,point,left|shift));roll.mouseUp(mouse(point,point,0));check(roll.selected.size()==2&&roll.selected.contains(base[0].id.value),"Shift click adds note");
     roll.mouseDown(mouse(point,point,left|shift));check(roll.selected.size()==2,"Shift removal deferred until release");roll.mouseUp(mouse(point,point,0));check(roll.selected==std::set<std::string>{base[2].id.value},"Shift click removes note");
@@ -302,6 +849,13 @@ private:
     void reload(){const auto p=owner.project();const auto it=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});if(it==p->clips.end()||it->midi){setEnabled(false);return;}clip=*it;start.setText(juce::String(static_cast<double>(clip.start)/p->sample_rate,6));end.setText(juce::String(static_cast<double>(clip.start+clip.length)/p->sample_rate,6));hint.setText("Start / end in project seconds. Apply trim: one Undo. Ctrl+Z/Y in main window.",juce::dontSendNotification);wave.repaint();}
     void timerCallback() override{const auto p=owner.project();const auto it=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});if(it==p->clips.end()){setEnabled(false);return;}if(it->start!=clip.start||it->length!=clip.length||it->source_offset!=clip.source_offset)reload();wave.repaint();}
 };
+std::optional<mrs::Id> Desktop::activeMidiEditorTrack() const {
+    if (dockedEditor && dockedEditor->isShowing())
+        if (const auto* midiPanel = dynamic_cast<const MidiClipPanel*>(dockedEditor.get())) return midiPanel->roll.trackId();
+    for (const auto& window : windows) if (window->isVisible())
+        if (const auto* midiPanel = dynamic_cast<const MidiClipPanel*>(window->getContentComponent())) return midiPanel->roll.trackId();
+    return {};
+}
 void Desktop::openMidiClip(mrs::Id id){openClipEditor(std::move(id));}
 bool Desktop::clipEditorOpen() const{if(dockedEditor&&dockedClip&&dockedEditor->isVisible()&&!static_cast<bool>(dockedEditor->getProperties()["mrs-ara-editor"]))return true;for(const auto& w:windows)if(w->isVisible()&&static_cast<bool>(w->getProperties()["mrs-midi-id"].isString())&&!w->getProperties()["mrs-midi-id"].toString().isEmpty())return true;return false;}
 void Desktop::activateClip(mrs::Id id){arrangement->chords->clearSelection();arrangement->markers->clearSelection();selectedClip=id;selectedClips={id.value};const bool opened=clipEditorOpen();if(opened)openClipEditor(id);refresh();}

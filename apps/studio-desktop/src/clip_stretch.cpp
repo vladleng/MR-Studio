@@ -22,7 +22,7 @@ stretch::Backend Application::clip_stretch_backend(const Clip& c) const {
 void Application::set_track_stretch_backend(const Id& id,stretch::Backend backend){
     require_not_playing();edit(SetTrackStretchBackend{id,backend},{},true);retry_stretch();
 }
-void Application::set_clip_stretch(const Id& id,stretch::Parameters parameters,bool reset){
+void Application::set_clip_stretch(const Id& id,stretch::Parameters parameters,bool reset,StretchAnchor anchor){
     require_not_playing();
     const auto project=services_.projects->state().project;
     const auto clip=std::find_if(project->clips.begin(),project->clips.end(),[&](const auto& c){return c.id==id;});
@@ -32,7 +32,7 @@ void Application::set_clip_stretch(const Id& id,stretch::Parameters parameters,b
         if(source->channels>2||(source->sample_rate!=44100&&source->sample_rate!=48000&&source->sample_rate!=96000))
             throw std::invalid_argument("Time / pitch supports mono/stereo at 44.1, 48 or 96 kHz");
     }
-    edit(SetAudioStretch{id,parameters,reset},{},true);
+    edit(SetAudioStretch{id,parameters,reset,anchor},{},true);
     retry_stretch();
 }
 Sample Application::clip_playback_offset(const Clip& c) const {

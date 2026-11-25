@@ -1,4 +1,6 @@
 #include <mrs/persistence.hpp>
+#include <mrs/drum_maps.hpp>
+#include <algorithm>
 #include <fstream>
 #include <limits>
 #include <stdexcept>
@@ -17,9 +19,9 @@ namespace mrs::persistence {
 namespace {
 namespace fs = std::filesystem;
 fs::path sibling(const fs::path& path, const char* suffix) { auto result = path; result += suffix; return result; }
-std::string read(const fs::path& path) {
+std::string read(const fs::path& path, std::size_t limit = max_archive_bytes) {
     const auto n = fs::file_size(path);
-    if (n > max_archive_bytes) throw std::runtime_error("file exceeds archive limit");
+    if (n > limit) throw std::runtime_error("file exceeds archive limit");
     std::ifstream stream(path,std::ios::binary);
     if (!stream) throw std::runtime_error("cannot open archive");
     std::string bytes(static_cast<std::size_t>(n),'\0');
@@ -89,6 +91,14 @@ struct Temporary {
 void atomic(const fs::path& destination, std::string_view bytes) {
     Temporary temp(destination); synced_file(temp.path,bytes,temp.created); replace(temp.path,destination);
 }
+void atomic_create(const fs::path& destination, std::string_view bytes) {
+    Temporary temp(destination); synced_file(temp.path, bytes, temp.created);
+#ifdef _WIN32
+    if (!MoveFileExW(temp.path.c_str(), destination.c_str(), MOVEFILE_WRITE_THROUGH)) io_error("create new drum map (existing files are not overwritten)");
+#else
+    if (::link(temp.path.c_str(), destination.c_str()) != 0) io_error("create new drum map (existing files are not overwritten)");
+#endif
+}
 template<class Validate> void save(const fs::path& path, std::string_view bytes, Validate validate, const SaveHook& hook) {
     if (path.filename().empty()) throw std::invalid_argument("archive path requires a filename");
     // Refuse to overwrite a damaged primary or silently destroy a valid backup.
@@ -101,7 +111,92 @@ template<class Validate> void save(const fs::path& path, std::string_view bytes,
     if (hook) hook(SavePoint::before_replace);
     replace(temp.path,path);
 }
+fs::path drum_map_path(const fs::path& library, const Id& id) {
+    if (library.empty() || id.value.empty() || id.value.size() > 64 || id.value.find('\0') != std::string::npos)
+        throw std::invalid_argument("invalid drum map library or ID");
+    // Encode IDs reversibly; a profile ID is never a path and cannot alias on case-insensitive filesystems.
+    constexpr std::string_view hex = "0123456789abcdef";
+    std::string filename;
+    for (const auto ch : id.value) {
+        const auto byte = static_cast<unsigned char>(ch);
+        filename += hex[byte >> 4];
+        filename += hex[byte & 15];
+    }
+    return library / (filename + ".mrsdrummap");
+}
+DrumMapProfile read_drum_map(const Id& id, std::string_view bytes) {
+    auto profile = deserialize_drum_map(bytes);
+    if (profile.id != id) throw std::invalid_argument("drum map library identity mismatch");
+    return profile;
+}
 } // namespace
+void save_drum_map(const fs::path& library, const DrumMapProfile& profile, bool replace_existing) {
+    const auto bytes = serialize_drum_map(profile);
+    const auto path = drum_map_path(library, profile.id);
+    fs::create_directories(library);
+    if (!replace_existing) { atomic_create(path, bytes); return; }
+    save(path, bytes, [&](std::string_view previous) { (void)read_drum_map(profile.id, previous); }, {});
+}
+std::optional<DrumMapProfile> load_drum_map(const fs::path& library, const Id& id) {
+    const auto path = drum_map_path(library, id);
+    if (!fs::exists(path)) return std::nullopt;
+    return read_drum_map(id, read(path, max_drum_map_bytes));
+}
+DrumMapCatalog list_drum_maps(const fs::path& library) {
+    DrumMapCatalog result;
+    if (library.empty()) throw std::invalid_argument("invalid drum map library");
+    if (!fs::exists(library)) return result;
+    for (const auto& entry : fs::directory_iterator(library)) {
+        if (entry.path().extension() != ".mrsdrummap") continue;
+        try {
+            auto profile = deserialize_drum_map(read(entry.path(), max_drum_map_bytes));
+            if (drum_map_path(library, profile.id) != entry.path()) throw std::invalid_argument("library ID mismatch");
+            result.entries.push_back({std::move(profile.id), std::move(profile.name)});
+        } catch (const std::invalid_argument& e) {
+            result.warnings.emplace_back(e.what());
+        } catch (const std::runtime_error& e) {
+            result.warnings.emplace_back(e.what());
+        }
+    }
+    std::sort(result.entries.begin(), result.entries.end(), [](const auto& a, const auto& b) {
+        return a.name != b.name ? a.name < b.name : a.id.value < b.id.value;
+    });
+    return result;
+}
+void delete_drum_map(const fs::path& library, const Id& id) {
+    if (!load_drum_map(library, id)) throw std::invalid_argument("drum map no longer exists");
+    const auto path = drum_map_path(library, id);
+    fs::remove(sibling(path, ".bak"));
+    if (!fs::remove(path)) throw std::runtime_error("drum map no longer exists");
+}
+DrumMapProfile import_drum_map_file(const fs::path& file) {
+    auto extension = file.extension().string();
+    for (auto& ch : extension) if (ch >= 'A' && ch <= 'Z') ch = static_cast<char>(ch - 'A' + 'a');
+    if (extension == ".mrsdrummap") return deserialize_drum_map(read(file, max_drum_map_bytes));
+    if (extension == ".csv" || extension == ".tsv") {
+        const auto name = file.stem().u8string();
+        return import_drum_map_table(read(file, max_drum_map_bytes), extension == ".csv" ? ',' : '\t',
+                                     std::string(name.begin(), name.end()));
+    }
+    throw std::invalid_argument("Choose an MR Drum Map, CSV or TSV. Use the PDF as a manual reference.");
+}
+void export_drum_map_file(const fs::path& file, const DrumMapProfile& profile) {
+    if (file.extension() != ".mrsdrummap" || fs::exists(file))
+        throw std::invalid_argument("Choose a new .mrsdrummap filename; existing files are not overwritten.");
+    atomic_create(file, serialize_drum_map(profile));
+}
+ResolvedDrumMap resolve_drum_map(const fs::path& library, const DrumMapBinding& binding) {
+    binding.validate();
+    try {
+        if (auto profile = load_drum_map(library, binding.snapshot.id))
+            return {std::move(*profile), DrumMapSource::library};
+    } catch (const std::invalid_argument&) {
+        return {binding.snapshot, DrumMapSource::snapshot_unreadable};
+    } catch (const std::runtime_error&) {
+        return {binding.snapshot, DrumMapSource::snapshot_unreadable};
+    }
+    return {binding.snapshot, DrumMapSource::snapshot_missing};
+}
 void save_project(const fs::path& path, const ProjectDocument& d, SaveHook hook) {
     auto bytes = encode(d); save(path,bytes,[&](std::string_view v) {
         const auto old = decode_project(v);

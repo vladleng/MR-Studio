@@ -3,7 +3,7 @@ name: ds-design
 description: "Builds a frontend with a clear visual direction instead of the generic AI look. Use when you create a new page, app screen, or component, or restyle one that looks templated. Run as /ds-design."
 ---
 
-Build within the approved product visual system. For MR Studio JUCE screens, read `mr-unified-gui` and `mr-studio-ui-design-system`; preserve MR UDS tokens, typography and accepted geometry. The web defaults below (font pairing, 44px targets, browser widths and screenshots) are not JUCE requirements. Cosmetic work follows V1 without automatic previews/tests; do not introduce a new visual system.
+For MR Studio/Live JUCE screens, the current user request and project `AGENTS.md` take precedence: use `mr-unified-gui` for GUI intent and `mr-studio-ui-design-system` **only when JUCE implementation details are needed**. Existing MR UDS tokens, typography and geometry are starting references, not fixed constraints for an explicitly requested improvement or redesign. Preserve functional/RT contracts and task boundaries; do not automatically restyle unrelated screens. The web-oriented defaults below (fonts, 44px targets, viewport widths and screenshots) **do not apply as mandatory JUCE requirements**. Cosmetic-only work follows the project exception, without automatic previews/tests.
 
 ## Steps
 
@@ -44,4 +44,4 @@ Use one of these only if the brief asks for it:
 ## Rules
 
 - When the brief specifies a font, color, or style, use it, even if it is on the banned list.
-- A refinement keeps the identity of the UI. A redesign keeps its content and function.
+- A refinement normally preserves the UI identity unless the user requests otherwise. A redesign may change visual identity, tokens, typography and geometry within scope, while retaining functional contracts and the requested content.

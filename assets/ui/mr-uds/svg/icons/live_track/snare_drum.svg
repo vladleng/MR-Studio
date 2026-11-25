@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+<title>MR Live track Snare drum</title>
+<ellipse cx="12" cy="8.2" rx="5.8" ry="2.0" fill="none" stroke="#DAE5F4" stroke-width="1.6"/>
+<ellipse cx="12" cy="16.2" rx="5.8" ry="2.0" fill="none" stroke="#DAE5F4" stroke-width="1.6"/>
+<path d="M6.2 8.2 L6.2 16.2" fill="none" stroke="#DAE5F4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M17.8 8.2 L17.8 16.2" fill="none" stroke="#DAE5F4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M6.2 11.2 L7.6 11.2" fill="none" stroke="#DAE5F4" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M16.4 11.2 L17.8 11.2" fill="none" stroke="#DAE5F4" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M17.8 14.0 L19.4 14.0" fill="none" stroke="#DAE5F4" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M9.6 17.6 L10.2 18.8 L10.8 17.6 L11.4 18.8 L12.0 17.6" fill="none" stroke="#DAE5F4" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -22,6 +22,11 @@ struct ObjectPalette {
         {"Ochre",0xaf8745},{"Forest",0x47885f},{"Ocean",0x397f91},{"Silver",0xb8c4d1}}};
     static constexpr std::uint32_t defaultClip=0x3797ef, defaultMarker=0x00b8ef,
         defaultSection=0x91bbee, warning=0xe2b44a;
+    static juce::Colour midiVelocityColour(int velocity){
+        const auto strength=(velocity-1)/126.f;
+        const juce::Colour low(0xff3797ef),middle(0xff36b9b7),high(0xffe2b44a);
+        return strength<.5f?low.interpolatedWith(middle,strength*2):middle.interpolatedWith(high,(strength-.5f)*2);
+    }
     static juce::Colour ink(std::uint32_t rgb,float alpha,juce::uint32 background){
         const auto fill=juce::Colour(background).overlaidWith(juce::Colour(0xff000000|rgb).withAlpha(alpha));
         const auto luminance=[](juce::Colour c){const auto linear=[](float v){return v<=.04045f?v/12.92f:std::pow((v+.055f)/1.055f,2.4f);};

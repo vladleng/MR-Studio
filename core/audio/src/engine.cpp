@@ -775,6 +775,8 @@ void AudioEngine::prepare(RenderConfig config, RenderGraph graph, RealtimeState 
     if(auto* pending=pending_insert_switch_.exchange(nullptr))pending->phase.store(TransitionPhase::cancelled,std::memory_order_release);
     stop_library_preview();
     auto next=prepare_state(config,std::move(graph),initial);
+    pending_velocity_.store(nullptr,std::memory_order_relaxed);
+    velocity_updates_.clear();
     const bool profiling=profile_&&profile_->enabled.load(std::memory_order_relaxed);
     swap_state(*next);config_=config;initial=next->initial;
     if(graph_.external_midi)graph_.external_midi->recover();
@@ -816,8 +818,29 @@ AudioEngine::TimingPlan AudioEngine::prepare_timing(const Project& p,std::span<c
             if(channel>=0){for(auto& n:notes)n.channel=static_cast<std::uint8_t>(channel);for(auto& e:events)e.event.channel=static_cast<std::uint8_t>(channel);}plan.external[t].prepare(std::move(notes),std::move(events));}}
     return plan;
 }
+void AudioEngine::publish_midi_velocities(TimingPlan&& plan) {
+    const auto& domains=processing_domains();
+    const auto& current=control_graph();
+    if(current.performance || plan.playback.size()!=current.mixer.size()) throw std::logic_error("Velocity update requires current Studio routing");
+    if(mixed_owner_) for(std::size_t t=0;t<plan.notes.size();++t)
+        if(!plan.notes[t].empty() && domains.channels[t].owner!=ProcessingDomains::Owner::device)
+            throw std::logic_error("Velocity update requires device-owned MIDI lanes");
+    std::erase_if(velocity_updates_,[](const auto& p){return p->retired.load(std::memory_order_acquire);});
+    auto update=std::make_unique<VelocityUpdate>();
+    update->internal=std::move(plan.playback);update->external=std::move(plan.external);
+    auto* published=update.get();velocity_updates_.push_back(std::move(update));
+    if(auto* superseded=pending_velocity_.exchange(published,std::memory_order_acq_rel)) superseded->retired.store(true,std::memory_order_release);
+}
+void AudioEngine::adopt_midi_velocities() noexcept {
+    if(auto* update=pending_velocity_.exchange(nullptr,std::memory_order_acquire)) {
+        for(std::size_t t=0;t<update->internal.size();++t) midi_playback_[t].swap_note_tables(update->internal[t]);
+        for(std::size_t t=0;t<update->external.size();++t) external_playback_[t].swap_note_tables(update->external[t]);
+        update->retired.store(true,std::memory_order_release);
+    }
+}
 void AudioEngine::swap_timing(TimingPlan& plan,bool midi_only){
     if(speculative_||mixed_owner_||rt_.playback==PlaybackState::playing||(!midi_only&&rt_.loop)||rt_.count_remaining||plan.rate!=config_.sample_rate||plan.playback.size()!=graph_.mixer.size()||(midi_only&&plan.time!=graph_.click_time))throw std::logic_error("stop/join playback and count-in; MIDI-only swaps require unchanged timing");
+    adopt_midi_velocities();
     // Joined producers: preserve a preceding accepted clip edit before timing
     // refresh replaces the control snapshot identity.
     if(!graph_.performance)adopt_voice_transition();
@@ -1060,6 +1083,7 @@ void AudioEngine::process(const float* input, float* output, std::uint32_t frame
     if(!output||!frames||frames>config_.max_block){process_block(input,output,frames,input_flags);return;}
     if(!speculative_){const auto minimum=min_frames_.load(std::memory_order_relaxed);if(!minimum||frames<minimum)min_frames_=frames;if(frames>max_frames_.load(std::memory_order_relaxed))max_frames_=frames;}
     consume_controls();
+    if(pending_velocity_.load(std::memory_order_acquire)) adopt_midi_velocities();
     if(count_started_&&rt_.count_remaining&&!processing_fault_.load()){
         const auto count=static_cast<std::uint32_t>(std::min<Sample>(frames,rt_.count_remaining));
         const auto elapsed=graph_.count_frames-rt_.count_remaining;const auto now=midi_clock_ns();
@@ -1196,7 +1220,7 @@ void AudioEngine::process_block(const float* input, float* output, std::uint32_t
         if(midi.track>=graph_.live_midi.size()||!graph_.live_midi[midi.track]||midi.event.channel>15||midi.event.data1>127||midi.event.data2>127||(midi.event.kind!=processing::MidiKind::note_on&&midi.event.kind!=processing::MidiKind::note_off)){++midi_dropped_;continue;}
         auto& tail=audition_tails_[midi.track];
         const bool isolated=rt_.playback!=PlaybackState::playing&&!audition_live_busy_[midi.track]&&audition_live_notes_[midi.track].none()&&audition_live_sustain_[midi.track].none()&&(!monitor_enabled_||std::none_of(graph_.monitor.begin(),graph_.monitor.end(),[&](const auto& route){return route.mixer_track==midi.track||(route.mixer_track==no_mixer_track&&graph_.monitor_track==midi.track);}));
-        if(midi.event.kind==processing::MidiKind::note_off&&midi.audition_release_ms&&isolated){tail.off=midi.event;tail.remaining=static_cast<std::uint32_t>(config_.sample_rate*std::min(200U,midi.audition_release_ms)/1000);tail.fade=std::max(1U,tail.remaining/2);tail.active=tail.pending=true;continue;}
+        if(midi.event.kind==processing::MidiKind::note_off&&midi.audition_release_ms&&isolated){tail.off=midi.event;tail.remaining=static_cast<std::uint32_t>(config_.sample_rate*std::min(2000U,midi.audition_release_ms)/1000);tail.fade=std::max(1U,tail.remaining/2);tail.active=tail.pending=true;continue;}
         if(tail.pending){tail.off.offset=0;if(!live_midi_buffers_[midi.track].push(tail.off)){++midi_dropped_;midi_panic_=true;}}tail={};
         midi.event.offset=0;if(!live_midi_buffers_[midi.track].push(midi.event)){++midi_dropped_;midi_panic_=true;}
     }

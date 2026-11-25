@@ -22,7 +22,7 @@ inline constexpr Tick ppq = 960;
 inline constexpr std::size_t max_project_midi_notes = 32768;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 35;
+inline constexpr std::uint32_t schema_version = 36;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -172,6 +172,44 @@ struct NativeInsert {
 };
 inline bool wav_core(InsertKind kind){return kind==InsertKind::cab_collection||kind==InsertKind::rig;}
 void validate_cab_metadata(const std::map<std::string,std::string>&);
+inline constexpr std::uint32_t drum_map_schema_version = 1;
+struct DrumMapArticulation {
+    Id id;
+    std::string name;
+    std::optional<int> note; // default MIDI note 0..127; absent = Unmapped
+    std::optional<int> channel; // zero-based 0..15; absent = any channel
+    std::vector<std::string> aliases; // alternative names for the same articulation
+    std::vector<int> alternate_notes; // same channel as the default note
+    bool operator==(const DrumMapArticulation&) const = default;
+};
+struct DrumMapInstrument {
+    Id id;
+    std::string name;
+    std::vector<DrumMapArticulation> articulations;
+    std::optional<std::uint32_t> color; // optional override of the enclosing group color
+    bool operator==(const DrumMapInstrument&) const = default;
+};
+struct DrumMapCategory {
+    Id id;
+    std::string name;
+    std::vector<DrumMapInstrument> instruments;
+    std::optional<std::uint32_t> color; // optional RGB for the group and its notes
+    bool operator==(const DrumMapCategory&) const = default;
+};
+struct DrumMapProfile {
+    Id id;
+    std::string name, description, vendor, plugin, library, kit, technique;
+    std::vector<DrumMapCategory> categories;
+    std::uint32_t version{drum_map_schema_version};
+    void validate() const;
+    bool operator==(const DrumMapProfile&) const = default;
+};
+struct DrumMapBinding {
+    DrumMapProfile snapshot; // snapshot.id is the stable catalog reference, independent of file location
+    std::vector<Id> collapsed; // category/instrument IDs; view state, never part of the MIDI clip
+    void validate() const;
+    bool operator==(const DrumMapBinding&) const = default;
+};
 struct Track {
     Id id;
     std::string name;
@@ -207,6 +245,7 @@ struct Track {
     stretch::Backend stretch_backend{stretch::Backend::signalsmith};
     bool fx_channel{}; // FX return role; processing/routing remains TrackKind::bus.
     std::optional<std::uint32_t> color{}; // Channel RGB; independent of clip colors.
+    std::optional<DrumMapBinding> drum_map{}; // display only, instrument tracks
     bool operator==(const Track&) const = default;
 };
 struct MidiNote {

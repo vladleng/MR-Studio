@@ -1,30 +1,18 @@
-# MR Studio — техническая документация
+# MR Studio / MR Live — индекс технических контрактов
 
-Этот индекс связывает **постоянные технические контракты**, а не повторяет историю разработки. Требования, статус и приёмка находятся в DSH Task Manager, проект «MR Studio»; правила поведения агента — в [AGENTS.md](../AGENTS.md). [GitHub Issues](https://github.com/vladleng/MR-Studio/issues), PR и Actions сохраняются как история, не источник текущего статуса. Не загружайте всю папку `docs/` в контекст одной задачи.
+Этот файл — **необязательный тематический указатель**, не инструкция по запуску работы и не журнал этапов. Для реализованного поведения используй локальный код и тесты; требования, незавершённую работу и приёмку смотри в DSH Task Manager. Постоянные границы — в корневом [AGENTS.md](../AGENTS.md).
 
-## Архитектура и общие системы
+Документы ниже открывай **только по конкретной необходимости**, адресно по разделам.
 
-- [Архитектура двух приложений и Shared Core](ARCHITECTURE.md), [контракты Core](CORE_CONTRACTS.md), [модель проекта](DATA_MODEL.md), [Persistence / Recovery](PERSISTENCE.md).
-- [Audio Engine / ASIO](AUDIO_ENGINE.md), [Realtime и надёжность](PROCESSING_RELIABILITY.md), [параллельная обработка](ENGINE_PARALLEL_PROCESSING.md), [Time Stretch API](TIME_STRETCH_API.md).
-- [VST3 Hosting](VST3_HOSTING.md), [ARA2 Hosting](ARA2_HOSTING.md), [ARA state](ARA2_STATE_180.md).
-- [Музыкальный таймлайн](MUSICAL_TIMELINE.md), [MIDI clips](MIDI_CLIPS.md), [MIDI input](MIDI_LIVE_INPUT.md), [MIDI processing](MIDI_PROCESSOR_GRAPH.md).
+| Тема | Документы |
+| --- | --- |
+| Архитектура Studio / Live / Shared Core | [ARCHITECTURE](ARCHITECTURE.md), [CORE_CONTRACTS](CORE_CONTRACTS.md), [MR Live integration](MR_LIVE_NATIVE_INTEGRATION.md) |
+| Модели и сохранение проектов | [DATA_MODEL](DATA_MODEL.md), [PERSISTENCE](PERSISTENCE.md) |
+| Audio, realtime, transport | [AUDIO_ENGINE](AUDIO_ENGINE.md), [PROCESSING_RELIABILITY](PROCESSING_RELIABILITY.md), [MUSICAL_TIMELINE](MUSICAL_TIMELINE.md) |
+| MIDI и хостинг | [MIDI clips](MIDI_CLIPS.md), [MIDI processor graph](MIDI_PROCESSOR_GRAPH.md), [VST3](VST3_HOSTING.md), [ARA2](ARA2_HOSTING.md) |
+| Live и музыкальные инструменты | [Live workflow](LIVE_WORKFLOW.md), [MR Rig](MR_RIG_ARCHITECTURE.md) |
+| Разделение аудио и транскрипция | [STEM_SEPARATION](STEM_SEPARATION.md), [AUDIO_TO_MIDI](AUDIO_TO_MIDI.md) |
+| Интерфейс и SVG | [MR UDS](MR_UNIFIED_DESIGN_SYSTEM.md), [SVG runtime](MR_SVG_RUNTIME.md) |
+| Локальная сборка и версии | [LOCAL_BUILD_POLICY](LOCAL_BUILD_POLICY.md), [VERSIONING](VERSIONING.md) |
 
-## Приложения и AI
-
-- [MR Live: native integration](MR_LIVE_NATIVE_INTEGRATION.md), [MR Live workflow](LIVE_WORKFLOW.md), [Live edit architecture](MR_LIVE_EDIT_ARCHITECTURE.md).
-- [MR Separation Engine](STEM_SEPARATION.md), [Audio-to-MIDI / MuScriptor Python](AUDIO_TO_MIDI.md), [AI Foundation](AI_FOUNDATION_CONTRACT.md).
-- [MR Rig architecture](MR_RIG_ARCHITECTURE.md), [MR Reverb](MR_REVERB.md), [Harma Waves](HARMA_WAVES_NATIVE.md).
-
-## Интерфейс
-
-- [MR Unified Design System](MR_UNIFIED_DESIGN_SYSTEM.md) — канонический визуальный язык обеих программ и родных плагинов.
-- [MR UI Kit](MR_UI_KIT.md), [SVG runtime](MR_SVG_RUNTIME.md), [`assets/ui/mr-uds/`](../assets/ui/mr-uds/README.md), [GUI Skill](../.agents/skills/mr-unified-gui/SKILL.md).
-
-## Работа с репозиторием
-
-- [Локальная разработка и сборки](LOCAL_BUILD_POLICY.md), [Skill сборки](../.agents/skills/mr-studio-build-test/SKILL.md); [облачная схема](CLOUD_DEVELOPMENT.md) — историческая справка.
-- [Тематические направления](DEVELOPMENT_TRACKS.md), [долгосрочное видение](PROJECT_VISION.md), [roadmap как карта направлений](ROADMAP.md).
-- [Контекст-указатель](PROJECT_CONTEXT.md) и [быстрый вход](START_HERE.md) — навигация, не отдельный источник статуса.
-- [Канонические правила версионирования](VERSIONING.md) — схема `0.I.S`, независимые версии Studio/Live и суффиксы пакетов.
-
-**Не использовать** старые Stage/Fix/Upd/Handoff-файлы как актуальные инструкции. Уникальные контракты сохраняются в тематических спецификациях; старые версии документов доступны через историю Git.
+Исторические `Stage/Fix/Upd/Handoff`, прежние планы, GitHub Issues и Actions **не определяют текущий статус**. Для восстановления закоммиченной истории используй Git, а для пользовательских решений — DSH Task Manager.

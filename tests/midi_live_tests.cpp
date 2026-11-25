@@ -35,6 +35,9 @@ void engine(const std::filesystem::path& fixture){
     CHECK(!engine.anticipation_safe());CHECK(engine.processing_domains().channels[0].owner==ProcessingDomains::Owner::device);
     std::array<float,256> output{};const auto generation=engine.midi_generation();
     CHECK(engine.enqueue_live_midi({generation,0,{0,MidiKind::note_on,0,60,127}}));allocations=0;probe=true;engine.process(nullptr,output.data(),128);probe=false;CHECK(allocations==0&&output.back()>0.49f); // fixed PDC 7 frames, also plays while stopped
+    CHECK(synth->take_output_note(fx.id)==60 && synth->take_output_note(fx.id)==-1);
+    const auto activity=engine.live_note_activity(0);
+    CHECK(activity!=0 && (activity&2047)==60 && engine.live_note_activity(0)==activity && engine.live_note_activity(1)==0);
     CHECK(engine.enqueue_live_midi({generation,0,{0,MidiKind::cc,0,64,127}}));engine.process(nullptr,output.data(),128);
     CHECK(engine.enqueue_live_midi({generation,0,{0,MidiKind::note_off,0,60,0}}));engine.process(nullptr,output.data(),128);CHECK(output.back()>0.49f);
     CHECK(engine.enqueue_live_midi({generation,0,{0,MidiKind::pitch_bend,0,127,127}}));engine.process(nullptr,output.data(),128);CHECK(output.back()>0.74f);

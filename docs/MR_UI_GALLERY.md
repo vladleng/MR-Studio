@@ -25,7 +25,7 @@
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
-Это структурный wireframe, не обязательный пиксель-в-пиксель контракт. Ориентир визуального стиля — accepted `ui::Theme` и `docs/UI_REFERENCE_UPD9.md` плюс MR Reverb. Компактный размер, адаптивная сетка/скроллинг, mouse/keyboard navigation, no clipping.
+Это структурный wireframe, не обязательный пиксель-в-пиксель контракт. Ориентир визуального стиля — [реализация Theme](../apps/studio-juce/src/Controls.h), [MR UI Kit](MR_UI_KIT.md) и MR Reverb. Компактный размер, адаптивная сетка/скроллинг, mouse/keyboard navigation, no clipping.
 
 ## 2. Пользовательские сценарии
 

@@ -259,7 +259,25 @@ class AudioEngine {
 public:
     struct LiveMidi {std::uint64_t generation{};std::size_t track{};processing::MidiEvent event;std::uint64_t timestamp_ns{};std::uint32_t audition_release_ms{};};
     // Single non-RT MIDI bridge producer, device callback consumer. No graph access here.
-    bool enqueue_live_midi(const LiveMidi& event) noexcept {if(live_midi_queue_.push(event))return true;++midi_dropped_;midi_panic_=true;midi_record_fault_=true;return false;}
+    bool enqueue_live_midi(const LiveMidi& message) noexcept {
+        if (live_midi_queue_.push(message)) {
+            const auto& e = message.event;
+            if (message.track < max_mixer_tracks && e.kind == processing::MidiKind::note_on &&
+                e.data2 > 0 && e.channel < 16 && e.data1 < 128 && message.generation == midi_generation()) {
+                const auto token = (message.generation << 32) | (((++live_note_serial_ & 0xfffffULL) + 1) << 11) |
+                    (static_cast<std::uint64_t>(e.channel) * 128 + e.data1);
+                live_note_activity_[message.track].store(token, std::memory_order_relaxed);
+            }
+            return true;
+        }
+        ++midi_dropped_;midi_panic_=true;midi_record_fault_=true;return false;
+    }
+    // Non-destructive: multiple UI views may independently observe the same routed Note On.
+    std::uint64_t live_note_activity(std::size_t track) const noexcept {
+        if (track >= max_mixer_tracks) return 0;
+        const auto token = live_note_activity_[track].load(std::memory_order_relaxed);
+        return (token >> 32) == (midi_generation() & 0xffffffffULL) ? token : 0;
+    }
     // Message-thread producer only; independent of the driver bridge SPSC. Audition is not recorded.
     bool enqueue_audition_midi(const LiveMidi& event) noexcept {if(audition_midi_queue_.push(event))return true;++midi_dropped_;midi_panic_=true;return false;}
     void midi_panic() noexcept {midi_panic_=true;}
@@ -321,6 +339,8 @@ public:
     };
     TimingPlan prepare_timing(const Project&,std::span<const Id>,bool capture_voices=false) const; // control thread; no mutation
     void swap_timing(TimingPlan&,bool midi_only=false); // stopped/joined; MIDI-only retains timing/loop
+    // Control thread, only for velocity-only model diffs with unchanged event geometry.
+    void publish_midi_velocities(TimingPlan&&);
     bool processing_workers_idle() const noexcept; // control-thread only, no DSP access
     void quiesce() noexcept; // device stopped, before plugin state/editor access
     bool enqueue(Control) noexcept;
@@ -373,8 +393,17 @@ private:
     std::vector<processing::MidiBuffer> chunk_midi_buffers_;
     std::vector<MidiPlayback> midi_playback_;
     std::vector<MidiPlayback> external_playback_;
+    struct VelocityUpdate {
+        std::vector<MidiPlayback> internal, external;
+        std::atomic<bool> retired{};
+    };
+    std::vector<std::unique_ptr<VelocityUpdate>> velocity_updates_; // control-thread ownership
+    std::atomic<VelocityUpdate*> pending_velocity_{};
+    void adopt_midi_velocities() noexcept;
     std::array<bool,max_mixer_tracks> external_gate_{};
     std::atomic<std::uint64_t> midi_generation_{},midi_dropped_{};
+    std::array<std::atomic<std::uint64_t>,max_mixer_tracks> live_note_activity_{};
+    std::uint64_t live_note_serial_{}; // single MIDI bridge producer
     std::atomic<bool> midi_panic_{},midi_record_fault_{};
     std::unique_ptr<LibraryPreviewStream> library_preview_;
     std::atomic<LibraryPreviewStream*> library_preview_ptr_{nullptr};

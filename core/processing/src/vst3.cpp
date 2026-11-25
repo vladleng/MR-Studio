@@ -78,6 +78,9 @@ class Plugin final : public IProcessor, public IComponentHandler, public IPlugFr
     Vst::ProcessContext context_{};
     FixedChanges input_,output_;
     FixedEvents events_in_,events_out_;
+    static_assert(std::atomic<int>::is_always_lock_free);
+    std::atomic<int> output_note_{-1};
+    bool observe_output_{};
     std::array<std::array<ParamID,131>,16> midi_mapping_{};
     std::array<std::array<bool,128>,16> held_{};
     bool reset_midi_{},has_events_{};
@@ -132,7 +135,7 @@ public:
         std::vector<SpeakerArrangement> inputs(component_->getBusCount(kAudio,kInput)),outputs(component_->getBusCount(kAudio,kOutput));
         for(auto dir:{kInput,kOutput}){auto& buses=dir==kInput?inputs:outputs;for(int32 i=0;i<static_cast<int32>(buses.size());++i){ok(processor_->getBusArrangement(dir,i,buses[i]),"cannot query audio bus layout");if(i==0)buses[i]=arrangement;}}
         ok(processor_->setBusArrangements(inputs.data(),static_cast<int32>(inputs.size()),outputs.data(),static_cast<int32>(outputs.size())),"effect must support selected mono/stereo layout");
-        for(auto dir:{kInput,kOutput}){for(int32 i=0;i<component_->getBusCount(kAudio,dir);++i)ok(component_->activateBus(kAudio,dir,i,i==0),"audio bus activation failed");for(int32 i=0;i<component_->getBusCount(kEvent,dir);++i)ok(component_->activateBus(kEvent,dir,i,c.instrument&&dir==kInput&&i==0),"event bus activation failed");}
+        for(auto dir:{kInput,kOutput}){for(int32 i=0;i<component_->getBusCount(kAudio,dir);++i)ok(component_->activateBus(kAudio,dir,i,i==0),"audio bus activation failed");for(int32 i=0;i<component_->getBusCount(kEvent,dir);++i){if(c.instrument&&dir==kOutput&&i==0) observe_output_=component_->activateBus(kEvent,dir,i,true)==kResultOk; else ok(component_->activateBus(kEvent,dir,i,c.instrument&&dir==kInput&&i==0),"event bus activation failed");}}
         for(auto& ch:midi_mapping_)ch.fill(kNoParamId);
         FUnknownPtr<IMidiMapping> mapping(controller_);
         if(mapping&&c.instrument)for(int16 ch=0;ch<16;++ch)for(int16 cc=0;cc<131;++cc){ParamID id=kNoParamId;if(mapping->getMidiControllerAssignment(0,ch,cc,id)==kResultOk)midi_mapping_[ch][cc]=id;}
@@ -189,6 +192,7 @@ public:
     void reset() noexcept override{context_.projectTimeSamples=0;reset_midi_=true;}
     bool edited() noexcept override{if(refresh_values_.exchange(false))for(std::size_t i=0;i<infos_.size();++i)values_[i]=static_cast<float>(controller_->getParamNormalized(infos_[i].id));return edited_.exchange(false);}
     void sync_controller(std::uint32_t id,float value) override{controller_->setParamNormalized(id,value);if(auto i=index(id))values_[*i]=value;}
+    int take_output_note() noexcept override { return output_note_.exchange(-1, std::memory_order_relaxed); }
     bool failed() const noexcept override{return fault_.load();}
     bool open_editor(void* parent,int& width,int& height) override{
         close_editor();view_=owned(controller_->createView(ViewType::kEditor));if(!view_ || view_->isPlatformTypeSupported(kPlatformTypeHWND)!=kResultOk){view_=nullptr;return false;}
@@ -222,6 +226,14 @@ public:
         context_.state=(block.playing?Vst::ProcessContext::kPlaying:0)|Vst::ProcessContext::kTempoValid|Vst::ProcessContext::kProjectTimeMusicValid;
         if(block.meter.valid){context_.timeSigNumerator=block.meter.numerator;context_.timeSigDenominator=block.meter.denominator;context_.barPositionMusic=block.meter.bar_quarter;context_.state|=Vst::ProcessContext::kTimeSigValid|Vst::ProcessContext::kBarPositionValid;}
         if(!safe_process(processor_,&data_)){fault_=true;return;}
+        if (observe_output_) for (int32 i = events_out_.getEventCount(); i > 0; --i) {
+            Event e{};
+            if (events_out_.getEvent(i - 1, e) == kResultOk && e.busIndex == 0 && e.type == Event::kNoteOnEvent &&
+                e.noteOn.velocity > 0 && e.noteOn.channel >= 0 && e.noteOn.channel < 16 && e.noteOn.pitch >= 0 && e.noteOn.pitch < 128) {
+                output_note_.store(e.noteOn.channel * 128 + e.noteOn.pitch, std::memory_order_relaxed);
+                break;
+            }
+        }
         for(std::uint32_t f=0;f<block.frames;++f)for(int32 c=0;c<data_.outputs[0].numChannels;++c){const auto v=(data_.outputs[0].silenceFlags&(uint64{1}<<c))?0.f:data_.outputs[0].channelBuffers32[c][f];block.audio[static_cast<std::size_t>(f)*block.channels+c]=std::isfinite(v)?v:0;}
         context_.projectTimeSamples+=block.frames;
     }

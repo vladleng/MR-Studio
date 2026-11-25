@@ -14,8 +14,8 @@ void check(bool b,const char* s){if(!b)throw std::runtime_error(s);}
 template<class F>void rejects(F f){bool caught=false;try{f();}catch(const std::exception&){caught=true;}CHECK(caught);}
 struct Directory{std::filesystem::path path=std::filesystem::temp_directory_path()/("mrs-midi-clips-"+new_id().value);Directory(){std::filesystem::create_directory(path);}~Directory(){std::error_code e;std::filesystem::remove_all(path,e);}};
 struct ManualDevice final:IAudioDevice{
-    bool fail{};DevicePhase phase{DevicePhase::closed};std::vector<DeviceInfo> enumerate()override{return {{0,"MIDI clip fixture",{"Mic"}, {"L","R"},16,8192,128,1}};}
-    void control_panel(int)override{}void open(const DeviceConfig&,std::shared_ptr<AudioEngine>)override{phase=DevicePhase::open;}void start()override{if(fail){fail=false;throw std::runtime_error("MIDI restart fixture failure");}phase=DevicePhase::running;}void stop()override{phase=DevicePhase::stopped;}void close()noexcept override{phase=DevicePhase::closed;}DeviceStatus status()override{return {phase,48000};}
+    bool fail{};unsigned stops{};DevicePhase phase{DevicePhase::closed};std::vector<DeviceInfo> enumerate()override{return {{0,"MIDI clip fixture",{"Mic"}, {"L","R"},16,8192,128,1}};}
+    void control_panel(int)override{}void open(const DeviceConfig&,std::shared_ptr<AudioEngine>)override{phase=DevicePhase::open;}void start()override{if(fail){fail=false;throw std::runtime_error("MIDI restart fixture failure");}phase=DevicePhase::running;}void stop()override{++stops;phase=DevicePhase::stopped;}void close()noexcept override{phase=DevicePhase::closed;}DeviceStatus status()override{return {phase,48000};}
 };
 struct Synth final:IProcessor{
     std::array<float,2048> held{};
@@ -144,7 +144,24 @@ void meter_context(const std::filesystem::path& fixture){
     graph.midi_notes={{{8750,9006,60,127,0}}};engine.prepare({48000,0,2,256},graph,{PlaybackState::paused,8750,{}});CHECK(engine.enqueue({ControlKind::play}));engine.process(nullptr,out.data(),256);CHECK(std::all_of(out.begin(),out.end(),[](float v){return v>0;}));
     graph.live_midi.clear();graph.midi_notes.clear();graph.voices={voice};graph.inserts={prepare(fx,false)};engine.prepare({48000,0,2,256},graph,{PlaybackState::paused,8750,{}});CHECK(engine.enqueue({ControlKind::play}));engine.process(nullptr,out.data(),256);CHECK(std::all_of(out.begin(),out.end(),[](float v){return v>0;}));
 }
-void application(const std::filesystem::path& fixture){Directory dir;const auto plugin=dir.path/"instrument.vst3";std::filesystem::copy_file(fixture,plugin);auto u=plugin.u8string();auto info=probe_vst3(std::string(u.begin(),u.end())).front();NativeInsert fx;fx.id=new_id();fx.kind=InsertKind::vst3;fx.plugin_path=info.path;fx.class_id=info.class_id;fx.plugin_name=info.name;
+void application(const std::filesystem::path& fixture,bool velocityOnly=false){Directory dir;const auto plugin=dir.path/"instrument.vst3";std::filesystem::copy_file(fixture,plugin);auto u=plugin.u8string();auto info=probe_vst3(std::string(u.begin(),u.end())).front();NativeInsert fx;fx.id=new_id();fx.kind=InsertKind::vst3;fx.plugin_path=info.path;fx.class_id=info.class_id;fx.plugin_name=info.name;
+    if(velocityOnly){
+        Application history;history.new_project();const auto t=history.add_instrument_track("Velocity history");history.set_inserts(t,{fx});
+        const auto c=history.create_midi_clip(t,0,8*ppq);
+        const std::vector<MidiNote> next{{new_id(),ppq,ppq,72,32,2},{new_id(),2*ppq,ppq,64,96,5}};
+        history.set_midi_notes(c,next);const auto saved=history.snapshot();
+        auto device=std::make_unique<ManualDevice>(); auto* driver=device.get(); history.connect(std::move(device),{0,48000,128,{}, {0,1},1});
+        const auto stops=driver->stops; const auto midiGeneration=history.engine()->midi_generation();
+        auto velocity=next; velocity.front().velocity=55; history.set_midi_notes(c,velocity);
+        CHECK(driver->stops==stops && history.engine()->midi_generation()==midiGeneration);
+        CHECK(history.undo() && history.redo() && driver->stops==stops);
+        history.seek(Timeline(saved.project.time,48000).to_samples(ppq+ppq/2));
+        history.play(); std::array<float,256> monitor{};
+        allocations=0;probe=true;history.engine()->process(nullptr,monitor.data(),128);probe=false;
+        CHECK(allocations==0);
+        CHECK(std::abs(monitor.back()-55.f/508.f)<.001f); // first chased note uses final velocity at fixture output gain
+        return;
+    }
     {
         Application history;history.new_project();const auto t=history.add_instrument_track("Note history");history.set_inserts(t,{fx});history.connect(std::make_unique<ManualDevice>(),{0,48000,128,{}, {0,1},1});
         const auto c=history.create_midi_clip(t,0,8*ppq);const std::vector<MidiNote> original{{new_id(),ppq,ppq,60,32,2},{new_id(),2*ppq,ppq,64,96,5}};history.set_midi_notes(c,original);const auto generation=history.insert_generation();
@@ -169,4 +186,4 @@ void application(const std::filesystem::path& fixture){Directory dir;const auto 
 }
 }
 void* operator new(std::size_t n){if(probe)++allocations;if(auto p=std::malloc(n?n:1))return p;throw std::bad_alloc{};}void operator delete(void* p)noexcept{std::free(p);}void operator delete(void* p,std::size_t)noexcept{std::free(p);}
-int main(int argc,char** argv){try{CHECK(argc==2);model();merges();musical();controllers();controller_budget();schedule();engine();audition();audition_tail();audition_not_recorded();tempo_context(argv[1]);meter_context(argv[1]);application(argv[1]);std::cout<<"PASS MIDI clips\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(int argc,char** argv){try{if(argc==3&&std::string_view(argv[2])=="--velocity-only"){application(argv[1],true);std::cout<<"PASS MIDI velocity\n";return 0;}CHECK(argc==2);model();merges();musical();controllers();controller_budget();schedule();engine();audition();audition_tail();audition_not_recorded();tempo_context(argv[1]);meter_context(argv[1]);application(argv[1]);std::cout<<"PASS MIDI clips\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

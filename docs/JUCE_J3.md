@@ -4,9 +4,9 @@ Follow-up 0.1p fix3: fix2 generally accepted; offline transition no longer valid
 
 Follow-up 0.1p fix2: user accepted TH-U state/sound after project reopen; special TH-U/Nuro build checks disabled by policy. VST3 preset loads keep the editor/processor instance; reference palette and Files breadcrumbs/details added. See [JUCE_FIX2.md](JUCE_FIX2.md).
 
-Follow-up 0.1p fix1: upd2 embedded plugin GUI accepted; explicit preset restoration, in-place Save list refresh, visible/resizable browser and WAV drops onto existing tracks. See [JUCE_FIX1.md](JUCE_FIX1.md). TH-U audible review remains pending.
+Follow-up 0.1p fix1: upd2 embedded plugin GUI accepted; explicit preset restoration, in-place Save list refresh, visible/resizable browser and WAV drops onto existing tracks. See [preset/editor contract](PLUGIN_PRESETS.md). TH-U audible review remains pending.
 
-Follow-up 0.1p upd2: offline native editor rebuild/lifecycle corrected; per-plugin preset library and Files browser added. See [JUCE_UPD2.md](JUCE_UPD2.md). TH-U audible-state user review remains pending because upd1 GUI blocked testing.
+Follow-up 0.1p upd2: offline native editor rebuild/lifecycle corrected; per-plugin preset library and Files browser added. See [preset/editor contract](PLUGIN_PRESETS.md). TH-U audible-state user review remains pending because upd1 GUI blocked testing.
 
 Follow-up 0.1p upd1: user confirmed the UI and Nuro state restore work, but reported
 TH-U audible-state mismatch. See [diagnosis, plugin presets and editor update](PLUGIN_PRESETS.md)

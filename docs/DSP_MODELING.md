@@ -224,9 +224,9 @@ set_processor_model(track, "MR Cab", "MR 1x12 Warm")
 
 Это backlog, не команда начинать реализацию и не новое завершение Stage 3. Возможный внешний VST3/встроенный channel-strip рассматривается позже, но не входит в MVP.
 
-## 13. MR Cab 2.0 — Universal IR Collections (2026-10-14, planning only)
+## 13. Historical MR Cab 2.0 plan (superseded)
 
-[Parent #182](https://github.com/vladleng/MR-Studio/issues/182) в #111 — самостоятельное развитие native Cab IR после закрытого инфраструктурного #23. **Source of truth:** [MR_CAB_COLLECTIONS.md](MR_CAB_COLLECTIONS.md), [roadmap](MR_CAB_ROADMAP.md), [Codex P1](MR_CAB_CODEX_HANDOFF.md).
+[Parent #182](https://github.com/vladleng/MR-Studio/issues/182) отменён как отдельный продуктовый трек в пользу MR Rig. [Cab collections](MR_CAB_COLLECTIONS.md) сохраняет WAV/IR контракты; новый продуктовый scope — [NAM-first MR Rig](MR_RIG_ARCHITECTURE.md). Пункты ниже описывают прежний план, не разрешают возобновлять #186–188 или создавать второй amp/convolver backend.
 
 - Первый real-user набор — **локально уже скачанная Celestion**: library/cabinet/mic/mix/voicing/room variants, стандартизированные внешние WAV identity/manifest, удобное переключение заводских готовых миксов **как одного WAV**. Не пересоздавать mic stem из premixed WAV и не применять Room второй раз.
 - Следом TONEX только **обычные WAV IR** и generic packs с manual mapping при неоднозначных именах. Фирменные TONEX Tone Models/.txm/.txp и NAM/другие amp models **отдельные будущие задачи**, не часть Cab Collections.

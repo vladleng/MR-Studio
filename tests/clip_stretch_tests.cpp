@@ -36,6 +36,20 @@ void model(){
     SplitAudioClip{Id{"right"},35001,Id{"last"}}.apply(p);p.validate();
     for(std::size_t i=1;i<p.clips.size();++i){CHECK(p.clips[i-1].start+p.clips[i-1].length==p.clips[i].start);CHECK(audio_output_offset(p.clips[i-1])+p.clips[i-1].length==audio_output_offset(p.clips[i]));}
     const auto split=p;
+    {
+        ProjectStore anchored(split);
+        auto shorter=params;shorter.duration_ratio=.75;
+        const auto& originalRight=split.clips[1];
+        anchored.execute(SetAudioStretch{originalRight.id,shorter,false,StretchAnchor::end});
+        const auto changed=anchored.state().project;const auto& right=changed->clips[1];
+        CHECK(right.start>originalRight.start&&right.start+right.length==originalRight.start+originalRight.length);
+        CHECK(right.source_offset==originalRight.source_offset&&right.stretch->window_begin==originalRight.stretch->window_begin&&right.stretch->window_end==originalRight.stretch->window_end);
+        CHECK(right.stretch->parameters==shorter&&deserialize(serialize(*changed))==*changed);
+        CHECK(anchored.undo()&&*anchored.state().project==split);
+        auto tooLong=params;tooLong.duration_ratio=8;
+        rejects([&]{anchored.execute(SetAudioStretch{id,tooLong,false,StretchAnchor::end});});
+        CHECK(*anchored.state().project==split);
+    }
     for(int i=0;i<100;++i){
         for(const auto& c:split.clips){auto bypass=params;bypass.enabled=false;SetAudioStretch{c.id,bypass}.apply(p);}
         p.validate();

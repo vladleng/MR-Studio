@@ -1,6 +1,6 @@
 # Realtime hazard checklist
 
-Use this on every RT-CRITICAL or RT-ADJACENT change.
+Use relevant sections when the affected RT path is unclear or high-risk. Do not require every checkbox for unrelated changes.
 
 ## Blocking
 - [ ] no blocking mutex

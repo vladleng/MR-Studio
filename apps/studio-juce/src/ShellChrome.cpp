@@ -54,10 +54,13 @@ void Desktop::layoutShell() {
     shellTime.setBounds(x + 4, y, 72, 32);
     x = getWidth() - 252;
     for (auto* button : {&editButton,&mixButton,&brows}) { button->setBounds(x, y, 76, 32); x += 80; }
-    shellStatus.setBounds(12, getHeight() - 38, 360, 18);
-    cpuReadout.setBounds(12, getHeight() - 20, 72, 16);
-    audioCpuBar.setBounds(88, getHeight() - 14, 80, 5);
-    latencyReadout.setBounds(180, getHeight() - 20, 208, 16);
+    const int readoutLeft = inspectorButton.getRight() + 8;
+    const int readoutRight = navigationMode.getX() - 8;
+    shellStatus.setBounds(readoutLeft, getHeight() - 38, juce::jmin(360, readoutRight - readoutLeft), 18);
+    cpuReadout.setBounds(readoutLeft, getHeight() - 20, 72, 16);
+    audioCpuBar.setBounds(cpuReadout.getRight() + 4, getHeight() - 14, 80, 5);
+    const int latencyLeft = audioCpuBar.getRight() + 12;
+    latencyReadout.setBounds(latencyLeft, getHeight() - 20, juce::jmin(208, readoutRight - latencyLeft), 16);
 }
 
 void Desktop::refreshShell() {

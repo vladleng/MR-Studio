@@ -1,5 +1,6 @@
 #include <mrs/persistence.hpp>
 #include <mrs/musical.hpp>
+#include <mrs/drum_maps.hpp>
 #include <algorithm>
 #include <bit>
 #include <array>
@@ -62,6 +63,102 @@ ShowDocument show(const ProjectDocument& d) {
     s.entries = {{{"entry-one"},d.project.id,"relative/song.mrsproject","Cue notes",d.patches.front().id},
                  {{"entry-two"},d.project.id,"relative/song.mrsproject","Repeat",{}}};
     s.selected = s.entries.front().id; s.extensions = {{"USER","show opaque"}}; return s;
+}
+void drum_maps() {
+    DrumMapProfile base;
+    base.id = {"base/../map"}; base.name = "Барабаны \"Base\""; base.description = "line\npath\\text";
+    base.vendor = "Vendor"; base.plugin = "VSTi"; base.library = "Library"; base.kit = "Kit"; base.technique = "Base";
+    base.categories = {{{"toms"}, "Toms", {{{"floor"}, "Floor", {
+        {{"hit"}, "Hit", 36, 9, {"Center"}}, {{"rim"}, "Rim", 36, 10, {}},
+        {{"any"}, "Any channel", 36, {}, {}}, {{"none"}, "Unmapped", {}, {}, {}},
+        {{"low"}, "Low", 0, 0, {}}, {{"high"}, "High", 127, 15, {}}
+    }}}}, {{"kick"}, "Kick", {}}};
+    const auto bytes = serialize_drum_map(base);
+    CHECK(deserialize_drum_map(bytes) == base);
+    rejects([&] { (void)deserialize_drum_map("MRS_DRUM_MAP 2\n"); });
+    rejects([&] { (void)deserialize_drum_map(bytes.substr(0, bytes.size() / 2)); });
+    rejects([&] { (void)deserialize_drum_map(bytes + "unexpected"); });
+    CHECK(drum_map_conflicts(base) == std::vector<Id>{{"hit"}, {"rim"}, {"any"}});
+    auto sticks = duplicate_drum_map(base, "Sticks"), brushes = duplicate_drum_map(base, "Brushes");
+    CHECK(sticks.id != base.id && brushes.id != base.id && brushes.id != sticks.id);
+    auto& rows = sticks.categories.front().instruments.front().articulations;
+    rows[2].note.reset();
+    CHECK(drum_map_conflicts(sticks).empty()); // distinct channels and labels do not conflict
+    rows[1].channel = 9;
+    CHECK(drum_map_conflicts(sticks) == std::vector<Id>{{"hit"}, {"rim"}});
+    CHECK(base.categories == brushes.categories && base.categories != sticks.categories);
+    auto bad = base;
+    auto& bad_rows = bad.categories.front().instruments.front().articulations;
+    bad_rows[0].note = 128; rejects([&] { bad.validate(); });
+    bad_rows[0].note = 36; bad_rows[0].channel = 16; rejects([&] { bad.validate(); });
+    bad_rows[0].channel = 9; bad_rows[0].id = bad_rows[1].id; rejects([&] { bad.validate(); });
+    const DrumMapBinding binding{base, {{"toms"}, {"floor"}}};
+    rejects([&] { DrumMapBinding{base, {{"hit"}}}.validate(); });
+    const auto legacy = fixture().project;
+    const auto legacy_bytes = serialize(legacy);
+    CHECK(legacy_bytes.starts_with("MRS_CORE_SNAPSHOT 32\n") && deserialize(legacy_bytes) == legacy);
+    Directory dir;
+    const auto library = dir.path / "user-maps";
+    CHECK(resolve_drum_map(library, binding).source == DrumMapSource::snapshot_missing);
+    save_drum_map(library, base);
+    save_drum_map(library, sticks);
+    save_drum_map(library, brushes);
+    CHECK(load_drum_map(library, base.id) == base && load_drum_map(library, sticks.id) == sticks);
+    auto updated = base; updated.name = "Updated";
+    rejects([&] { save_drum_map(library, updated); });
+    CHECK(load_drum_map(library, base.id) == base);
+    save_drum_map(library, updated, true);
+    auto resolved = resolve_drum_map(library, binding);
+    CHECK(resolved.profile == updated && resolved.source == DrumMapSource::library);
+    CHECK(load_drum_map(library, brushes.id) == brushes);
+    const auto moved = dir.path / "moved-maps";
+    fs::rename(library, moved);
+    CHECK(resolve_drum_map(library, binding).profile == base);
+    CHECK(resolve_drum_map(moved, binding).profile == updated);
+    for (const auto& entry : fs::directory_iterator(moved)) {
+        if (entry.path().extension() == ".mrsdrummap" && read(entry.path()) == serialize_drum_map(updated))
+            write(entry.path(), serialize_drum_map(sticks)); // valid data with the wrong ID
+    }
+    resolved = resolve_drum_map(moved, binding);
+    CHECK(resolved.profile == base && resolved.source == DrumMapSource::snapshot_unreadable);
+}
+void drum_map_exchange() {
+    Directory dir;
+    const auto csv = dir.path / "Base.CSV", tsv = dir.path / "Alternative.tsv", library = dir.path / "maps";
+    write(csv, "\xef\xbb\xbf" "group,articulation,instrument,channel,midi_note\r\n"
+               "Toms,\"Open, \"\"Hard\"\"\",Floor,10,36\r\nToms,Rim,Floor,10,36\r\n"
+               "Toms,Missing,Floor,,\r\nKick,Hit,Kick,,0\r\n");
+    const auto base = import_drum_map_file(csv);
+    CHECK(base.name == "Base" && base.categories.size() == 2 && base.categories[0].name == "Toms");
+    const auto& rows = base.categories[0].instruments[0].articulations;
+    CHECK(rows.size() == 3 && rows[0].name == "Open, \"Hard\"" && rows[0].note == 36 && rows[0].channel == 9 && !rows[2].note);
+    CHECK(drum_map_conflicts(base) == std::vector<Id>{rows[0].id, rows[1].id});
+    write(tsv, "midi_note\tinstrument\tarticulation\tgroup\n127\tRide\tBell\tCymbals\n");
+    const auto other = import_drum_map_file(tsv);
+    CHECK(other.categories[0].instruments[0].articulations[0].note == 127);
+    const std::string header = "midi_note,instrument,articulation,group,channel\n";
+    for (const std::string bad : {"128,Kick,Open,Kick,1", "36,Kick,Open,Kick,0", "36,Kick,Open,Kick,17",
+                                  "36,Kick,Open,Kick", "36,Kick,,Kick,", "36,\"Kick,Open,Kick,", "36,Kick,Open,Kick,1,extra"})
+        rejects([&] { (void)import_drum_map_table(header + bad, ',', "Bad"); });
+    rejects([&] { (void)import_drum_map_table(header, ',', "Empty"); });
+    rejects([&] { (void)import_drum_map_table(header + "36,Kick,Caf\xe9,Kick,1", ',', "Invalid UTF-8"); });
+    rejects([&] { (void)import_drum_map_file(dir.path / "reference.pdf"); });
+    save_drum_map(library, base);
+    auto sticks = duplicate_drum_map(base, "Sticks"), brushes = duplicate_drum_map(base, "Brushes");
+    sticks.categories[0].instruments[0].articulations[0].note = 38;
+    brushes.categories[0].instruments[0].articulations[0].note.reset();
+    save_drum_map(library, sticks); save_drum_map(library, brushes);
+    CHECK(list_drum_maps(library).entries.size() == 3 && load_drum_map(library, base.id) == base);
+    CHECK(load_drum_map(library, sticks.id) == sticks && load_drum_map(library, brushes.id) == brushes);
+    const auto exported = dir.path / "export.mrsdrummap";
+    export_drum_map_file(exported, sticks); CHECK(import_drum_map_file(exported) == sticks);
+    rejects([&] { export_drum_map_file(exported, brushes); });
+    CHECK(import_drum_map_file(exported) == sticks);
+    sticks.name = "Sticks renamed"; save_drum_map(library, sticks, true);
+    write(library / "bad.mrsdrummap", "unreadable");
+    CHECK(list_drum_maps(library).warnings.size() == 1);
+    delete_drum_map(library, sticks.id); CHECK(!load_drum_map(library, sticks.id));
+    CHECK(list_drum_maps(library).entries.size() == 2 && load_drum_map(library, base.id) == base);
 }
 void model() {
     auto d = fixture();
@@ -235,7 +332,7 @@ int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::runtime_error("expected suite");
         const std::string name = argv[1];
-        if (name == "model") model(); else if (name == "roundtrip") roundtrip();
+        if (name == "drum_maps") { drum_maps(); drum_map_exchange(); } else if (name == "model") model(); else if (name == "roundtrip") roundtrip();
         else if (name == "migrations") migrations(); else if (name == "compatibility") compatibility();
         else if (name == "show") show_refs(); else if (name == "atomic") atomic_files();
         else if (name == "recovery") recovery(); else if (name == "autosave") autosave();

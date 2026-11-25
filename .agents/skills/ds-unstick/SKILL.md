@@ -1,33 +1,23 @@
 ---
 name: ds-unstick
-description: "Break out of a repeating failure: name the assumption behind all the failed fixes, test it directly, list three other approaches, pick one, and restart clean if needed. Use when the same error or wrong behavior comes back after two fix attempts, or when you notice you are retrying small variations. Invoke as /ds-unstick."
+description: "Диагностика повторяющейся ошибки или тупика после двух безрезультатных исправлений. Проверить предположения, остановить бессмысленные повторы; при необходимости предложить согласованное повышение глубины рассуждений или модели. Не применять для одиночного FAIL."
 ---
 
-# ds-unstick
+# ds-unstick — выход из диагностического тупика
 
-When two fixes fail the same way, the problem is usually a wrong belief, not a wrong edit. Find that belief and test it.
+**Когда применять:** та же неисправность остаётся после **двух осмысленных попыток исправления** либо агент повторяет одну гипотезу. Не считать новую ошибку продолжением старой и не включать Skill при первом падении теста.
 
-## Steps
+1. **Останови повторение правок.** Проверь исходную ошибку, ревизию/конфигурацию и лог первого существенного FAIL. Кратко запиши уже проверенные гипотезы и результат каждой; отличай ошибку кода от сбоя среды и неверно выбранного теста.
+2. **Найди общее предположение** безрезультатных попыток. Проверь его одним самым дешёвым адресным способом: реальный call site, конфигурация, лог, минимальный тест или воспроизведение. Используй факты из уже прочитанных файлов; не начинай повторный обзор репозитория.
+3. **Определи следующий шаг:** если причина подтверждена — минимальное исправление в разрешённом scope и адресная проверка; если не подтверждена — новая, отличающаяся гипотеза или конкретные недостающие данные. Не запускай ту же дорогую сборку без новой проверяемой гипотезы.
+4. **Граница самостоятельных попыток:** после **трёх безрезультатных попыток по одной неисправности** останови изменения наугад. Кратко сообщи факты, проверенные подходы, оставшийся блокер и рекомендуемый диагностический шаг. Этот предел не отменяет самостоятельного выполнения разрешённых адресных проверок при появлении новых данных.
 
-1. Stop editing. Do not try a third variation of the same fix.
-2. Write down each failed attempt in one line: what you changed and what happened. Include the exact error text.
-3. Write the assumption that all of those attempts shared. Typical examples: "this file is the one that runs", "the config is loaded", "the function receives a string", "the cache is cleared", "the error comes from my code". Name one, in one sentence.
-4. Test that assumption directly with the cheapest probe that gives a yes or no answer: a print statement, a log line, a `which` or `--version`, a grep for the real call site, a minimal script, or a read of the docs for the exact version installed. Paste the result.
-5. If the assumption is false, you have found the real problem. Plan the fix from the new fact.
-6. If the assumption holds, list 3 different approaches. "Different" means another mechanism, library, layer or data path, not a tweak of the same edit. Give each approach one line on cost and risk.
-7. Pick one approach and say why in one sentence.
-8. Inspect the diff and remove only your identified failed-attempt edits with targeted changes, preserving pre-existing work. In MR Studio, do not reset, stash, switch branches or discard files without agreement. If ownership is unclear, preserve the changes and report the uncertainty.
-9. Record the false assumption and chosen approach in the session handoff. In MR Studio record meaningful findings in the assigned DSH task within the agreed scope; load `dsh-task-manager-workflow` before journal operations; do not create PROGRESS.md by default. For other repositories follow their handoff policy.
-10. Return to ds-verify-loop with the new approach.
+## Эскалация мышления / модели
 
-## Stop when
+Предлагай её **только если** проблема упирается в сложный анализ (например, конкуренция потоков, lifecycle, архитектурные зависимости), а не в отсутствие SDK, доступа, логов или пользовательской проверки.
 
-- The probe in step 4 explains the failure, or the new approach passes its check.
-- Two rounds of this skill have failed. Stop and report to the user: the attempts, the assumptions you tested, and the evidence. Ask for direction.
+- Сначала предложи повысить доступную **глубину рассуждений текущей модели**; если явно недостаточно — более сильную модель. Кратко объясни ожидаемую пользу и возможный рост стоимости/времени.
+- **Не меняй модель, уровень мышления и платного провайдера самостоятельно.** Получи разрешение пользователя, затем используй только реально доступный механизм DSH; если механизм недоступен, подготовь короткую передачу контекста для ручного переключения.
+- Передавай не всю историю чата, а только: задачу и границы, файл/функцию, симптом, проверенные гипотезы, ключевые логи, команду воспроизведения, рабочее дерево/ревизию и следующий вопрос.
 
-## Rules
-
-- Do not repeat a fix that has already failed, even with small changes.
-- Evidence beats reasoning. If a probe takes a minute, run it.
-- Keep the failed-attempt list, because it is the most useful part of the report.
-- Use a clean state before a new approach, so that old edits cannot hide the result.
+**Ограничения:** не делай `reset`, `stash`, `checkout` и не отбрасывай чужие изменения. Не запускай другие `ds-*` автоматически. Сохраняй значимые сведения в назначенной задаче DSH только в рамках полномочий проекта и через её штатный workflow; для обычной диагностики достаточно короткого отчёта. Применимые тестовые уровни определяет проект, а не этот Skill.

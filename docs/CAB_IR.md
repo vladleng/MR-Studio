@@ -64,6 +64,6 @@ responses, resampling, zero host RT allocation, live updates/Undo/Redo with unch
 device opens, embedded save/reopen after deleting source, and raw capture invariance.
 User acceptance on intended ASIO hardware is pending; #16 not implicitly passed.
 
-## Future work: MR Cab 2.0 (plan only)
+## Historical Cab baseline and current Rig boundary
 
-Этот документ фиксирует **legacy Cab IR baseline** с его сохранением импульса в проекте и текущими лимитами; не переписывать его как уже реализованную коллекционную систему. Новое развитие — [#182 MR Cab 2.0](https://github.com/vladleng/MR-Studio/issues/182), [техническая спецификация](MR_CAB_COLLECTIONS.md), [roadmap](MR_CAB_ROADMAP.md), [передача Codex](MR_CAB_CODEX_HANDOFF.md). Отдельный native insert/adapter, внешние коллекции Celestion → TONEX WAV/generic, быстрые варианты и пресеты. **Не реализовано.** Обратная совместимость старых архивов обязательна, #23 остаётся закрытой.
+Этот документ фиксирует **legacy Cab IR baseline** с embedded impulse и его историческими лимитами. [Cab collections](MR_CAB_COLLECTIONS.md) — справочник принятого WAV/IR фундамента; отдельный #182 roadmap отменён, не возобновлять его P4–P6. Новая разработка следует [NAM-first MR Rig](MR_RIG_ARCHITECTURE.md), включая явный compatibility override §4 для старых тестовых Cab-проектов. Это не разрешение удалять/переписывать существующие пользовательские файлы, WAV или принятые сборки; #23 остаётся закрытой.

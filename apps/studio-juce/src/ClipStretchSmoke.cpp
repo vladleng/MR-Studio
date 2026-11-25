@@ -22,11 +22,65 @@ void clipStretchSmoke(){
     alert=dialog();alert->exitModalState(2);pump();check(!owner.project()->clips.front().stretch,"Reset removes state");
     const auto before=*owner.project();alert=dialog();alert->getTextEditor("ratio")->setText("nan");alert->exitModalState(1);pump();check(*owner.project()==before,"Invalid input preserves project");
     const auto track=owner.project()->clips.front().track;
-    const auto modeChecked=[&](int modeId){const auto menu=owner.channelMenu(track);juce::PopupMenu::MenuItemIterator it(menu,true);while(it.next())if(it.getItem().itemID==modeId)return it.getItem().isTicked;return false;};
-    check(modeChecked(72),"Signalsmith default channel mode");
-    owner.app.set_track_stretch_backend(track,mrs::stretch::Backend::drums);
-    check(modeChecked(73),"Drums channel mode checkmark");
-    check(owner.app.undo(),"Channel mode undo");
+    owner.selectedTrack=track;if(!owner.inspectorPanelVisible())owner.toggleInspector();owner.refresh();
+    auto* inspector=owner.findChildWithID("channel-inspector");
+    auto* mode=inspector?dynamic_cast<juce::ComboBox*>(inspector->findChildWithID("inspector-stretch-mode")):nullptr;
+    check(mode&&mode->isShowing()&&mode->getWidth()>0&&mode->getSelectedId()==1,"Inspector shows default Signalsmith model");
+    {
+        const auto menu=owner.channelMenu(track);juce::PopupMenu::MenuItemIterator it(menu,true);
+        while(it.next())check(it.getItem().itemID!=72&&it.getItem().itemID!=73,"Track menu no longer contains model selection");
+    }
+    mode->setSelectedId(2,juce::sendNotificationSync);
+    check(owner.app.clip_stretch_backend(owner.project()->clips.front())==mrs::stretch::Backend::drums,"Inspector selects Drums model");
+    check(owner.app.undo(),"Channel mode undo");owner.refresh();check(mode->getSelectedId()==1,"Undo updates inspector");
+    check(owner.app.redo(),"Channel mode redo");owner.refresh();check(mode->getSelectedId()==2,"Redo updates inspector");
+
+    auto& arrange=*owner.arrangement;owner.snap=false;arrange.pixelsPerSecond=120;arrange.horizontal=0;arrange.vertical=0;arrange.resized();
+    const auto clip=[&]{return owner.project()->clips.front();};
+    const auto edge=[&](bool right){const auto r=arrange.clipRect(clip());return juce::Point<float>{right?r.getRight()-2:r.getX()+2,r.getCentreY()};};
+    const auto mouse=[&](juce::Point<float> point,int mods){const auto now=juce::Time::getCurrentTime();
+        return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),point,juce::ModifierKeys(mods),1,0,0,0,0,&arrange,&arrange,now,point,now,1,true);};
+    const int altDrag=juce::ModifierKeys::altModifier|juce::ModifierKeys::leftButtonModifier;
+    const auto initial=*owner.project();const auto right=edge(true);const auto revision=owner.app.services().projects->state().revision;
+    const auto alt=juce::ModifierKeys::altModifier;
+    for(bool rightEdge:{false,true}){
+        const auto point=edge(rightEdge);
+        arrange.mouseMove(mouse(point,0));const auto bracket=arrange.getMouseCursor();
+        arrange.mouseMove(mouse(point,alt));
+        check(!arrange.stretchDragging()&&arrange.getMouseCursor()!=bracket,"Alt at the same edge position shows the clock before mouse down");
+        arrange.mouseMove(mouse(point,0));
+        check(arrange.getMouseCursor()==bracket,"Releasing Alt at the same edge position restores the trim cursor");
+    }
+    arrange.mouseMove(mouse(arrange.clipRect(clip()).getCentre(),alt));
+    check(arrange.getMouseCursor()==juce::MouseCursor(juce::MouseCursor::NormalCursor),"Alt hover over the clip body does not show the clock");
+    arrange.mouseMove(mouse(right,alt));const auto clock=arrange.getMouseCursor();
+    arrange.mouseDown(mouse(right,altDrag));
+    check(arrange.stretchDragging()&&arrange.getMouseCursor()==clock,"Mouse down starts stretching with the same clock cursor");
+    arrange.mouseDrag(mouse(right.translated(60,0),juce::ModifierKeys::leftButtonModifier));
+    check(arrange.getMouseCursor()==clock,"Releasing Alt after mouse down preserves the active stretch cursor");
+    check(*owner.project()==initial&&owner.app.services().projects->state().revision==revision,"Stretch drag has no project edit before release");
+    {
+        auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("stretch-arrange-preview.png").createOutputStream();
+        if(stream)stream->truncate();
+        check(stream&&juce::PNGImageFormat().writeImageToStream(owner.createComponentSnapshot(owner.getLocalBounds()),*stream),"Arrange stretch and inspector preview");
+    }
+    arrange.mouseUp(mouse(right.translated(60,0),0));
+    check(clip().start==0&&clip().length==72000&&clip().stretch->parameters.duration_ratio==1.5,"Right edge stretches with fixed left edge even if Alt was released");
+    const auto stretched=*owner.project();const auto left=edge(false);
+    arrange.mouseDown(mouse(left,altDrag));arrange.mouseDrag(mouse(left.translated(60,0),altDrag));arrange.mouseUp(mouse(left.translated(60,0),0));
+    check(clip().start==24000&&clip().length==48000&&clip().stretch->parameters.duration_ratio==1,"Left edge shortens with the right edge fixed");
+    check(owner.app.undo()&&*owner.project()==stretched,"One Undo restores left-edge stretch");
+    check(owner.app.undo()&&*owner.project()==initial,"One Undo restores right-edge stretch");owner.refresh();
+    arrange.mouseDown(mouse(right,altDrag));arrange.mouseDrag(mouse(right.translated(60,0),altDrag));
+    check(arrange.keyPressed(juce::KeyPress(juce::KeyPress::escapeKey)),"Escape handles in-progress stretch");
+    arrange.mouseUp(mouse(right.translated(60,0),0));check(*owner.project()==initial,"Escape leaves the original clip untouched");
+    arrange.mouseDown(mouse(right,altDrag));arrange.mouseUp(mouse(right,0));check(*owner.project()==initial,"An Alt-click without movement does not edit the clip");
+    arrange.mouseDown(mouse(right,altDrag));arrange.mouseDrag(mouse(right.translated(480,0),altDrag));arrange.mouseUp(mouse(right.translated(480,0),0));
+    check(clip().length==192000&&clip().stretch->parameters.duration_ratio==4,"Drums limits the gesture to its supported ratio");
+    check(owner.app.undo()&&*owner.project()==initial,"Undo restores the clip after a clamped gesture");owner.refresh();
+    const auto centre=arrange.clipRect(clip()).getCentre();
+    arrange.mouseDown(mouse(centre,altDrag));arrange.mouseDrag(mouse(centre.translated(60,0),altDrag));arrange.mouseUp(mouse(centre.translated(60,0),0));
+    check(owner.project()->clips.size()==initial.clips.size()+1&&!owner.project()->clips.back().stretch,"Alt-drag in clip body still copies");
     owner.removeFromDesktop();
 }
 } // namespace ui

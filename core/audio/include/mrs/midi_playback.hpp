@@ -13,6 +13,11 @@ std::vector<std::vector<PlaybackMidiNote>> compile_midi_clips(const Project&,std
 class MidiPlayback {
 public:
     void prepare(std::vector<PlaybackMidiNote>,std::vector<PlaybackMidiEvent> = {});
+    // Velocity-only edits retain scheduler geometry, cursors, and active keys.
+    void swap_note_tables(MidiPlayback& prepared) noexcept {
+        notes_.swap(prepared.notes_);
+        events_.swap(prepared.events_);
+    }
     void invalidate() noexcept {expected_=-1;}
     void forget() noexcept {active_count_=0;expected_=-1;was_playing_=false;}
     bool render(Sample,std::uint32_t,bool,processing::MidiBuffer&) noexcept;

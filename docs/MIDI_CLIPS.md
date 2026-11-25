@@ -21,8 +21,9 @@ parent [#24](https://github.com/vladleng/MR-Studio/issues/24).
 4. Play воспроизводит клип через ту же цепь инструмента, mixer/buses/Master/PDC,
    что и живой MIDI. MIDI input Off не отключает playback клипа.
 5. Перемещение и изменение границ — drag/edge drag в Arrange. Split — S или Edit;
-   Duplicate/Delete/Loop selected clip — Edit. Duplicate создаёт независимую копию
-   сразу справа. Loop — временное состояние общего transport.
+   Duplicate/Delete/Loop selected clip — Edit. Duplicate ищет первый свободный полный
+   такт после конца оригинала, сохраняя его внутритактовое смещение; занятые такты
+   пропускаются, вся длина копии должна помещаться. Loop — временное состояние общего transport.
 6. Transport → Project tempo меняет BPM первой tempo point, сохраняя остальные
    точки tempo map. MIDI-клипы сохраняют музыкальную позицию/длину; аудио-клипы
    сохраняют свои sample ranges. Сетка Arrange теперь привязана к ticks.
@@ -32,6 +33,13 @@ parent [#24](https://github.com/vladleng/MR-Studio/issues/24).
 Редактор 4b — минимальная форма для одной ноты. Полный piano roll — 4d,
 запись исполнения — 4c, authored CC/PC — 4f, external output — 4g.
 Настройки/выделение редактора временные; дополнительного Undo стека нет.
+
+Audio/MIDI Alt-drag копирует клип или выделенную группу одним общим смещением;
+оригиналы не меняются, WAV физически не дублируется. Preview временный; Escape,
+потеря фокуса и Alt-click без движения не добавляют клипов или Undo. Commit —
+одна команда, несовместимая группа отклоняется целиком; Redo возвращает те же новые IDs.
+Контроль границ/свободного такта и fresh IDs: [Core tests](../tests/midi_clip_tests.cpp),
+[audio/mixed copy tests](../tests/desktop_tests.cpp), [GUI gestures](../apps/studio-juce/src/Smoke.cpp).
 
 ## Модель и совместимость
 

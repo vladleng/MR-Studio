@@ -7,6 +7,21 @@
 #include "LivePerformanceEdit.h"
 #include "LiveClipEdit.h"
 
+namespace {
+// B1: switch-phase timings for the local diagnostic journal. UI thread only.
+double livePhaseMs(juce::uint32 start) {
+    if (start == 0) return 0.;
+    return static_cast<double>(juce::Time::getMillisecondCounter() - start);
+}
+void livePhaseEvent(const char* phase, const juce::String& item, double ms,
+                    const std::string& detail = {}) {
+    std::string line = std::string("live_switch_phase ") + phase + " item=" + item.toStdString() +
+                       " ms=" + std::to_string(ms);
+    if (!detail.empty()) line += " " + detail;
+    mrs::diagnostics::event(line);
+}
+}
+
 namespace ui {
 namespace {
 mrs::desktop::Application::PlaybackLayout performanceLayout(const juce::var& state,const juce::String& id,std::uint32_t rate,std::uint64_t token){
@@ -425,13 +440,17 @@ void Desktop::performLiveValuePatch(const juce::String& label,live::EditPath pat
     if(!liveDocument)throw std::runtime_error("Open a MR Live show first");
     auto patch=live::valuePatch(liveDocument->interfaceState,std::move(path),value);
     if(!patch.changed())return;
-    const auto now=juce::Time::getMillisecondCounter();
+    const auto editStart=juce::Time::getMillisecondCounter();
+    const auto now=editStart;
     if(!coalesce||liveTypingLabel!=label||now-liveTypingAt>800)liveUndo.beginNewTransaction(label);
     liveShowEditing=true;
     if(!liveUndo.perform(new LiveValuePatchEdit(*this,std::move(patch),impact,coalesce)))
         throw std::runtime_error("Could not apply document edit");
     liveTypingLabel=coalesce?label:juce::String();liveTypingAt=now;
     if(!coalesce)liveUndo.beginNewTransaction();
+    const auto elapsed=livePhaseMs(editStart);
+    if(elapsed>=16. || label.contains("Rename"))
+        livePhaseEvent("edit",label,elapsed,"label="+label.toStdString());
 }
 void Desktop::renameLiveObject(const juce::String& kind,const juce::String& id,
                                const juce::String& proposed,const juce::String& list) {
@@ -2961,8 +2980,10 @@ std::shared_ptr<mrs::desktop::Application::PlaybackPreparation> Desktop::prepare
     const auto &state = liveDocument->interfaceState;
     const auto key = live::playbackMediaKey(state, id) + ":" + juce::String(project()->sample_rate);
     for (auto &entry : livePreparedItems)
-        if (entry.id == id && entry.key == key)
+        if (entry.id == id && entry.key == key) {
+            livePhaseEvent("prepare_media", id, 0., "source=cache");
             return entry.media;
+        }
     for (auto it = livePreparedItems.begin(); it != livePreparedItems.end();) {
         if (it->id == id) {
             app.cancel_playback(it->media);
@@ -2973,7 +2994,10 @@ std::shared_ptr<mrs::desktop::Application::PlaybackPreparation> Desktop::prepare
     std::vector<std::filesystem::path> paths;
     for (const auto &row : live::playbackRows(state, id))
         paths.emplace_back(row["file"].toString().toWideCharPointer());
+    const auto mediaStart = juce::Time::getMillisecondCounter();
     auto media = app.prepare_playback(paths);
+    livePhaseEvent("prepare_media", id, livePhaseMs(mediaStart),
+                   "source=decode files=" + std::to_string(paths.size()));
     livePreparedItems.push_back({id, key, media});
     while (livePreparedItems.size() > 3) {
         auto victim = std::find_if(livePreparedItems.begin(), livePreparedItems.end(), [&](const auto &entry) {
@@ -3056,6 +3080,8 @@ void Desktop::cancelLiveSwitch() {
     livePendingItem.clear();
     livePendingEntry.clear();
     livePlaybackLoading = false;
+    liveSwitchStartMs = 0;
+    liveSwitchItem.clear();
     livePreloadError = "Item switch cancelled";
     if (liveNextItem == id)
         liveNextStatus = "Next: cancelled";
@@ -3138,6 +3164,11 @@ void Desktop::syncLivePlayback() {
     if (mediaChanged) {
         if (liveFailedPlaybackKey == failureKey)
             return;
+        if (liveSwitchStartMs == 0 || liveSwitchItem != id) {
+            liveSwitchStartMs = juce::Time::getMillisecondCounter();
+            liveSwitchItem = id;
+            mrs::diagnostics::event("live_switch_start item=" + id.toStdString());
+        }
         if (app.recording())
             throw std::runtime_error("Stop recording before changing Playback");
         std::shared_ptr<mrs::desktop::Application::PlaybackPreparation> media;
@@ -3149,9 +3180,12 @@ void Desktop::syncLivePlayback() {
                 return; // Existing Core graph/device continues until the entire batch is ready.
             if (!status.message.empty())
                 throw std::runtime_error(status.message);
+            livePhaseEvent("media_ready", id, livePhaseMs(liveSwitchStartMs));
             auto layout=performanceLayout(liveDocument->interfaceState,id,project()->sample_rate,++liveTokenSerial);
             layout.live_tracks=liveInputTracks();
+            const auto installStart = juce::Time::getMillisecondCounter();
             closeEditors();cancelPreview();app.activate_playback(media,layout);
+            livePhaseEvent("install", id, livePhaseMs(installStart));
             liveRuntimeToken=layout.token;livePerformanceKey=live::performanceKey(liveDocument->interfaceState,id);
             visualTransport.reset();lastVisualSample=0;lastDisplayState={};
             liveAutoKey.clear();liveAutoToken=0;
@@ -3189,16 +3223,27 @@ void Desktop::syncLivePlayback() {
             }
             // #289 A-Upd1: the item switch is complete; adopt its default
             // channel patches. Failures keep the previous chain audible.
+            const auto patchStart = juce::Time::getMillisecondCounter();
+            const auto insertsBefore = app.insert_generation();
             applyLiveItemDefaultPatches();
+            livePhaseEvent("patches", id, livePhaseMs(patchStart),
+                           "insert_generation=" + std::to_string(insertsBefore) + "->" +
+                               std::to_string(app.insert_generation()));
             // Completion is the focus boundary, including another occurrence
             // of the same item whose media preparation finished asynchronously.
             ++liveTimelineFocusRevision;
             ++liveUiRevision;
             changed = true;
             refresh(true);
+            livePhaseEvent("total", id, livePhaseMs(liveSwitchStartMs));
+            liveSwitchStartMs = 0;
+            liveSwitchItem.clear();
         } catch (const std::exception &error) {
             livePlaybackLoading = false;
             const auto reason = juce::String::fromUTF8(error.what());
+            livePhaseEvent("failed", id, livePhaseMs(liveSwitchStartMs), error.what());
+            liveSwitchStartMs = 0;
+            liveSwitchItem.clear();
             if (livePendingItem.isNotEmpty()) {
                 livePreloadError = "Cannot switch: " + reason;
                 if (id == liveNextItem)

@@ -41,7 +41,7 @@ Codex reading budget: assigned issue + only relevant spec section / AGENTS.md; i
 
 1. Прочитай локальный `AGENTS.md`, **назначенный Issue** и релевантные разделы [MR_RIG_ROADMAP.md](MR_RIG_ROADMAP.md). Для P0 #198 открой [MR_RIG_ARCHITECTURE.md](MR_RIG_ARCHITECTURE.md) §4, по необходимости [MR_RIG_GUI.md](MR_RIG_GUI.md), [MR_RIG_LIBRARY_PRESETS.md](MR_RIG_LIBRARY_PRESETS.md), [MR_RIG_AUDIO_PEDALS.md](MR_RIG_AUDIO_PEDALS.md). Не читай все MD целиком без нужды.
 2. `git status --short`, branch, HEAD; нет reset/stash/checkout поверх чужой незавершённой работы. **Локальная версия исходников может быть новее GitHub**.
-3. Из старых documents читать точечно лишь то, что помогает подтвердить принятую 0.4b upd3: [Full Combo #196 delivery](MR_CAB_FULL_COMBO_196_DELIVERY.md), [native editor report](NATIVE_EFFECT_EDITOR_UNIFICATION.md), текущий Cab state/ID. [#182](https://github.com/vladleng/MR-Studio/issues/182) и `MR_CAB_CODEX_HANDOFF` — **архив**, не инструкция начать P4–P6.
+3. Из старых documents читать точечно лишь то, что помогает подтвердить принятую 0.4b upd3: [native editor report](NATIVE_EFFECT_EDITOR_UNIFICATION.md), текущий Cab state/ID. Приёмка #196 зафиксирована в DSH; [#182](https://github.com/vladleng/MR-Studio/issues/182) и его история Git — **архив**, не инструкция начать P4–P6.
 4. Current Issue #198 — **только read-only аудит** без code/build/tests. Остальные #199–204 только после приёмки предыдущего/разрешения пользователя.
 
 ## Аудит P0 #198 — что выяснить

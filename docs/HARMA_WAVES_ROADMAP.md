@@ -90,7 +90,7 @@ MRS [#25 Chord Track]/[SHARED MIDI infrastructure]
 
 ## 5. Перенос исходных документов
 
-**MRS master copy**: [architecture](HARMA_WAVES_NATIVE.md), этот roadmap, [Codex first slice](HARMA_WAVES_CODEX_HANDOFF.md). **Detailed source reference** остаётся в Smart-Voicing и должна читаться Codex перед соответствующей задачей:
+**MRS master copy**: [architecture](HARMA_WAVES_NATIVE.md) и этот roadmap; требования первого migration slice — в DSH-задаче #116. **Detailed source reference** остаётся в Smart-Voicing и должна читаться Codex перед соответствующей задачей:
 
 - [CONCEPT](https://github.com/vladleng/Smart-Voicing/blob/main/docs/CONCEPT.md) + [Stage 5 addendum](https://github.com/vladleng/Smart-Voicing/blob/main/docs/CONCEPT-STAGE5-ADDENDUM.md) — продукты и layer ownership;
 - [musical guardrails](https://github.com/vladleng/Smart-Voicing/blob/main/docs/MUSICAL-ENGINE-GUARDRAILS.md), [Functional Tension](https://github.com/vladleng/Smart-Voicing/blob/main/docs/FUNCTIONAL-TENSION-PROFILES.md);

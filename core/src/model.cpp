@@ -235,6 +235,10 @@ void Project::validate() const {
         require(track.kind==TrackKind::instrument||(track.midi_output.empty()&&track.midi_output_channel==-1),"MIDI output requires an instrument track");
         require(track.midi_output.empty()||track.midi_input!=track.midi_output,"MIDI feedback: input and output cannot use the same endpoint");
         require(track.kind==TrackKind::instrument || (track.midi_input.empty()&&track.midi_channel==-1&&track.midi_monitor),"MIDI input requires an instrument track");
+        if (track.drum_map) {
+            require(track.kind == TrackKind::instrument, "drum map requires an instrument track");
+            track.drum_map->validate();
+        }
         require(track.kind!=TrackKind::instrument || track.inserts.empty() || track.inserts.front().kind==InsertKind::vst3,"instrument must be the first VST3 insert");
         require(!track.folder || folder_by_id.contains(track.folder->value), "missing track folder");
         require(!track.color || *track.color<=0xFFFFFF,"invalid channel RGB");

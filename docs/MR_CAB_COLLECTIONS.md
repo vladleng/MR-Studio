@@ -16,7 +16,7 @@ P1/#183 audit завершён, ждёт приёмки; #184 не начат. [
 
 **Статус:** design/backlog, реализация НЕ начата; 2026-10-14.
 **Parent issue:** [#182](https://github.com/vladleng/MR-Studio/issues/182), направление [#111 NATIVE PLUGINS](https://github.com/vladleng/MR-Studio/issues/111).
-**План:** [MR_CAB_ROADMAP.md](MR_CAB_ROADMAP.md). **Codex handoff:** [MR_CAB_CODEX_HANDOFF.md](MR_CAB_CODEX_HANDOFF.md).
+**История отменённого Cab-плана:** Git и DSH #182; текущая продуктовая граница — [MR Rig architecture](MR_RIG_ARCHITECTURE.md), не отдельный Cab roadmap.
 **Принятые основы:** инфраструктура/Legacy Cab IR — закрытая [#23](https://github.com/vladleng/MR-Studio/issues/23), [CAB_IR.md](CAB_IR.md); MR Reverb — закрытая [#128](https://github.com/vladleng/MR-Studio/issues/128), [MR_REVERB.md](MR_REVERB.md), [REVERB_LIBRARY_IMPLEMENTATION.md](REVERB_LIBRARY_IMPLEMENTATION.md), [REVERB_EDITOR_IMPLEMENTATION.md](REVERB_EDITOR_IMPLEMENTATION.md).
 
 ## 1. Цель и первый реальный workflow

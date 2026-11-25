@@ -103,4 +103,4 @@ ARA provider читает host harmonic context, а не определяет mu
 
 ## 9. Разработка/документация
 
-MR Studio [AGENTS.md](../AGENTS.md), [PROJECT_CONTEXT](PROJECT_CONTEXT.md), [LOCAL_BUILD_POLICY](LOCAL_BUILD_POLICY.md) имеют приоритет. Код, сборки, тесты, пакеты и source commits **только локально**; GitHub — issues/docs с `[skip ci]`, никаких Actions/auto PR/merge. Smart-Voicing repo без изменений на этапе планирования. **Start first:** [Codex handoff](HARMA_WAVES_CODEX_HANDOFF.md), issue [#116](https://github.com/vladleng/MR-Studio/issues/116).
+MR Studio [AGENTS.md](../AGENTS.md), [PROJECT_CONTEXT](PROJECT_CONTEXT.md), [LOCAL_BUILD_POLICY](LOCAL_BUILD_POLICY.md) имеют приоритет. Код, сборки, тесты, пакеты и source commits **только локально**; GitHub — issues/docs с `[skip ci]`, никаких Actions/auto PR/merge. Smart-Voicing repo без изменений на этапе планирования. Первый migration slice — назначенная DSH-задача #116 (MR Studio №102), только по отдельному поручению; актуальные source-version/parity ограничения сохранены выше.
