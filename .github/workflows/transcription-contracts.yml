@@ -5,8 +5,43 @@ on:
   push:
     branches: [main]
     paths: ['CMakeLists.txt', 'tools/transcription/**', 'tests/test_transcription_diagnostics.py', 'apps/studio-desktop/include/mrs/*transcription*', 'apps/studio-desktop/include/mrs/audio_to_midi_worker.hpp', 'apps/studio-desktop/src/*transcription*', 'apps/studio-desktop/src/audio_to_midi_worker.cpp', 'apps/studio-desktop/src/separation_assets.cpp', 'cmake/**', 'core/**', 'tools/ci/*Package.ps1', 'tests/*transcription*', 'tests/audio_to_midi_worker_tests.cpp', 'tests/python_transcription_tests.cpp', 'tests/python_midi_fake.py', 'tests/separation_assets_tests.cpp', '.github/workflows/transcription-contracts.yml']
+  # Topic PRs: direct component changes only. Generic shared/build changes
+  # run Core/GUI automatically; full same-SHA evidence remains mandatory for Release.
   pull_request:
-    paths: ['CMakeLists.txt', 'tools/transcription/**', 'tests/test_transcription_diagnostics.py', 'apps/studio-desktop/include/mrs/*transcription*', 'apps/studio-desktop/include/mrs/audio_to_midi_worker.hpp', 'apps/studio-desktop/src/*transcription*', 'apps/studio-desktop/src/audio_to_midi_worker.cpp', 'apps/studio-desktop/src/separation_assets.cpp', 'cmake/**', 'core/**', 'tools/ci/*Package.ps1', 'tests/*transcription*', 'tests/audio_to_midi_worker_tests.cpp', 'tests/python_transcription_tests.cpp', 'tests/python_midi_fake.py', 'tests/separation_assets_tests.cpp', '.github/workflows/transcription-contracts.yml']
+    paths:
+      - 'tools/transcription/**'
+      - 'tests/test_transcription_diagnostics.py'
+      - 'apps/studio-desktop/include/mrs/*transcription*'
+      - 'apps/studio-desktop/include/mrs/audio_to_midi_worker.hpp'
+      - 'apps/studio-desktop/src/*transcription*'
+      - 'apps/studio-desktop/src/audio_to_midi_worker.cpp'
+      - 'apps/studio-desktop/src/separation_assets.cpp'
+      - 'tools/ci/*Package.ps1'
+      - 'tests/*transcription*'
+      - 'tests/audio_to_midi_worker_tests.cpp'
+      - 'tests/python_transcription_tests.cpp'
+      - 'tests/python_midi_fake.py'
+      - 'tests/separation_assets_tests.cpp'
+      - '.github/workflows/transcription-contracts.yml'
+      - 'cmake/TranscriptionProfile.cmake'
+      - 'cmake/Separation.cmake'
+      - 'core/src/audio_to_midi.cpp'
+      - 'core/src/ace_midi_protocol.cpp'
+      - 'core/src/midi_import.cpp'
+      - 'core/src/separation.cpp'
+      - 'core/src/sha256.cpp'
+      - 'core/include/mrs/audio_to_midi.hpp'
+      - 'core/include/mrs/ace_midi_protocol.hpp'
+      - 'core/include/mrs/midi_import.hpp'
+      - 'core/include/mrs/sha256.hpp'
+      - 'core/include/mrs/core.hpp'
+      - 'core/audio/src/wav.cpp'
+      - 'core/audio/src/wav_resample.cpp'
+      - 'apps/studio-desktop/include/mrs/desktop.hpp'
+      - 'tools/ci/Test-RemovedNativePackage.ps1'
+      - 'tools/ci/ci_evidence.py'
+      - 'tests/*ace_midi*'
+      - 'tests/audio_to_midi_tests.cpp'
 permissions:
   contents: read
 concurrency:
