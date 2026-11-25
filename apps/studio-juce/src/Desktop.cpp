@@ -875,17 +875,6 @@ void Desktop::openDrumMaps(std::optional<mrs::Id> target) {
 }
 #endif
 void Desktop::menuItemSelected(int n,int){action(n);}
-void Desktop::showExportAudio(){
-    if(standaloneLive||homeVisible||liveDocument||app.workspace()==mrs::desktop::Workspace::live||app.recording()||app.engine()->state().playback==mrs::PlaybackState::playing||busyGesture())return;
-    if(exportWindow&&exportWindow->isVisible()){exportWindow->toFront(true);return;}
-    exportWindow.reset();
-    auto* content=new ExportAudioPanel(*this);
-    exportWindow=std::make_unique<EditorWindow>("Export Audio",content,false);
-    exportWindow->setLookAndFeel(&theme);exportWindow->setResizable(true,false);exportWindow->setResizeLimits(520,570,1000,850);
-    exportWindow->setOwner(*this);exportWindow->getProperties().set("mrs-hide-on-close",false);
-    exportWindow->onClose=[content]{content->requestClose();};
-    exportWindow->setVisible(true);applyGraphiteWindowCaption(*exportWindow);exportWindow->enterModalState(true,nullptr,false);
-}
 void Desktop::action(int n){
     if(app.export_active())return;
     if(n==exportAudioAction){run([&]{showExportAudio();});return;}
@@ -2742,4 +2731,18 @@ void Desktop::sendsMenu(mrs::Id id,std::optional<mrs::Id> bus,juce::Component* a
     const auto store=app.services().projects;juce::Component::SafePointer<Desktop> safe(this);
     options.showMenuAsync(popup(anchor?anchor:this),[safe,store,id,bus,choices](int choice){if(safe&&safe->app.services().projects==store)safe->run([&]{safe->applySendChoice(id,bus,choice,choices);});});
 }
+}
+
+// Keep Win32 caption macros out of all JUCE headers and GUI implementation.
+#include "GraphiteWindow.h"
+void ui::Desktop::showExportAudio(){
+    if(standaloneLive||homeVisible||liveDocument||app.workspace()==mrs::desktop::Workspace::live||app.recording()||app.engine()->state().playback==mrs::PlaybackState::playing||busyGesture())return;
+    if(exportWindow&&exportWindow->isVisible()){exportWindow->toFront(true);return;}
+    exportWindow.reset();
+    auto* content=new ExportAudioPanel(*this);
+    exportWindow=std::make_unique<EditorWindow>("Export Audio",content,false);
+    exportWindow->setLookAndFeel(&theme);exportWindow->setResizable(true,false);exportWindow->setResizeLimits(520,570,1000,850);
+    exportWindow->setOwner(*this);exportWindow->getProperties().set("mrs-hide-on-close",false);
+    exportWindow->onClose=[content]{content->requestClose();};
+    exportWindow->setVisible(true);applyGraphiteWindowCaption(*exportWindow);exportWindow->enterModalState(true,nullptr,false);
 }
