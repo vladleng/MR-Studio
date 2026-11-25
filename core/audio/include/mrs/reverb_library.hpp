@@ -47,6 +47,11 @@ struct ReverbSelection {
     processing::ReverbQuadMap map{processing::ReverbQuadMap::unspecified};
 };
 ReverbState reverb_selection_state(const ReverbSelection&,const ReverbState& controls = {});
+// Synchronous NON-RT restore for an independently prepared, quiescent graph.
+// Uses the same identity/geometry checks as ReverbLoader and activates the
+// complete kernel before the first audio block. No live loader or crossfade.
+void restore_reverb_quiescent(processing::PreparedGraph&,const Id&,const ReverbState&,
+                              const std::filesystem::path& root,std::stop_token = {});
 enum class ReverbLoadPhase { empty, loading, ready, missing, error };
 struct ReverbLoadStatus {
     ReverbLoadPhase phase{ReverbLoadPhase::empty};
