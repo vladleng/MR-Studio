@@ -537,7 +537,7 @@ void master_export() {
     auto asset=std::make_shared<AudioData>();asset->channels=2;
     for(int i=0;i<256;++i){asset->samples.push_back(.25f);asset->samples.push_back(.5f);}
     RenderGraph graph;graph.mixer={{},{}};graph.hardware_outputs={{},{4,5}};graph.master_outputs={2,3};graph.master_gain=6.f;
-    graph.click.playback=true;graph.click.level=100;
+    graph.click.playback=false;graph.click.level=100;
     graph.voices={{asset,0,0,256,{{0,0,1},{1,1,1}}},{asset,0,0,256,{{0,0,1},{1,1,1}}}};
     graph.voices[0].mixer_track=0;graph.voices[1].mixer_track=1;
     AudioEngine engine;engine.prepare({48000,0,6,128},graph);CHECK(engine.enqueue({ControlKind::play}));
@@ -557,6 +557,32 @@ void master_export() {
     std::array<float,18> last_scratch{};std::array<float,6> last{};
     CHECK(engine.render_master_block(last_scratch,last));
     CHECK(engine.state().sample==131&&last[0]==1.5f&&last[5]==3.f);
+    // Test the metronome separately: an enabled click is intentionally mixed into
+    // device scratch after capture and can reduce or increase a clipped sample.
+    graph.master_gain=.5f;
+    engine.prepare({48000,0,6,128},graph);CHECK(engine.enqueue({ControlKind::play}));
+    std::array<float,768> no_click_scratch{};
+    std::array<float,256> no_click_master{};
+    CHECK(engine.render_master_block(no_click_scratch,no_click_master));
+    graph.click.playback=true;
+    engine.prepare({48000,0,6,128},graph);CHECK(engine.enqueue({ControlKind::play}));
+    CHECK(engine.render_master_block(scratch,stereo));
+    CHECK(stereo==no_click_master&&scratch!=no_click_scratch);
+    for(std::size_t i=0;i<128;++i)CHECK(stereo[i*2]==.125f&&stereo[i*2+1]==.25f);
+    // A real prepared master insert must be included before the fader.
+    {
+        using namespace mrs::processing;
+        RenderGraph fx_graph;fx_graph.voices={graph.voices.front()};fx_graph.mixer={{}};
+        fx_graph.master_gain=.5f;
+        NativeInsert insert;insert.id=new_id();insert.kind=InsertKind::gain;insert.gain=.5f;
+        const std::array<NativeInsert,1> fx{insert};
+        auto saved=std::make_shared<const GraphState>(insert_graph(fx));
+        fx_graph.master_inserts=std::make_shared<PreparedGraph>(GraphSnapshot{saved,0,false,false},ProcessConfig{48000,2,128});
+        engine.prepare({48000,0,2,128},fx_graph);CHECK(engine.enqueue({ControlKind::play}));
+        std::array<float,256> fx_scratch{};
+        CHECK(engine.render_master_block(fx_scratch,stereo));
+        for(std::size_t i=0;i<128;++i)CHECK(stereo[i*2]==.0625f&&stereo[i*2+1]==.125f);
+    }
     engine.prepare({48000,0,6,128},graph,{PlaybackState::paused,0,LoopRange{0,128}});
     CHECK(engine.enqueue({ControlKind::play}));CHECK(!engine.render_master_block(scratch,stereo));
 }
