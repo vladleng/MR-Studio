@@ -46,15 +46,31 @@ def verify_existing(sha, scope, integration, runs, artifact_evidence, ref):
         candidates = [r for r in runs if r.get('head_sha') == sha
                       and r.get('path') == f'.github/workflows/{workflow}'
                       and r.get('event') in {'pull_request', 'push', 'workflow_dispatch'}]
-        # A newer failure/pending run must not be hidden behind an older success.
+        # A newer failure/pending run for this profile must not hide regressions.
         run = None
         for candidate in sorted(candidates, key=lambda r: (r['id'], r.get('run_attempt', 1)), reverse=True):
+            if (name == 'gui' and candidate.get('status') == 'completed'
+                    and candidate.get('conclusion') == 'cancelled'
+                    and candidate.get('run_attempt', 1) == 1):
+                # Independent PR/dispatch executions may be cancelled. They are
+                # not evidence, but must not mask another validated GUI pass.
+                # A cancelled rerun remains a blocker (its previous attempt may
+                # have failed). With no qualifying pass the gate still fails.
+                continue
             # Unknown/failed executions remain blockers; do not hide regressions.
             if candidate.get('status') != 'completed' or candidate.get('conclusion') != 'success':
+                if (check == 'gui-live' and candidate.get('event') == 'workflow_dispatch'
+                        and candidate.get('display_title') == 'GUI compile (gui)'):
+                    # Only the exact workflow-generated dispatch title declares
+                    # Studio-only coverage. PR titles/legacy runs are unknown.
+                    continue
                 run = candidate
                 break
             try:
                 data = artifact_evidence(candidate['id'], name)
+                # Authenticate the source/definition and base profile BEFORE
+                # trusting checks to skip a narrower successful execution.
+                validate_evidence(data, sha, workflow, name)
                 if check not in data.get('checks', []):
                     continue
             except (ValueError, KeyError, OSError, zipfile.BadZipFile):
