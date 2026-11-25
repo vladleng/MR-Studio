@@ -19,6 +19,7 @@
 #include <set>
 #include <sstream>
 #include <tuple>
+#include <utility>
 #include <stdexcept>
 namespace mrs::desktop {
 namespace {
@@ -245,7 +246,7 @@ Application::~Application() {
     for (auto& capture : captures_) try { (void)capture.recorder->finish(); } catch (const std::exception&) {}
     for (auto& [key,value] : assets_) { (void)key; *value.cancel = true; }
 }
-void Application::workspace(Workspace w) { (void)workspace_name(w); workspace_ = w; }
+void Application::workspace(Workspace w) { require(!active_export_,"Audio export in progress");(void)workspace_name(w); workspace_ = w; }
 void Application::replace(persistence::ProjectDocument next) {
     cancel_wav_import();
     cancel_transcription();
@@ -2876,6 +2877,7 @@ void Application::disconnect() {
     staged_playback_.reset();
 }
 void Application::poll() {
+    if(active_export_)return;
     poll_clip_updates();
     const auto processing=engine_->metrics();
     const bool timedOut=processing.processing_fault&&processing.worker_timeouts>0;
@@ -2943,8 +2945,8 @@ void Application::play() { require(!active_export_,"Audio export in progress");r
 #endif
     transport_->play(); }
 void Application::set_click_settings(audio::ClickSettings settings){settings.validate();require_not_recording();if(settings==click_settings_)return;const auto mapped = mapped_click(settings, active_outputs());require(engine_->enqueue({audio::ControlKind::click,mapped.control_flags(),settings.level}),"transport control queue full");click_settings_=settings;}
-void Application::pause() { if (recording()) (void)stop_recording(); else transport_->pause(); }
-void Application::stop() { if (recording()) (void)stop_recording(); transport_->stop(); }
+void Application::pause() { require(!active_export_,"Audio export in progress");if (recording()) (void)stop_recording(); else transport_->pause(); }
+void Application::stop() { require(!active_export_,"Audio export in progress");if (recording()) (void)stop_recording(); transport_->stop(); }
 void Application::seek(Sample sample) { require_not_recording(); transport_->seek(sample); }
 
 void Application::set_track_armed(const Id& id, bool enabled) {
