@@ -1,6 +1,8 @@
 #pragma once
 #include "Desktop.h"
 #include "GraphiteWindow.h"
+#include <algorithm>
+#include <cmath>
 #include <chrono>
 #include <atomic>
 #include <future>
@@ -130,7 +132,7 @@ class ExportAudioPanel final : public juce::Component,private juce::Timer {
         try{releasePlan();}catch(const std::exception& e){error+=" | Audio restart: "+juce::String::fromUTF8(e.what());}
         busy=false;finished=result.completed;
         enableSettings(true);cancel.setButtonText("Close");cancel.setEnabled(true);
-        if(error.isNotEmpty()){operation.setText("Export failed",juce::dontSendNotification);detail.setText(error,juce::dontSendNotification);}
+        if(error.isNotEmpty()){operation.setText(result.completed?"File saved; audio restart failed":"Export failed",juce::dontSendNotification);reveal.setVisible(result.completed);detail.setText(error,juce::dontSendNotification);}
         else if(result.completed){
             barValue=1.;operation.setText("Export complete",juce::dontSendNotification);reveal.setVisible(true);
             detail.setText(result.clipped_samples?"Warning: "+juce::String(static_cast<juce::int64>(result.clipped_samples))+" clipped samples; no normalization applied.": "File saved successfully.",juce::dontSendNotification);
@@ -189,6 +191,7 @@ public:
         if(work.valid()){try{(void)work.get();}catch(...){}}
         try{releasePlan();}catch(...){}
     }
+    bool keyPressed(const juce::KeyPress& key)override{if(key.getKeyCode()==juce::KeyPress::escapeKey){requestClose();return true;}return false;}
     void requestClose(){
         if(busy){if(progress)progress->stop.request_stop();cancel.setEnabled(false);return;}
         if(auto* window=findParentComponentOfClass<juce::DocumentWindow>()){window->exitModalState(0);window->setVisible(false);}
