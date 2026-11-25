@@ -65,6 +65,9 @@ public:
     juce::PopupMenu getMenuForIndex(int,const juce::String&) override;
     void menuItemSelected(int,int) override;
     void action(int);
+    static constexpr int exportAudioAction=721;
+    void showExportAudio();
+    std::unique_ptr<EditorWindow> exportWindow;
 #if defined(MRS_PROJECT_IMPORT_UI)
     static constexpr int previewDawprojectAction=718;
     juce::PopupMenu projectImportMenu() const;
