@@ -101,6 +101,56 @@ bool ReverbLibrary::commit_if_current(std::uint64_t revision,const std::function
     std::lock_guard lock(impl_->mutex);return revision==impl_->revision&&commit();
 }
 
+namespace {
+struct PreparedSelection {
+    ReverbSelection selection;
+    processing::ReverbKernel kernel;
+};
+PreparedSelection prepare_selection(ReverbLibraryEntry requested,const fs::path& requested_root,
+        processing::ReverbQuadMap requested_map,const std::optional<ReverbState>& restore_state,
+        processing::ProcessConfig config,std::stop_token stop) {
+    if(restore_state){const auto& saved=*restore_state;
+        const auto resolve=[&](const ReverbReference& reference){
+            const auto path_of=[](const std::string& s){return fs::path(std::u8string(s.begin(),s.end()));};
+            const auto relative=path_of(reference.relative);std::vector<fs::path> candidates;
+            if(!requested_root.empty()&&!relative.empty()&&!relative.is_absolute()&&!relative.has_root_name()){
+                bool safe=true;for(const auto& part:relative)if(part=="..")safe=false;if(safe)candidates.push_back(requested_root/relative);}
+            const auto absolute=path_of(reference.absolute);if(absolute.is_absolute())candidates.push_back(absolute);
+            bool changed=false;for(const auto& file:candidates){cancelled(stop);if(!fs::is_regular_file(file))continue;
+                const auto actual=identity(file,requested_root,stop);if(actual.bytes==reference.bytes&&actual.digest==reference.digest)return file;changed=true;}
+            throw std::runtime_error(changed?"IR content changed — choose/relink the intended IR":"IR missing — choose folder/relink");
+        };
+        requested.first=resolve(saved.first);if(!saved.second.digest.empty())requested.second=resolve(saved.second);
+        requested.name=saved.name;requested.key=saved.first.relative;requested.sample_rate=saved.sample_rate;requested.channels=saved.channels;requested.frames=saved.frames;
+        requested.kind=!saved.second.digest.empty()?ReverbFileKind::pair:saved.channels==4?ReverbFileKind::quad:saved.channels==2?ReverbFileKind::stereo:ReverbFileKind::mono;
+    }
+    cancelled(stop);if(requested.kind==ReverbFileKind::unsupported)throw std::runtime_error(requested.error);
+    if(!fs::is_regular_file(requested.first)||(!requested.second.empty()&&!fs::is_regular_file(requested.second)))throw std::runtime_error("IR missing — choose folder/relink");
+    const auto first_stamp=stamp(requested.first);
+    std::optional<Stamp> second_stamp;
+    if(!requested.second.empty()){second_stamp.emplace(stamp(requested.second));}
+    // Identity and metadata are validated before construction/publication. No UI/audio I/O.
+    auto first=identity(requested.first,requested_root,stop);ReverbFileIdentity second;
+    if(!requested.second.empty())second=identity(requested.second,requested_root,stop);
+    if(restore_state&&(first.digest!=restore_state->first.digest||first.bytes!=restore_state->first.bytes||second.digest!=restore_state->second.digest||second.bytes!=restore_state->second.bytes))throw std::runtime_error("IR changed during restore — select again");
+    auto ir=requested.kind==ReverbFileKind::pair?load_reverb_pair(requested.first,requested.second,stop):load_reverb_ir(requested.first,requested_map,stop);
+    if(ir.sample_rate!=requested.sample_rate||ir.kernels[0].size()!=requested.frames)throw std::runtime_error("IR metadata changed; re-index folder");
+    const auto actual_channels=ir.routing==processing::ReverbRouting::mono?1u:ir.routing==processing::ReverbRouting::stereo?2u:4u;
+    if(actual_channels!=requested.channels)throw std::runtime_error("IR channel layout changed; re-index folder");
+    auto kernel=processing::ReverbProcessor::prepare_kernel(ir,config,stop);
+    if(stamp(requested.first)!=first_stamp||(second_stamp.has_value()&&stamp(requested.second)!=second_stamp.value()))throw std::runtime_error("IR changed during loading; select again");
+    return {{std::move(requested),std::move(first),std::move(second),requested_map},std::move(kernel)};
+}
+}
+void restore_reverb_quiescent(processing::PreparedGraph& graph,const Id& node,const ReverbState& state,
+                              const fs::path& root,std::stop_token stop) {
+    state.validate();
+    if(state.first.digest.empty())return;
+    auto prepared=prepare_selection({},root,static_cast<processing::ReverbQuadMap>(state.quad_map),state,graph.config(),stop);
+    cancelled(stop);
+    if(!graph.stage_reverb_kernel(node,prepared.kernel))throw std::runtime_error("IR handoff already pending");
+    graph.warm_reverb(node);
+}
 struct ReverbLoader::Impl {
     std::shared_ptr<processing::PreparedGraph> graph;Id node;processing::ProcessConfig config;
     std::shared_ptr<ReverbLibrary> library;std::uint64_t library_revision{};
@@ -132,36 +182,7 @@ struct ReverbLoader::Impl {
           pending = false;
         }
         try{
-            if(restore_state){const auto& saved=*restore_state;
-                const auto resolve=[&](const ReverbReference& reference){
-                    const auto path_of=[](const std::string& s){return fs::path(std::u8string(s.begin(),s.end()));};
-                    const auto relative=path_of(reference.relative);std::vector<fs::path> candidates;
-                    if(!requested_root.empty()&&!relative.empty()&&!relative.is_absolute()&&!relative.has_root_name()){
-                        bool safe=true;for(const auto& part:relative)if(part=="..")safe=false;if(safe)candidates.push_back(requested_root/relative);}
-                    const auto absolute=path_of(reference.absolute);if(absolute.is_absolute())candidates.push_back(absolute);
-                    bool changed=false;for(const auto& file:candidates){cancelled(stop);if(!fs::is_regular_file(file))continue;
-                        const auto actual=identity(file,requested_root,stop);if(actual.bytes==reference.bytes&&actual.digest==reference.digest)return file;changed=true;}
-                    throw std::runtime_error(changed?"IR content changed — choose/relink the intended IR":"IR missing — choose folder/relink");
-                };
-                requested.first=resolve(saved.first);if(!saved.second.digest.empty())requested.second=resolve(saved.second);
-                requested.name=saved.name;requested.key=saved.first.relative;requested.sample_rate=saved.sample_rate;requested.channels=saved.channels;requested.frames=saved.frames;
-                requested.kind=!saved.second.digest.empty()?ReverbFileKind::pair:saved.channels==4?ReverbFileKind::quad:saved.channels==2?ReverbFileKind::stereo:ReverbFileKind::mono;
-            }
-            cancelled(stop);if(requested.kind==ReverbFileKind::unsupported)throw std::runtime_error(requested.error);
-            if(!fs::is_regular_file(requested.first)||(!requested.second.empty()&&!fs::is_regular_file(requested.second)))throw std::runtime_error("IR missing — choose folder/relink");
-            const auto first_stamp=stamp(requested.first);
-            std::optional<Stamp> second_stamp;
-            if(!requested.second.empty()){second_stamp.emplace(stamp(requested.second));}
-            // Identity and metadata are validated before construction/publication. No UI/audio I/O.
-            auto first=identity(requested.first,requested_root,stop);ReverbFileIdentity second;
-            if(!requested.second.empty())second=identity(requested.second,requested_root,stop);
-            if(restore_state&&(first.digest!=restore_state->first.digest||first.bytes!=restore_state->first.bytes||second.digest!=restore_state->second.digest||second.bytes!=restore_state->second.bytes))throw std::runtime_error("IR changed during restore — select again");
-            auto ir=requested.kind==ReverbFileKind::pair?load_reverb_pair(requested.first,requested.second,stop):load_reverb_ir(requested.first,requested_map,stop);
-            if(ir.sample_rate!=requested.sample_rate||ir.kernels[0].size()!=requested.frames)throw std::runtime_error("IR metadata changed; re-index folder");
-            const auto actual_channels=ir.routing==processing::ReverbRouting::mono?1u:ir.routing==processing::ReverbRouting::stereo?2u:4u;
-            if(actual_channels!=requested.channels)throw std::runtime_error("IR channel layout changed; re-index folder");
-            auto kernel=processing::ReverbProcessor::prepare_kernel(ir,config,stop);
-            if(stamp(requested.first)!=first_stamp||(second_stamp.has_value()&&stamp(requested.second)!=second_stamp.value()))throw std::runtime_error("IR changed during loading; select again");
+            auto prepared=prepare_selection(std::move(requested),requested_root,requested_map,restore_state,config,stop);
             // One pending handoff at a time. Waiting is cancellable on this worker only;
             // never re-prepare graph/device or block the message/audio threads.
             while(!stop.stop_requested()&&!lifetime.stop_requested()){
@@ -169,9 +190,9 @@ struct ReverbLoader::Impl {
                 if(ticket!=revision||stop.stop_requested())break;
                 if(library&&library->snapshot()->revision!=catalogue_ticket){auto next=std::make_shared<ReverbLoadStatus>(*status);next->phase=next->active?ReverbLoadPhase::ready:ReverbLoadPhase::empty;next->message="Folder changed — select an IR";status=std::move(next);break;}
                 auto next=std::make_shared<ReverbLoadStatus>(*status);next->phase=ReverbLoadPhase::ready;next->message="Ready";
-                next->active=ReverbSelection{requested,first,second,requested_map}; // allocate before kernel publication
+                next->active=prepared.selection; // allocate before kernel publication
                 next->active_revision=ticket;
-                const auto commit=[&]{std::lock_guard guard(control);if(!graph->stage_reverb_kernel(node,kernel))return false;status=std::move(next);return true;};
+                const auto commit=[&]{std::lock_guard guard(control);if(!graph->stage_reverb_kernel(node,prepared.kernel))return false;status=std::move(next);return true;};
                 if(library?library->commit_if_current(catalogue_ticket,commit):commit())break;
                 wake.wait_for(lock,lifetime,std::chrono::milliseconds(10),[&]{return stop.stop_requested();});
             }
