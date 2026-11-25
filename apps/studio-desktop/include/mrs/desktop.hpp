@@ -91,6 +91,25 @@ public:
     // No event-loop pumping/reentrant Application edits from callbacks. The
     // future GUI owns scheduling/cancellation and stages the output file.
     audio::OfflineRenderResult export_master(Sample begin,Sample end,const audio::OfflineRenderCallbacks&);
+    // Control owner prepares and retains this plan; worker only renders it.
+    // Join the worker before finish_master_export (processor destruction and
+    // device restart must remain on the control owner).
+    class PreparedMasterExport {
+    public:
+        Sample begin()const noexcept{return begin_;}
+        Sample end()const noexcept{return end_;}
+        std::uint32_t rate()const noexcept{return config_.sample_rate;}
+        audio::OfflineRenderResult render(const audio::OfflineRenderCallbacks&);
+    private:
+        friend class Application;
+        audio::RenderConfig config_{};
+        audio::RenderGraph graph_;
+        Sample begin_{},end_{};
+        std::atomic<bool> used_{};
+    };
+    std::shared_ptr<PreparedMasterExport> prepare_master_export(Sample begin,Sample end);
+    void finish_master_export(const std::shared_ptr<PreparedMasterExport>&);
+    bool export_active()const noexcept{return static_cast<bool>(active_export_);}
     audio::WavExportResult export_wav(const std::filesystem::path&,Sample begin,Sample end,
                                      const audio::WavExportCallbacks& = {});
     audio::Mp3ExportResult export_mp3(const std::filesystem::path&,Sample begin,Sample end,
@@ -564,6 +583,8 @@ private:
     std::vector<audio::Voice> prepare_clip_voices(const Project&,std::span<const Id>,std::uint32_t outputs,bool strict);
     void poll_clip_updates();
     std::vector<std::shared_ptr<audio::AudioEngine::PreparedTransition>> clip_updates_;
+    std::shared_ptr<PreparedMasterExport> active_export_;
+    bool export_restart_device_{};
     void require_not_playing() const;
     void rebuild_audio(bool retain_inserts=false);
     void replace(persistence::ProjectDocument);
