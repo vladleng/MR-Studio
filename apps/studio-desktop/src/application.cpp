@@ -2552,8 +2552,9 @@ audio::OfflineRenderResult Application::export_master(Sample begin,Sample end,co
     require(begin>=0&&end>begin&&end<=max_sample&&static_cast<bool>(callbacks.write_stereo),"Invalid export range or sink");
     require(!preparing_project_&&!pending_live_insert_switch_.transition&&!staged_insert_target_&&staged_insert_graphs_.empty()&&retained_insert_keys_.empty(),"Wait for pending graph changes before export");
     require(stretch_ready(true),"Wait for current time / pitch preparation before export");
-    if(callbacks.continue_render&&!callbacks.continue_render({0,end,0,end-begin}))return {};
-    const bool restart=device_&&device_->status().phase==audio::DevicePhase::running;
+    const auto phase=device_?device_->status().phase:audio::DevicePhase::closed;
+    require(phase!=audio::DevicePhase::error,"Recover audio device before export");
+    const bool restart=phase==audio::DevicePhase::running;
     if(restart)device_->stop();
     if(device_)engine_->quiesce();
     // Existing device and live DSP instances are retained; no graph swap, seek,
@@ -2565,12 +2566,12 @@ audio::OfflineRenderResult Application::export_master(Sample begin,Sample end,co
         for(const auto& t:project.tracks)require(t.midi_output.empty(),"External MIDI cannot be rendered offline");
         // Reuse the existing stopped-state capture contract, writing only into
         // a private project copy. Fail rather than omit an unavailable plugin.
-        capture_insert_state(project,{},true);
         for(const auto& [key,runtime]:insert_runtime_){
             (void)key;
             require(!runtime.settings_failed&&!runtime.pending&&(!runtime.graph||!runtime.graph->failed()),"Resolve pending or failed plugin state before export");
         }
         require(instrument_errors_.empty(),"Resolve unavailable instruments before export");
+        capture_insert_state(project,{},true);
         auto graph_state=*graphs_->state().graph;
         if(prepared_&&prepared_->snapshot().graph==graphs_->state().graph)graph_state=prepared_->capture();
         audio::RenderGraph graph;
