@@ -659,6 +659,7 @@ void Application::rename_track(const Id& id, std::string name) {
     services_.projects->execute(RenameTrack{id,std::move(name)});
 }
 void Application::require_not_recording() const {
+    require(!active_export_,"Audio export in progress");
     require(!recording(),"End recording before changing project, files or device");
 }
 void Application::sync_arm() {
@@ -2566,10 +2567,32 @@ audio::Mp3ExportResult Application::export_mp3(const std::filesystem::path& dest
         return export_master(begin,end,sink);
     },callbacks);
 }
+audio::OfflineRenderResult Application::PreparedMasterExport::render(const audio::OfflineRenderCallbacks& callbacks){
+    if(used_.exchange(true))throw std::logic_error("Export plan already rendered");
+    // A copy retains all processors on the control owner while the temporary
+    // engine and its workers are destroyed here.
+    return audio::render_master_range(config_,graph_,begin_,end_,callbacks);
+}
+void Application::finish_master_export(const std::shared_ptr<PreparedMasterExport>& plan){
+    require_ai_owner();
+    require(plan&&active_export_==plan,"Export plan is not active");
+    active_export_.reset();
+    const bool restart=std::exchange(export_restart_device_,false);
+    if(restart)device_->start();
+}
 audio::OfflineRenderResult Application::export_master(Sample begin,Sample end,const audio::OfflineRenderCallbacks& callbacks) {
+    require(static_cast<bool>(callbacks.write_stereo),"Invalid export sink");
+    auto plan=prepare_master_export(begin,end);
+    audio::OfflineRenderResult rendered;
+    try{rendered=plan->render(callbacks);}
+    catch(...){const auto error=std::current_exception();finish_master_export(plan);std::rethrow_exception(error);}
+    finish_master_export(plan);return rendered;
+}
+std::shared_ptr<Application::PreparedMasterExport> Application::prepare_master_export(Sample begin,Sample end) {
+    require_ai_owner();
     require_not_playing();
     require(workspace_!=Workspace::live&&!performance_plan_,"Audio export is Studio-only");
-    require(begin>=0&&end>begin&&end<=max_sample&&static_cast<bool>(callbacks.write_stereo),"Invalid export range or sink");
+    require(begin>=0&&end>begin&&end<=max_sample,"Invalid export range");
     require(!preparing_project_&&!pending_live_insert_switch_.transition&&!staged_insert_target_&&staged_insert_graphs_.empty()&&retained_insert_keys_.empty(),"Wait for pending graph changes before export");
     require(stretch_ready(true),"Wait for current time / pitch preparation before export");
     const auto phase=device_?device_->status().phase:audio::DevicePhase::closed;
@@ -2579,7 +2602,6 @@ audio::OfflineRenderResult Application::export_master(Sample begin,Sample end,co
     if(device_)engine_->quiesce();
     // Existing device and live DSP instances are retained; no graph swap, seek,
     // persistent model update, undo entry or device reconfiguration is needed.
-    audio::OfflineRenderResult rendered;
     try {
         auto project=*services_.projects->state().project;
         require(engine_->state().playback!=PlaybackState::playing,"Stop playback before export");
@@ -2661,14 +2683,14 @@ audio::OfflineRenderResult Application::export_master(Sample begin,Sample end,co
             processing::ProcessConfig{project.sample_rate,2,block,block,false,true});
         audio::RenderConfig config{project.sample_rate,0,2,block};
         if(device_config_)config.processing_workers=device_config_->processing_workers;
-        rendered=audio::render_master_range(config,std::move(graph),begin,end,callbacks);
+        auto plan=std::make_shared<PreparedMasterExport>();
+        plan->config_=config;plan->graph_=std::move(graph);plan->begin_=begin;plan->end_=end;
+        export_restart_device_=restart;active_export_=plan;return plan;
     }catch(...){
         const auto original=std::current_exception();
         if(restart)device_->start();
         std::rethrow_exception(original);
     }
-    if(restart)device_->start();
-    return rendered;
 }
 audio::RenderGraph Application::render(const audio::DeviceConfig& c,bool retain_inserts) {
     const auto project=preparing_project_?preparing_project_:services_.projects->state().project.get();
@@ -2914,7 +2936,7 @@ void Application::stop_library_preview() noexcept {engine_->stop_library_preview
 audio::AudioEngine::LibraryPreviewState Application::library_preview_state() const noexcept {
     return engine_->library_preview_state();
 }
-void Application::play() { require(audio_running(),"connect audio or choose Offline clock first");
+void Application::play() { require(!active_export_,"Audio export in progress");require(audio_running(),"connect audio or choose Offline clock first");
     require(stretch_ready(true),"Time / pitch is not ready. Wait for preparation, apply again after cancellation, or reopen a changed source.");
 #ifdef MRS_HAS_ARA
     if (ara_ && engine_->state().playback!=PlaybackState::playing && ara_->poll()) {unsaved_=true;refresh_ara(false);}
