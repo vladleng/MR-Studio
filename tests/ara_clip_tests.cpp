@@ -149,6 +149,11 @@ void model_test(const std::string& path,const std::string& id,float gain,std::ui
     arrangement.synchronize(p,[&](const auto&) { return source; });
     CHECK(arrangement.status("source").starts_with("ready"));
     engine_test(p,source,arrangement,gain);
+    auto offline=graph(p,source);
+    arrangement.apply_offline(p,offline);
+    CHECK(offline.voices[0].asset!=source&&!offline.voices[0].renderer&&offline.editor_renderers.empty());
+    CHECK(offline.voices[0].source_offset==0);
+    compare(arrangement.caches().front(),*source,gain);
     auto stale = p; ++stale.clips.front().source_offset;
     auto stale_graph = graph(stale,source); arrangement.apply(stale,stale_graph); CHECK(stale_graph.voices[0].asset == source);
     stale = p; stale.time.tempos.front().bpm = 95;
@@ -156,6 +161,8 @@ void model_test(const std::string& path,const std::string& id,float gain,std::ui
     arrangement.synchronize(p,[](const auto&) -> std::shared_ptr<const audio::AudioData> { throw std::runtime_error("missing source"); });
     CHECK(arrangement.caches().empty() && arrangement.status("source").starts_with("failed"));
     auto fallback = graph(p,source); arrangement.apply(p,fallback); CHECK(fallback.voices[0].asset == source);
+    rejects([&]{arrangement.apply_offline(p,fallback);});
+    CHECK(fallback.voices[0].asset==source);
 }
 struct FileFixture {
     std::filesystem::path path = std::filesystem::temp_directory_path()/("mrs-ara178-"+new_id().value+".wav");
