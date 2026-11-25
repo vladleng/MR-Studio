@@ -2,6 +2,7 @@
 #include "MeterTrack.h"
 #include "Desktop.h"
 #include "ExportAudio.h"
+#include <mrs/recording.hpp>
 #if defined(MRS_DRUM_MAP_UI)
 #include "DrumMapEditor.h"
 #endif
@@ -2730,6 +2731,54 @@ void Desktop::sendsMenu(mrs::Id id,std::optional<mrs::Id> bus,juce::Component* a
     std::vector<mrs::Id> choices;auto options=sendMenu(id,bus,choices);options.setLookAndFeel(&theme);
     const auto store=app.services().projects;juce::Component::SafePointer<Desktop> safe(this);
     options.showMenuAsync(popup(anchor?anchor:this),[safe,store,id,bus,choices](int choice){if(safe&&safe->app.services().projects==store)safe->run([&]{safe->applySendChoice(id,bus,choice,choices);});});
+}
+}
+
+namespace ui {
+// Exercise actual modal and worker via the File menu binding, without ASIO.
+void exportAudioSmoke(){
+    const auto check=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    struct TemporaryDirectory {
+        juce::File root=juce::File::getSpecialLocation(juce::File::tempDirectory)
+            .getNonexistentChildFile("mrs-export-smoke","",false);
+        ~TemporaryDirectory(){root.deleteRecursively();}
+    } temp;
+    check(temp.root.createDirectory().wasOk(),"create export smoke directory");
+    const auto source=temp.root.getChildFile("input.wav");
+    const auto sourcePath=std::filesystem::path(source.getFullPathName().toWideCharPointer());
+    std::array<float,4096> tone; tone.fill(.125f);
+    {mrs::audio::Recorder writer(sourcePath,48000,0,{0});writer.capture(tone.data(),1,4096,0);writer.finish();}
+    Desktop d(true);
+    d.app.import_wav(sourcePath);d.refresh(true);d.showProjectHome(false);
+    d.view.exportFormat=1;d.view.exportRange=1;
+    d.action(Desktop::exportAudioAction);
+    check(d.exportWindow&&d.exportWindow->isVisible(),"File menu opens export window");
+    auto* panel=dynamic_cast<ExportAudioPanel*>(d.exportWindow->getContentComponent());
+    check(panel&&panel->selectedRange()==mrs::LoopRange{0,4096},"export range reflects source");
+    check(panel->start.isEnabled(),"valid export ready");
+    panel->mp3.onClick();check(panel->format==2&&panel->mp3.getToggleState(),"MP3 selection");
+    panel->wav.onClick();check(panel->format==1&&panel->wav.getToggleState(),"WAV selection");
+    for(auto* component:std::array<juce::Component*,8>{&panel->wav,&panel->mp3,&panel->name,&panel->range,&panel->folder,&panel->bar,&panel->detail,&panel->start})
+        check(!component->getBounds().isEmpty()&&panel->getLocalBounds().contains(component->getBounds()),"export control bounds");
+    const auto before=d.app.services().projects->state();
+    panel->folder.setText(temp.root.getFullPathName(),false);
+    panel->name.setText("mix",false);panel->updateRange();panel->start.onClick();
+    if(!panel->busy||!d.app.export_active())throw std::runtime_error("export worker did not start: "+panel->detail.getText().toStdString());
+    const auto limit=std::chrono::steady_clock::now()+std::chrono::seconds(15);
+    while(panel->busy&&std::chrono::steady_clock::now()<limit){
+        panel->timerCallback();std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    if(panel->busy||!panel->finished||d.app.export_active())throw std::runtime_error("export did not complete: "+panel->detail.getText().toStdString());
+    const auto result=temp.root.getChildFile("mix.wav");
+    const auto info=mrs::audio::inspect_wav(std::filesystem::path(result.getFullPathName().toWideCharPointer()));
+    check(info.sample_rate==48000&&info.bits==24&&info.channels==2&&info.frame_count==4096,"WAV produced through dialog");
+    check(d.app.services().projects->state().project==before.project,"export preserves project");
+    panel->start.onClick();
+    check(!panel->busy&&panel->operation.getText()=="Export failed"&&result.existsAsFile(),"dialog refuses overwrite");
+    d.exportWindow->closeButtonPressed();
+    check(!d.exportWindow->isVisible()&&!d.app.export_active(),"close export window");
+    d.showExportAudio();check(d.exportWindow&&d.exportWindow->isVisible(),"reopen export window");
+    d.exportWindow->closeButtonPressed();
 }
 }
 
