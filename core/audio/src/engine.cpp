@@ -1156,15 +1156,80 @@ void AudioEngine::resolve_performance() noexcept {
     }
     performance_stalled_=true;performance_action_=PerformanceAction::stop;++performance_end_serial_;rt_.playback=PlaybackState::stopped;
 }
+namespace {
+// Offline-only adapter. prime() performs bounded disk IO before DSP entry.
+// render()/sample() merely select already decoded memory, including when the
+// engine splits a block at tempo/processing boundaries.
+class OfflineWavVoice final : public VoiceRenderer {
+    std::shared_ptr<const WavFile> file_;
+    Sample start_, offset_, length_;
+    std::vector<float> cache_;
+    Sample cache_first_{}, cache_end_{}, prepared_first_{}, prepared_end_{}, chunk_{};
+    bool failed_{};
+public:
+    static constexpr Sample cache_frames=8192;
+    explicit OfflineWavVoice(const Voice& voice)
+        :file_(voice.asset->file),start_(voice.start),offset_(voice.source_offset),length_(voice.length),
+         cache_(static_cast<std::size_t>(cache_frames)*file_->channels) {}
+    void prime(Sample position, Sample frames) {
+        prepared_first_=position;
+        prepared_end_=position+frames;
+        const auto first=std::max(position,start_);
+        const auto last=std::min(prepared_end_,start_+length_);
+        if(first>=last)return;
+        const auto source=offset_+(first-start_);
+        const auto end=offset_+(last-start_);
+        if(source>=cache_first_&&end<=cache_end_)return;
+        const auto count=std::min(cache_frames,offset_+length_-source);
+        file_->read(source,std::span<float>(cache_).first(static_cast<std::size_t>(count)*file_->channels));
+        cache_first_=source;
+        cache_end_=source+count;
+    }
+    bool render(Sample position,std::uint32_t frames,double,double,processing::MeterContext,
+                std::optional<LoopRange> loop) noexcept override {
+        chunk_=position;
+        const auto first=std::max(position,start_);
+        const auto last=std::min(position+frames,start_+length_);
+        failed_=loop.has_value()||position<prepared_first_||position+frames>prepared_end_||
+            (first<last&&(offset_+(first-start_)<cache_first_||offset_+(last-start_)>cache_end_));
+        return !failed_;
+    }
+    float sample(std::uint32_t frame,std::uint32_t channel) const noexcept override {
+        const auto position=chunk_+frame;
+        if(failed_||position<start_||position>=start_+length_||channel>=file_->channels)return 0.f;
+        const auto source=offset_+(position-start_);
+        if(source<cache_first_||source>=cache_end_)return 0.f;
+        return cache_[static_cast<std::size_t>(source-cache_first_)*file_->channels+channel];
+    }
+    std::uint32_t channels() const noexcept override{return file_->channels;}
+    bool failed() const noexcept override{return failed_;}
+};
+}
 OfflineRenderResult render_master_range(RenderConfig config, RenderGraph graph, Sample begin, Sample end,
                                         const OfflineRenderCallbacks& callbacks) {
     if (begin<0 || end<=begin || end>max_sample || config.output_channels<2 || !callbacks.write_stereo)
         throw std::invalid_argument("invalid offline render range or sink");
     if (graph.performance || graph.external_midi || graph.recording || !graph.recordings.empty() ||
         !graph.midi_recordings.empty() || std::any_of(graph.voices.begin(),graph.voices.end(),[](const auto& voice){
-            return voice.stream || voice.renderer || (voice.asset && voice.asset->file);
+            return voice.renderer || (voice.stream && (!voice.asset || !voice.asset->file));
         }))
-        throw std::invalid_argument("offline graph contains an unsupported capture, stream, renderer or external route");
+        throw std::invalid_argument("offline graph contains an unsupported capture, renderer or external route");
+    // No ReadAhead worker or full-file preload for disk-backed voices. Reuse
+    // immutable WAV metadata, but never reuse the live stream cursor.
+    std::vector<std::shared_ptr<OfflineWavVoice>> disk_voices;
+    std::size_t cache_bytes{};
+    for(auto& voice:graph.voices)if(voice.asset&&voice.asset->file){
+        voice.asset->validate();
+        if(config.max_block>static_cast<std::uint32_t>(OfflineWavVoice::cache_frames))
+            throw std::invalid_argument("offline disk blocks must be at most 8192 frames");
+        cache_bytes+=static_cast<std::size_t>(OfflineWavVoice::cache_frames)*voice.asset->channels*sizeof(float);
+        if(cache_bytes>256ULL*1024*1024||disk_voices.size()>=max_voices)
+            throw std::invalid_argument("offline disk cache budget exceeded");
+        auto reader=std::make_shared<OfflineWavVoice>(voice);
+        voice.stream.reset();
+        voice.renderer=reader;
+        disk_voices.push_back(std::move(reader));
+    }
     // Never read live input, emit count-in or touch an editor audition renderer.
     graph.monitoring=false;
     graph.monitor.clear();
@@ -1188,6 +1253,8 @@ OfflineRenderResult render_master_range(RenderConfig config, RenderGraph graph, 
     if (!engine->enqueue({ControlKind::play})) throw std::runtime_error("offline transport start failed");
     while (progress.processed<last) {
         const auto count=static_cast<std::size_t>(std::min<Sample>(config.max_block,last-progress.processed));
+        // A read failure propagates before any DSP or sink write for this block.
+        for(const auto& reader:disk_voices)reader->prime(progress.processed,static_cast<Sample>(count));
         auto output=std::span<float>(stereo).first(count*2);
         if (!engine->render_master_block(std::span<float>(scratch).first(count*config.output_channels),output))
             throw std::runtime_error("offline Master processing failed");
