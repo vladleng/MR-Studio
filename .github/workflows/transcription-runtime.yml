@@ -5,8 +5,26 @@ on:
   push:
     branches: [main]
     paths: ['CMakeLists.txt', 'tools/ci/sdk-lock.json', 'apps/studio-desktop/src/*transcription*', 'apps/studio-desktop/include/mrs/*transcription*', 'apps/studio-juce/src/TranscriptionRuntime*', 'apps/studio-juce/src/SeparationModels*', 'tools/transcription/**', 'tools/transcription_runtime_check.cpp', 'cmake/TranscriptionProfile.cmake', 'cmake/Separation.cmake', '.github/workflows/transcription-runtime.yml']
+  # Topic PRs: direct component changes only. Generic shared/build changes
+  # run Core/GUI automatically; full same-SHA evidence remains mandatory for Release.
   pull_request:
-    paths: ['CMakeLists.txt', 'tools/ci/sdk-lock.json', 'apps/studio-desktop/src/*transcription*', 'apps/studio-desktop/include/mrs/*transcription*', 'apps/studio-juce/src/TranscriptionRuntime*', 'apps/studio-juce/src/SeparationModels*', 'tools/transcription/**', 'tools/transcription_runtime_check.cpp', 'cmake/TranscriptionProfile.cmake', 'cmake/Separation.cmake', '.github/workflows/transcription-runtime.yml']
+    paths:
+      - 'tools/ci/sdk-lock.json'
+      - 'apps/studio-desktop/src/*transcription*'
+      - 'apps/studio-desktop/include/mrs/*transcription*'
+      - 'apps/studio-juce/src/TranscriptionRuntime*'
+      - 'apps/studio-juce/src/SeparationModels*'
+      - 'tools/transcription/**'
+      - 'tools/transcription_runtime_check.cpp'
+      - 'cmake/TranscriptionProfile.cmake'
+      - 'cmake/Separation.cmake'
+      - '.github/workflows/transcription-runtime.yml'
+      - 'apps/studio-desktop/src/audio_to_midi_worker.cpp'
+      - 'apps/studio-desktop/include/mrs/audio_to_midi_worker.hpp'
+      - 'apps/studio-juce/src/SeparationRunner*'
+      - 'apps/studio-juce/src/SeparationProject*'
+      - 'tools/separation/requirements-cpu.txt'
+      - 'tools/ci/ci_evidence.py'
 permissions:
   contents: read
 concurrency:
