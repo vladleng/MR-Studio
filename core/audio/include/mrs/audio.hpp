@@ -255,6 +255,26 @@ struct RealtimeState {
     Sample play_start{};
     Sample count_remaining{};
 };
+// Non-RT range renderer. Graph and all its processors must be independently
+// prepared and exclusively owned by the caller for this render, never shared
+// with a live device. Output is at config.sample_rate; encoder/resampler is
+// downstream. Callbacks run synchronously on the offline owner, not a UI/RT thread.
+// The sink must stage output and publish only after a completed result.
+struct OfflineRenderProgress {
+    Sample processed{}, total{}, written{}, requested{};
+};
+struct OfflineRenderCallbacks {
+    std::function<void(std::span<const float>)> write_stereo;
+    // Called before the first block and after each block. False cancels.
+    std::function<bool(const OfflineRenderProgress&)> continue_render{};
+};
+struct OfflineRenderResult {
+    bool completed{};
+    Sample frames_written{};
+    float peak{};
+};
+OfflineRenderResult render_master_range(RenderConfig, RenderGraph, Sample begin, Sample end,
+                                        const OfflineRenderCallbacks&);
 class AudioEngine {
 public:
     struct LiveMidi {std::uint64_t generation{};std::size_t track{};processing::MidiEvent event;std::uint64_t timestamp_ns{};std::uint32_t audition_release_ms{};};
