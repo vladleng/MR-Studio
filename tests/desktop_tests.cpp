@@ -492,6 +492,30 @@ void offline_export() {
     CHECK(app.export_master(0,8,{sink}).completed);
     CHECK(data.size()==16&&std::all_of(data.begin(),data.end(),[](float value){return value==0.f;}));
 }
+void offline_worker_export() {
+    Directory dir;const auto file=dir.path/"worker.wav";wav(file,2,48000);
+    Application app;app.import_wav(file);
+    auto device=std::make_unique<ManualDevice>();auto* driver=device.get();
+    app.connect(std::move(device),{0,48000,128,{}, {0,1}});
+    app.seek(77);std::array<float,256> buffer{};app.engine()->process(nullptr,buffer.data(),128);
+    const auto before=app.services().projects->state();const auto head=app.engine()->state();
+    auto plan=app.prepare_master_export(3,37);
+    CHECK(app.export_active()&&!app.audio_running()&&plan->rate()==48000);
+    rejects([&]{app.play();});rejects([&]{app.disconnect();});rejects([&]{app.new_project();});
+    rejects([&]{app.prepare_master_export(0,1);});
+    std::vector<float> samples;
+    auto worker=std::async(std::launch::async,[&]{
+        return plan->render({[&](std::span<const float> block){samples.insert(samples.end(),block.begin(),block.end());}});
+    });
+    const auto result=worker.get();
+    CHECK(result.completed&&result.frames_written==34&&samples.size()==68);
+    for(float value:samples)CHECK(value==4000.f/65536.f);
+    CHECK(app.export_active()&&!app.audio_running());
+    rejects([&]{plan->render({[](std::span<const float>){}});});
+    app.finish_master_export(plan);plan.reset();
+    CHECK(!app.export_active()&&app.audio_running()&&driver->opens==1);
+    CHECK(app.services().projects->state().project==before.project&&app.engine()->state().sample==head.sample);
+}
 void offline_wav_file() {
     Directory dir;const auto input=dir.path/"input.wav";wav(input,2,48000);
     Application app;app.import_wav(input);
@@ -1405,7 +1429,7 @@ int main(int argc, char** argv) {
         if(name=="sections"){sections();std::cout<<"PASS desktop sections\n";return 0;}
         if(name=="chords"){chords();std::cout<<"PASS desktop chords\n";return 0;}
         if(name=="markers"){markers();std::cout<<"PASS desktop markers\n";return 0;}
-        if(name=="cab_combo")cab_combo();else if(name=="cab_collection")cab_collection();else if(name=="reverb")reverb();else if(name=="cab_ir")cab_ir();else if (name == "inserts") inserts(); else if (name == "multi_input") multi_input(); else if (name == "hardware") hardware(); else if (name == "offline_export") {offline_export();offline_external_ir();offline_wav_file();} else if (name == "profiles") profiles(); else if (name == "sends") sends(); else if (name == "buses") buses(); else if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
+        if(name=="cab_combo")cab_combo();else if(name=="cab_collection")cab_collection();else if(name=="reverb")reverb();else if(name=="cab_ir")cab_ir();else if (name == "inserts") inserts(); else if (name == "multi_input") multi_input(); else if (name == "hardware") hardware(); else if (name == "offline_export") {offline_export();offline_external_ir();offline_wav_file();offline_worker_export();} else if (name == "profiles") profiles(); else if (name == "sends") sends(); else if (name == "buses") buses(); else if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
         else if (name == "files") files(); else if (name == "assets") assets();
         else if (name == "mono_route") mono_route(); else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else if (name == "streaming") streaming(); else if (name == "clip_edits") clip_edits(); else if (name == "recording") recording(); else if (name == "project_folders") project_folders(); else throw std::runtime_error("unknown suite");
         std::cout << "PASS desktop " << name << '\n'; return 0;
