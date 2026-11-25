@@ -86,6 +86,10 @@ public:
     void poll();
     void demo();
     void new_project(std::uint32_t rate = 48000, std::string title = "Untitled");
+    // Synchronous control-owner entry point for an exclusive export session.
+    // No event-loop pumping/reentrant Application edits from callbacks. The
+    // future GUI owns scheduling/cancellation and stages the output file.
+    audio::OfflineRenderResult export_master(Sample begin,Sample end,const audio::OfflineRenderCallbacks&);
     Id add_audio_track(std::string name);
     Id add_instrument_track(std::string name);
     Id add_instrument_track(std::string name, NativeInsert instrument);
@@ -552,6 +556,7 @@ private:
     bool edit_midi_velocities(const Project&,const Project&,const ICommand*,std::optional<bool> history={});
     bool refresh_clip_audio(const Project&);
     std::vector<audio::Voice> prepare_clip_voices(const Project&);
+    std::vector<audio::Voice> prepare_clip_voices(const Project&,std::span<const Id>,std::uint32_t outputs,bool strict);
     void poll_clip_updates();
     std::vector<std::shared_ptr<audio::AudioEngine::PreparedTransition>> clip_updates_;
     void require_not_playing() const;
