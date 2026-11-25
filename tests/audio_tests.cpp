@@ -533,6 +533,33 @@ void hardware() {
     graph.voices.clear(); graph.master_gain=1; graph.monitor={{0,0,1},{0,1,1}}; graph.monitor_track=0;
     engine.prepare({48000,1,6,512},graph); std::array<float,512> input{}; input.fill(0.25f); engine.process(input.data(),out.data(),512); CHECK(out[3] == 0.25f && out[0] == 0);
 }
+void master_export() {
+    auto asset=std::make_shared<AudioData>();asset->channels=2;
+    for(int i=0;i<256;++i){asset->samples.push_back(.25f);asset->samples.push_back(.5f);}
+    RenderGraph graph;graph.mixer={{},{}};graph.hardware_outputs={{},{4,5}};graph.master_outputs={2,3};graph.master_gain=6.f;
+    graph.click.playback=true;graph.click.level=100;
+    graph.voices={{asset,0,0,256,{{0,0,1},{1,1,1}}},{asset,0,0,256,{{0,0,1},{1,1,1}}}};
+    graph.voices[0].mixer_track=0;graph.voices[1].mixer_track=1;
+    AudioEngine engine;engine.prepare({48000,0,6,128},graph);CHECK(engine.enqueue({ControlKind::play}));
+    std::array<float,768> scratch{};std::array<float,256> stereo{};
+    allocation_check::count=0;allocation_check::frees=0;allocation_check::enabled=true;
+    const auto ok=engine.render_master_block(scratch,stereo);
+    allocation_check::enabled=false;
+    CHECK(ok&&allocation_check::count==0&&allocation_check::frees==0);
+    CHECK(engine.state().sample==128);
+    for(std::size_t i=0;i<128;++i){
+        CHECK(stereo[i*2]==1.5f&&stereo[i*2+1]==3.f);
+        CHECK(scratch[i*6+2]==1.f&&scratch[i*6+3]==1.f);
+        CHECK(scratch[i*6+4]==.25f&&scratch[i*6+5]==.5f);
+    }
+    CHECK(!engine.render_master_block(scratch,std::span<float>(stereo).first(255)));
+    CHECK(engine.state().sample==128);
+    std::array<float,18> last_scratch{};std::array<float,6> last{};
+    CHECK(engine.render_master_block(last_scratch,last));
+    CHECK(engine.state().sample==131&&last[0]==1.5f&&last[5]==3.f);
+    engine.prepare({48000,0,6,128},graph,{PlaybackState::paused,0,LoopRange{0,128}});
+    CHECK(engine.enqueue({ControlKind::play}));CHECK(!engine.render_master_block(scratch,stereo));
+}
 void sends() {
     auto asset = std::make_shared<AudioData>(); asset->channels = 1; asset->samples.assign(16384,0.25f);
     RenderGraph graph; graph.mixer = {{0.5f,0,false,false},{0.5f,0,false,false},{},{}};
@@ -922,7 +949,7 @@ int main(int argc, char** argv) {
         if (argc != 2) throw std::invalid_argument("expected suite");
         const std::string suite = argv[1];
         if(suite=="state_snapshot"){state_snapshot();std::cout<<"PASS state_snapshot: "<<assertions<<" checks\n";return 0;}
-        if(suite=="performance")performance();else if(suite=="metronome")metronome();else if(suite=="callback_blocks")callback_blocks();else if (suite=="pdc") pdc(); else if (suite=="inserts") inserts(); else if(suite=="insert_switch")insert_switch(); else if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
+        if(suite=="performance")performance();else if(suite=="metronome")metronome();else if(suite=="callback_blocks")callback_blocks();else if (suite=="pdc") pdc(); else if (suite=="inserts") inserts(); else if(suite=="insert_switch")insert_switch(); else if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="master_export") master_export(); else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
         else if (suite=="queue") queue(); else if (suite=="wav") wav();
         else if (suite=="device") device(); else if (suite=="metrics") metrics();
         else if (suite=="streaming") streaming(); else if (suite=="recording") recording();
