@@ -1,11 +1,11 @@
 ---
 name: mr-studio-build-test
-description: Select and run proportional local builds, regression tests and acceptance checks for MR Studio/MR Live. Use for code validation, build/test failures and requested packages; not for docs-only discussion.
+description: Select and run proportional local or cloud builds, regression tests and acceptance checks for MR Studio/MR Live. Use for code validation, build/test failures and requested packages; not for docs-only discussion.
 ---
 
-# MR Studio / MR Live — локальные сборки и проверки
+# MR Studio / MR Live — сборки и проверки
 
-Этот Skill определяет **объём проверки**, а не полномочия: локальная работа, DSH Task Manager, Git, публикация и приёмка регулируются проектным `AGENTS.md`. Не открывай весь `docs/LOCAL_BUILD_POLICY.md` автоматически; обращайся к **нужному разделу**, если выбранный случай, исключение или этап приёмки недостаточно определён ниже. Реальные команды/targets/SDK определяй по **текущему локальному checkout**, а не по историческим CI.
+Этот Skill определяет **объём проверки**, а не полномочия: активный режим, источник заданий, Git, публикация и приёмка регулируются проектным `AGENTS.md`. Реальные команды/targets/SDK определяй по текущей рабочей ветке. LOCAL: адресная справка `docs/LOCAL_BUILD_POLICY.md`; CLOUD: `docs/CLOUD_DEVELOPMENT.md` и действующие `.github/workflows/`. Не открывай эти документы целиком без необходимости.
 
 ## Выбор минимально достаточного уровня
 
@@ -22,10 +22,11 @@ description: Select and run proportional local builds, regression tests and acce
 ## Выполнение
 
 1. Установи scope/уровень и проверь фактические ветку, HEAD, dirty diff, конфигурацию и существующее build tree. Для ошибок — исходный **RED**, затем **GREEN** тем же сценарием; если автоматический репро-тест неприменим, зафиксируй ручные шаги и ограничения.
-2. Перед командой проверь существующие `tools/Build-Local.ps1`, `tools/Enter-DevEnvironment.ps1`, CMake presets/targets и доступные SDK. Предпочитай предусмотренный проектом **адресный** запуск; неизвестные ключи, цели и пути не выдумывай. [Поиск команд](references/command-discovery.md) и [Windows/JUCE диагностика](references/windows-juce-validation.md) — только по необходимости.
-3. Не выполняй configure, загрузку SDK, очистку build tree, полный CTest или упаковку лишь ради небольшой правки. SDK-подготовка через текущие `tools/ci/Prepare-Sdks.ps1` / `sdk-lock.json` — отдельный осознанный шаг при реальной нехватке зависимости; наличие файлов не подтверждает доступность toolchain.
-4. При FAIL разбери первую содержательную ошибку, проверь гипотезу и повтори **только затронутую** проверку; не отключай тесты и не удаляй чужие результаты. Применяй ограничение попыток из `AGENTS.md`. Actions/remote CI не заменяют локальную проверку и запускаются только по прямому запросу.
-5. В кратком отчёте отделяй код, тесты и пользовательскую приёмку: scope, уровень, ветка/HEAD/dirty state, реальные команды/targets, конфигурация, **PASS/FAIL/NOT TESTED**, ограничения и оставшиеся аппаратные проверки. Не выдавай сборку за визуальную, слуховую или ASIO-проверку. Значимые результаты фиксируй в назначенной задаче через `dsh-task-manager-workflow` только в рамках разрешённой работы.
+2. **LOCAL:** перед командой проверь существующие `tools/Build-Local.ps1`, `tools/Enter-DevEnvironment.ps1`, CMake presets/targets и доступные SDK. Предпочитай предусмотренный проектом **адресный** запуск; неизвестные ключи, цели и пути не выдумывай. [Поиск команд](references/command-discovery.md) и [Windows/JUCE диагностика](references/windows-juce-validation.md) — только по необходимости.
+3. **CLOUD:** проверь доступную среду, профильные CMake/CTest и workflows текущей ветки. Для Windows-интеграции и кандидата используй существующий CI и его фактические gates; проверяй точный SHA, профиль и результаты, не запускай лишние контуры. Если Windows Release отсутствует, укажи BLOCKED для пакета, не подменяй его GUI Compile или Linux PASS. Не выдумывай команды dispatch и не восстанавливай workflows без поручения.
+4. В обоих режимах не выполняй configure, загрузку SDK, очистку build tree, полный CTest или упаковку лишь ради небольшой правки. SDK-подготовка через текущие `tools/ci/Prepare-Sdks.ps1` / `sdk-lock.json` — отдельный осознанный шаг при реальной нехватке зависимости; наличие файлов не подтверждает доступность toolchain.
+5. При FAIL разбери первую содержательную ошибку, проверь гипотезу и повтори **только затронутую** проверку; не отключай тесты и не удаляй чужие результаты. Применяй ограничение попыток из `AGENTS.md`. В LOCAL Actions запускаются только по прямому запросу; в CLOUD профильный CI разрешён в рамках порученных проверок и не заменяет ручную/аппаратную приёмку.
+6. В кратком отчёте отделяй код, тесты и пользовательскую приёмку: scope, уровень, ветка/HEAD/dirty state, реальные команды/targets, конфигурация, **PASS/FAIL/NOT TESTED**, ограничения и оставшиеся аппаратные проверки. Не выдавай сборку за визуальную, слуховую или ASIO-проверку. Значимые результаты фиксируй в чате и техническом описании PR со ссылками на runs и artifacts в CLOUD; в назначенной задаче через `dsh-task-manager-workflow` в LOCAL. В CLOUD не требуй и не изменяй Issue без отдельного поручения. Только в рамках разрешённой работы.
 
 ## Кандидат и приёмка
 

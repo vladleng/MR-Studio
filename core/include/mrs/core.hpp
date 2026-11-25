@@ -179,21 +179,21 @@ struct DrumMapArticulation {
     std::optional<int> note; // default MIDI note 0..127; absent = Unmapped
     std::optional<int> channel; // zero-based 0..15; absent = any channel
     std::vector<std::string> aliases; // alternative names for the same articulation
-    std::vector<int> alternate_notes; // same channel as the default note
+    std::vector<int> alternate_notes{}; // same channel as the default note
     bool operator==(const DrumMapArticulation&) const = default;
 };
 struct DrumMapInstrument {
     Id id;
     std::string name;
     std::vector<DrumMapArticulation> articulations;
-    std::optional<std::uint32_t> color; // optional override of the enclosing group color
+    std::optional<std::uint32_t> color{}; // optional override of the enclosing group color
     bool operator==(const DrumMapInstrument&) const = default;
 };
 struct DrumMapCategory {
     Id id;
     std::string name;
     std::vector<DrumMapInstrument> instruments;
-    std::optional<std::uint32_t> color; // optional RGB for the group and its notes
+    std::optional<std::uint32_t> color{}; // optional RGB for the group and its notes
     bool operator==(const DrumMapCategory&) const = default;
 };
 struct DrumMapProfile {
