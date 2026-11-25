@@ -463,6 +463,35 @@ void hardware() {
     app.seek(0); app.play(); app.engine()->process(nullptr,out.data(),128); CHECK(out[0] == 0.06103515625f && out[3] == 0.06103515625f && out[1] == 0 && out[2] == 0);
     rejects([&] { app.set_hardware_output(id,{0}); });
 }
+void offline_export() {
+    Directory dir;const auto file=dir.path/"export.wav";wav(file,2,48000);
+    Application app;app.import_wav(file);
+    const auto track=app.services().projects->state().project->tracks.front().id;
+    NativeInsert gain;gain.id=new_id();gain.gain=.5f;
+    app.set_inserts(track,{gain});
+    NativeInsert master;master.id=new_id();master.gain=.5f;
+    app.set_inserts(std::nullopt,{master});
+    auto device=std::make_unique<ManualDevice>();auto* driver=device.get();
+    app.connect(std::move(device),{0,48000,128,{}, {0,1}});
+    app.seek(100);std::array<float,256> scratch{};app.engine()->process(nullptr,scratch.data(),128);
+    const auto before=app.services().projects->state();const auto head=app.engine()->state();
+    const auto generation=app.insert_generation();const auto stops=driver->stops;
+    std::vector<float> data;
+    const auto sink=[&](std::span<const float> block){data.insert(data.end(),block.begin(),block.end());};
+    const auto result=app.export_master(3,37,{sink});
+    CHECK(result.completed&&result.frames_written==34&&data.size()==68);
+    for(float value:data)CHECK(std::abs(value-0.030517578125f)<1e-7f);
+    CHECK(app.audio_running()&&driver->opens==1&&driver->stops==stops+1);
+    CHECK(app.services().projects->state().project==before.project&&app.services().projects->state().revision==before.revision);
+    CHECK(app.engine()->state().sample==head.sample&&app.engine()->state().playback==head.playback&&app.insert_generation()==generation);
+    const auto cancelled=app.export_master(0,1000,{sink,[](const audio::OfflineRenderProgress& p){return p.written<512;}});
+    CHECK(!cancelled.completed&&cancelled.frames_written==512&&app.audio_running());
+    rejects([&]{app.export_master(0,32,{[](std::span<const float>){throw std::runtime_error("sink failure");}});});
+    CHECK(app.audio_running()&&app.engine()->state().sample==head.sample&&app.services().projects->state().project==before.project);
+    app.set_hardware_output(track,{0,1});data.clear();
+    CHECK(app.export_master(0,8,{sink}).completed);
+    CHECK(data.size()==16&&std::all_of(data.begin(),data.end(),[](float value){return value==0.f;}));
+}
 void profiles() {
     ManualDevice driver; auto info=driver.enumerate().front(); auto profile=capture_profile("Stage",info,{0,44100,128,{1},{2,3,0,1}});
     info.index=7; CHECK(resolve_profile(profile,info).device == 7 && resolve_profile(profile,info).inputs == std::vector<int>{1});
@@ -1275,7 +1304,7 @@ int main(int argc, char** argv) {
         if(name=="sections"){sections();std::cout<<"PASS desktop sections\n";return 0;}
         if(name=="chords"){chords();std::cout<<"PASS desktop chords\n";return 0;}
         if(name=="markers"){markers();std::cout<<"PASS desktop markers\n";return 0;}
-        if(name=="cab_combo")cab_combo();else if(name=="cab_collection")cab_collection();else if(name=="reverb")reverb();else if(name=="cab_ir")cab_ir();else if (name == "inserts") inserts(); else if (name == "multi_input") multi_input(); else if (name == "hardware") hardware(); else if (name == "profiles") profiles(); else if (name == "sends") sends(); else if (name == "buses") buses(); else if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
+        if(name=="cab_combo")cab_combo();else if(name=="cab_collection")cab_collection();else if(name=="reverb")reverb();else if(name=="cab_ir")cab_ir();else if (name == "inserts") inserts(); else if (name == "multi_input") multi_input(); else if (name == "hardware") hardware(); else if (name == "offline_export") offline_export(); else if (name == "profiles") profiles(); else if (name == "sends") sends(); else if (name == "buses") buses(); else if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
         else if (name == "files") files(); else if (name == "assets") assets();
         else if (name == "mono_route") mono_route(); else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else if (name == "streaming") streaming(); else if (name == "clip_edits") clip_edits(); else if (name == "recording") recording(); else if (name == "project_folders") project_folders(); else throw std::runtime_error("unknown suite");
         std::cout << "PASS desktop " << name << '\n'; return 0;
