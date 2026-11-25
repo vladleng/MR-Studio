@@ -201,8 +201,11 @@ jobs:
         if: success() && (env.CHECK_SCOPE == 'studio' || env.CHECK_SCOPE == 'studio-live' || env.CHECK_SCOPE == 'profile')
         shell: pwsh
         run: |
-          ctest --test-dir build/windows -C Release --output-on-failure --no-tests=error -R '^(desktop_(offline_export|reverb|cab_collection|cab_combo)|audio_(reverb_library|mp3_export)|processing_(reverb|rig))$'
-          if($LASTEXITCODE){throw 'Offline export contracts failed'}
+          ctest --test-dir build/windows -C Release --output-on-failure --no-tests=error -R '^(desktop_(offline_export|reverb|cab_collection|cab_combo)|audio_(reverb_library|mp3_export)|processing_(reverb|rig)|juce_export_audio)$'
+          if($LASTEXITCODE){
+            if(Test-Path 'build/windows/export-audio-failure.txt'){Get-Content 'build/windows/export-audio-failure.txt'}
+            throw 'Offline export contracts failed'
+          }
       - name: Stretch foundation evidence (synthetic, not ASIO)
         if: success() && env.CHECK_SCOPE != 'live' && env.CHECK_SCOPE != 'separation' && env.CHECK_SCOPE != 'separation-ui' && env.CHECK_SCOPE != 'studio' && env.CHECK_SCOPE != 'studio-live'
         shell: pwsh
