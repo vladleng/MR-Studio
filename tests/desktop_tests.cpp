@@ -492,6 +492,52 @@ void offline_export() {
     CHECK(app.export_master(0,8,{sink}).completed);
     CHECK(data.size()==16&&std::all_of(data.begin(),data.end(),[](float value){return value==0.f;}));
 }
+void offline_wav_file() {
+    Directory dir;const auto input=dir.path/"input.wav";wav(input,2,48000);
+    Application app;app.import_wav(input);
+    const auto before=app.services().projects->state();
+    const auto dest=dir.path/"mix.wav";
+    const auto result=app.export_wav(dest,3,37);
+    const auto info=audio::inspect_wav(dest);
+    CHECK(result.completed&&result.frames==34&&info.frame_count==34&&info.format==1&&info.bits==24&&info.channels==2&&info.sample_rate==48000);
+    const auto data=audio::load_wav(dest);
+    for(float value:data.samples)CHECK(value==4000.f/65536.f);
+    CHECK(result.clipped_samples==0&&app.services().projects->state().project==before.project&&app.audio_running());
+    rejects([&]{app.export_wav(dest,0,32);});
+    CHECK(audio::load_wav(dest).samples==data.samples);
+    const auto cancelled=dir.path/"cancelled.wav";
+    CHECK(!app.export_wav(cancelled,0,1000,{[](const audio::OfflineRenderProgress& p){return p.written<512;}}).completed);
+    CHECK(!std::filesystem::exists(cancelled)&&app.audio_running());
+    const auto source=[](const audio::OfflineRenderCallbacks& cb){
+        const std::array<float,8> block{1.5f,-1.5f,1.f,-1.f,.25f,-.25f,0.f,0.f};
+        cb.write_stereo(block);return audio::OfflineRenderResult{true,4,1.5f};
+    };
+    const auto clipped=audio::export_wav24(dir.path/"clipped.wav",48000,4,source);
+    CHECK(clipped.completed&&clipped.clipped_samples==2&&clipped.peak==1.5f);
+    CHECK(audio::load_wav(dir.path/"clipped.wav").samples==std::vector<float>({8388607.f/8388608.f,-1.f,8388607.f/8388608.f,-1.f,.25f,-.25f,0.f,0.f}));
+    const auto converted=dir.path/"converted.wav";
+    const auto constant=[](const audio::OfflineRenderCallbacks& cb){
+        const std::vector<float> samples(441*2,.25f);cb.write_stereo(samples);
+        return audio::OfflineRenderResult{true,441,.25f};
+    };
+    CHECK(audio::export_wav24(converted,44100,441,constant).frames==480);
+    const auto resampled=audio::load_wav(converted);
+    CHECK(resampled.sample_rate==48000&&resampled.frames()==480);
+    for(float value:resampled.samples)CHECK(std::abs(value-.25f)<1e-6f);
+    const auto cancel_src=dir.path/"cancel-src.wav";
+    CHECK(!audio::export_wav24(cancel_src,44100,441,constant,{{},[](float p){return p<.25f;}}).completed);
+    CHECK(!std::filesystem::exists(cancel_src));
+    const auto race=dir.path/"race.wav";
+    rejects([&]{audio::export_wav24(race,48000,4,[&](const auto& cb){
+        std::ofstream other(race,std::ios::binary);other<<"original";other.close();return source(cb);
+    });});
+    std::ifstream other(race,std::ios::binary);std::string text;other>>text;CHECK(text=="original");
+    const auto broken=dir.path/"broken.wav";
+    rejects([&]{audio::export_wav24(broken,48000,5,source);});
+    CHECK(!std::filesystem::exists(broken));
+    for(const auto& entry:std::filesystem::directory_iterator(dir.path))
+        CHECK(!entry.path().filename().string().starts_with(".mrs-export-"));
+}
 void offline_external_ir() {
     Directory dir;const auto root=dir.path/"IR",moved=dir.path/"Moved";
     std::filesystem::create_directory(root);
@@ -1359,7 +1405,7 @@ int main(int argc, char** argv) {
         if(name=="sections"){sections();std::cout<<"PASS desktop sections\n";return 0;}
         if(name=="chords"){chords();std::cout<<"PASS desktop chords\n";return 0;}
         if(name=="markers"){markers();std::cout<<"PASS desktop markers\n";return 0;}
-        if(name=="cab_combo")cab_combo();else if(name=="cab_collection")cab_collection();else if(name=="reverb")reverb();else if(name=="cab_ir")cab_ir();else if (name == "inserts") inserts(); else if (name == "multi_input") multi_input(); else if (name == "hardware") hardware(); else if (name == "offline_export") {offline_export();offline_external_ir();} else if (name == "profiles") profiles(); else if (name == "sends") sends(); else if (name == "buses") buses(); else if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
+        if(name=="cab_combo")cab_combo();else if(name=="cab_collection")cab_collection();else if(name=="reverb")reverb();else if(name=="cab_ir")cab_ir();else if (name == "inserts") inserts(); else if (name == "multi_input") multi_input(); else if (name == "hardware") hardware(); else if (name == "offline_export") {offline_export();offline_external_ir();offline_wav_file();} else if (name == "profiles") profiles(); else if (name == "sends") sends(); else if (name == "buses") buses(); else if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
         else if (name == "files") files(); else if (name == "assets") assets();
         else if (name == "mono_route") mono_route(); else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else if (name == "streaming") streaming(); else if (name == "clip_edits") clip_edits(); else if (name == "recording") recording(); else if (name == "project_folders") project_folders(); else throw std::runtime_error("unknown suite");
         std::cout << "PASS desktop " << name << '\n'; return 0;
