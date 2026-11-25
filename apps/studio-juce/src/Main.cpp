@@ -1,6 +1,6 @@
 #include "LibraryBrowserView.h"
 #include "Desktop.h"
-namespace ui { void noteGridSmoke(); }
+namespace ui { void noteGridSmoke(); void exportAudioSmoke(); }
 #if defined(MRS_DRUM_MAP_UI)
 #include "DrumMapEditor.h"
 namespace ui { void drumGridSmoke(); }
@@ -55,6 +55,7 @@ public:
     const juce::String getApplicationName() override {return "Moon River Studio JUCE";}
     const juce::String getApplicationVersion() override {return juce::String(mrs::desktop::application_version.data());}
     void initialise(const juce::String& args) override {
+        if(args.contains("--export-audio-smoke")){try{ui::exportAudioSmoke();setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("export-audio-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}
 #if defined(MRS_TRANSCRIPTION_UI)
         if(args.contains("--transcription-smoke")){try{const auto tokens=juce::StringArray::fromTokens(args,true);const auto at=tokens.indexOf("--transcription-smoke");if(at<0||at+1>=tokens.size())throw std::runtime_error("Missing native fake engine");ui::transcriptionSmoke(juce::File(tokens[at+1].unquoted()));setApplicationReturnValue(0);}catch(const std::exception& e){juce::File::getCurrentWorkingDirectory().getChildFile("transcription-failure.txt").replaceWithText(juce::String::fromUTF8(e.what()));setApplicationReturnValue(1);}quit();return;}
 #endif
