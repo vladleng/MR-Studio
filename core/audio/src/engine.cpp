@@ -1156,7 +1156,24 @@ void AudioEngine::resolve_performance() noexcept {
     }
     performance_stalled_=true;performance_action_=PerformanceAction::stop;++performance_end_serial_;rt_.playback=PlaybackState::stopped;
 }
-void AudioEngine::process_block(const float* input, float* output, std::uint32_t frames, std::uint32_t input_flags) noexcept {
+bool AudioEngine::render_master_block(std::span<float> device_scratch, std::span<float> stereo) noexcept {
+    const auto frames = stereo.size()/2;
+    if (!frames || stereo.size()%2 || frames>config_.max_block || config_.output_channels<2 ||
+        device_scratch.size()!=frames*config_.output_channels || speculative_ || ahead_owner_ || mixed_owner_ ||
+        graph_.performance || graph_.external_midi || !graph_.recordings.empty() || !graph_.midi_recordings.empty() ||
+        graph_.count_frames || rt_.count_remaining || processing_fault_.load(std::memory_order_relaxed) ||
+        pending_transition_.load(std::memory_order_acquire) || pending_insert_switch_.load(std::memory_order_acquire) ||
+        std::any_of(graph_.voices.begin(),graph_.voices.end(),[](const auto& voice){return static_cast<bool>(voice.stream);}))
+        return false;
+    consume_controls();
+    if (rt_.playback!=PlaybackState::playing || rt_.loop || pending_seek_ || rt_.count_remaining ||
+        rt_.sample>max_sample-static_cast<Sample>(frames)) return false;
+    const auto end=rt_.sample+static_cast<Sample>(frames);
+    std::fill(stereo.begin(),stereo.end(),0.f);
+    process_block(nullptr,device_scratch.data(),static_cast<std::uint32_t>(frames),0,stereo.data());
+    return !processing_fault_.load(std::memory_order_relaxed) && rt_.sample==end;
+}
+void AudioEngine::process_block(const float* input, float* output, std::uint32_t frames, std::uint32_t input_flags, float* master_capture) noexcept {
     // The device callback owns adoption. A same-engine ahead producer never
     // consumes a live channel switch.
     if(!speculative_)adopt_insert_switch();
@@ -1411,13 +1428,20 @@ void AudioEngine::process_block(const float* input, float* output, std::uint32_t
             const auto propagate=[&](std::size_t to){if(to!=no_mixer_track)profile_path_[to]=std::max(profile_path_[to],path);};propagate(graph_.outputs[t]);for(const auto& send:graph_.sends[t])propagate(send.destination);}
             critical_ns+=longest;}
         auto* master_audio=output+static_cast<std::size_t>(base)*config_.output_channels;
-        if(!speculative_)for(const auto& editor:graph_.editor_renderers)
+        if(!speculative_&&!master_capture)for(const auto& editor:graph_.editor_renderers)
             (void)editor->mix(master_audio,count,config_.output_channels,position,playing,tempo.bpm,tempo.quarter,meter,rt_.loop,graph_.recordings.empty()&&graph_.midi_recordings.empty()); // audition faults are isolated from clip playback
         for(std::size_t i=0;i<static_cast<std::size_t>(count)*config_.output_channels;++i)if(!std::isfinite(master_audio[i]))master_audio[i]=0;
         const auto master_start=profile_block_?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
         if(graph_.processors)graph_.processors->process(master_audio,count,position,playing,tempo.bpm,tempo.quarter,{},meter);
         if(graph_.master_inserts)graph_.master_inserts->process(master_audio,count,position,playing,tempo.bpm,tempo.quarter,{},meter);
         if(profile_block_)master_ns+=elapsed_ns(master_start);
+        if(master_capture)for(std::uint32_t local=0;local<count;++local){
+            const auto frame=base+local;
+            for(std::uint32_t c=0;c<2;++c){
+                const auto sample=master_audio[static_cast<std::size_t>(local)*config_.output_channels+c]*master_envelope_[frame];
+                master_capture[static_cast<std::size_t>(frame)*2+c]=std::isfinite(sample)?sample:0.f;
+            }
+        }
         // Click follows the exact per-chunk transport/graph, including a mid-block handoff.
         const bool capturing=!graph_.recordings.empty()||!graph_.midi_recordings.empty();
         for(std::uint32_t local=0;local<count;++local){const auto frame=base+local;const auto offset=static_cast<std::size_t>(frame)*config_.output_channels;
@@ -1455,7 +1479,7 @@ void AudioEngine::process_block(const float* input, float* output, std::uint32_t
             if (sample > 1 || sample < -1) { clipped_.fetch_add(1,std::memory_order_relaxed); sample = std::clamp(sample,-1.0f,1.0f); }
         }
     }
-    if(!speculative_)mix_library_preview(output,frames,master_envelope_.data());
+    if(!speculative_&&!master_capture)mix_library_preview(output,frames,master_envelope_.data());
     last_render_meters_={};for(std::size_t t=0;t<max_mixer_tracks;++t)last_render_meters_.tracks[t]={block_peaks[t][0],block_peaks[t][1]};last_render_meters_.master={block_peaks[max_mixer_tracks][0],block_peaks[max_mixer_tracks][1]};
     if(!speculative_)for (std::size_t t=0; t<=max_mixer_tracks; ++t) for (std::size_t c=0; c<2; ++c)
         meter_peaks_[t][c].store(std::max(block_peaks[t][c],meter_peaks_[t][c].load(std::memory_order_relaxed)),std::memory_order_relaxed);
