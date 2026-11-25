@@ -108,6 +108,9 @@ public:
     void synchronize(const Project&, const Resolver&);
     void invalidate();
     void apply(const Project&, audio::RenderGraph&,bool editor_preview=false) const;
+    // Control thread: only current compensated PCM, never live ARA renderers or dry fallback.
+    // Prepare an independent Arrangement with prefer_live(false) before calling.
+    void apply_offline(const Project&, audio::RenderGraph&) const;
     std::string status(const std::string& source) const;
     std::vector<ClipCache> caches() const;
     void bypass(const std::string& source,bool);
