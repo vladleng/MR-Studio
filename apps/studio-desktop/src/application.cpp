@@ -2571,6 +2571,14 @@ audio::OfflineRenderResult Application::export_master(Sample begin,Sample end,co
             require(!runtime.settings_failed&&!runtime.pending&&(!runtime.graph||!runtime.graph->failed()),"Resolve pending or failed plugin state before export");
         }
         require(instrument_errors_.empty(),"Resolve unavailable instruments before export");
+        // Don't export an old persisted IR/preset while a newer selection is
+        // loading or awaiting the normal control-thread model acknowledgement.
+        for(const auto& runtime:reverb_runtime_){
+            const auto status=runtime.loader->snapshot();
+            require(!runtime.tone&&status->phase!=audio::ReverbLoadPhase::loading&&
+                (!status->active||status->active_revision==runtime.observed),
+                "Wait for IR selection to finish before export");
+        }
         capture_insert_state(project,{},true);
         auto graph_state=*graphs_->state().graph;
         if(prepared_&&prepared_->snapshot().graph==graphs_->state().graph)graph_state=prepared_->capture();
@@ -2609,15 +2617,22 @@ audio::OfflineRenderResult Application::export_master(Sample begin,Sample end,co
         constexpr std::uint32_t block=512;
         const auto chain=[&](const std::vector<NativeInsert>& effects,bool instrument){
             if(effects.empty())return std::shared_ptr<processing::PreparedGraph>{};
-            for(const auto& fx:effects)if(!fx.bypass)
-                require((fx.kind!=InsertKind::reverb&&!wav_core(fx.kind))||fx.reverb.first.digest.empty(),"Offline external IR preparation is not implemented yet");
             auto saved=std::make_shared<const processing::GraphState>(processing::insert_graph(effects));
-            return std::make_shared<processing::PreparedGraph>(processing::GraphSnapshot{saved,0,false,false},
+            auto prepared=std::make_shared<processing::PreparedGraph>(processing::GraphSnapshot{saved,0,false,false},
                 processing::ProcessConfig{project.sample_rate,2,block,block,instrument,true}
 #ifdef MRS_HAS_VST3
                 ,processing::hosted_factory
 #endif
             );
+            for(const auto& fx:effects)if(!fx.bypass&&(fx.kind==InsertKind::reverb||wav_core(fx.kind))&&!fx.reverb.first.digest.empty()){
+                try{
+                    audio::restore_reverb_quiescent(*prepared,fx.id,fx.reverb,
+                        wav_core(fx.kind)?cab_root_:reverb_library_->snapshot()->root);
+                }catch(const std::exception& error){
+                    throw std::runtime_error("Offline IR "+fx.reverb.name+": "+error.what());
+                }
+            }
+            return prepared;
         };
         for(const auto& t:project.tracks)if(t.kind!=TrackKind::midi)graph.inserts.push_back(chain(t.inserts,t.kind==TrackKind::instrument));
         graph.master_inserts=chain(project.master_inserts,false);
