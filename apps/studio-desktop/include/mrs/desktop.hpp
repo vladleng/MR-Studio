@@ -93,6 +93,8 @@ public:
     audio::OfflineRenderResult export_master(Sample begin,Sample end,const audio::OfflineRenderCallbacks&);
     audio::WavExportResult export_wav(const std::filesystem::path&,Sample begin,Sample end,
                                      const audio::WavExportCallbacks& = {});
+    audio::Mp3ExportResult export_mp3(const std::filesystem::path&,Sample begin,Sample end,
+                                     const audio::WavExportCallbacks& = {});
     Id add_audio_track(std::string name);
     Id add_instrument_track(std::string name);
     Id add_instrument_track(std::string name, NativeInsert instrument);
