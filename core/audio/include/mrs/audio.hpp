@@ -258,7 +258,8 @@ struct RealtimeState {
 // Non-RT range renderer. Graph and all its processors must be independently
 // prepared and exclusively owned by the caller for this render, never shared
 // with a live device. Output is at config.sample_rate; encoder/resampler is
-// downstream. Callbacks run synchronously on the offline owner, not a UI/RT thread.
+// downstream. Disk WAVs use bounded offline caches (block <= 8192 frames).
+// Callbacks run synchronously on the offline owner, not a UI/RT thread.
 // The sink must stage output and publish only after a completed result.
 struct OfflineRenderProgress {
     Sample processed{}, total{}, written{}, requested{};
