@@ -462,6 +462,27 @@ void noteGridChecks(MidiClipPanel& editor,Desktop& d){
     check(swingEighth.position(1)==mrs::ppq/2+96&&swingEighth.snap(swingEighth.position(1)+20)==swingEighth.position(1),"swing displaces the weak eighth and snaps to it");
     check(swingEighth.position(-1)==-mrs::ppq/2+96&&swingEighth.snap(-300)==swingEighth.position(-1),"negative drag deltas continue the same grid pattern");
     check(septupletEighth.position(7)==4*mrs::ppq,"7:8 septuplet returns to the shared PPQ boundary");
+    check(swingEighth.snap(swingEighth.position(501)+20)==swingEighth.position(501),"swing snap remains aligned late in the song");
+    check(canonicalNoteGrid({16,37,NoteGridSpec::Shape::swing}).swing==37,"exact swing percentage is retained");
+    {
+        mrs::MidiClip clip;clip.start=mrs::ppq+30;clip.source_offset=120;clip.length=4*mrs::ppq;
+        mrs::MidiNote a;a.id=mrs::new_id();a.start=350;a.length=100;a.pitch=64;a.velocity=73;a.channel=3;
+        mrs::MidiNote b=a;b.id=mrs::new_id();b.start=700;
+        clip.notes={a,b};const std::set<std::string> selected{a.id.value};
+        const auto full=quantizeSelectedNotes(clip,selected,defaultGrid,{});
+        auto expected=a;expected.start=330;
+        check(full[0]==expected&&full[1]==b,"quantize selected start in project ticks preserves duration and metadata");
+        expected.start=340;
+        check(quantizeSelectedNotes(clip,selected,defaultGrid,{50,0,100})[0]==expected,"half strength moves halfway");
+        check(quantizeSelectedNotes(clip,selected,defaultGrid,{100,0,10})==clip.notes,"range excludes distant start");
+        check(quantizeSelectedNotes(clip,{},defaultGrid,{})==clip.notes,"empty selection is a no-op");
+        check(quantizeSelectedNotes(clip,selected,defaultGrid,{0,0,100})==clip.notes,"zero strength is a no-op");
+        expected.start=330;expected.length=1;
+        check(quantizeSelectedNotes(clip,selected,defaultGrid,{100,100,100})[0]==expected,"end quantize never creates a zero-length note");
+        auto edge=clip;edge.notes[0].start=edge.source_offset+edge.length-100;
+        const auto bounded=quantizeSelectedNotes(edge,selected,defaultGrid,{});
+        check(bounded[0].start+bounded[0].length<=edge.source_offset+edge.length&&bounded[0].length==100,"start quantize stays inside clip");
+    }
     NoteGridSpec chosen;bool chosenSnap=true;NoteGridMenu palette{defaultGrid,true};
     palette.choose=[&](const NoteGridSpec& spec,bool snap){chosen=spec;chosenSnap=snap;};
     palette.mouseDown(mouse(palette,{90.f,72.f},juce::ModifierKeys::leftButtonModifier));
