@@ -185,7 +185,7 @@ void dawprojectPreviewSmoke(const juce::File& screenshot){
     auto menu=desktop.projectImportMenu();
     auto iterator=juce::PopupMenu::MenuItemIterator(menu);
     check(iterator.next()&&iterator.getItem().itemID==Desktop::previewDawprojectAction&&iterator.getItem().isEnabled,"DAWproject option not enabled");
-    check(iterator.next()&&!iterator.getItem().isEnabled,"Future .song option is interactive");
+    check(iterator.next()&&iterator.getItem().itemID==Desktop::previewSongAction&&iterator.getItem().isEnabled,"Song structure option not enabled");
     desktop.app.add_audio_track("Unsaved track to preserve");
     const auto store=desktop.app.services().projects;
     const auto original=store->state();
@@ -212,6 +212,25 @@ void dawprojectPreviewSmoke(const juce::File& screenshot){
         delete &alert; // Process disposal without waiting for the next message-loop tick.
         unchanged();
     };
+    auto* songAlert=show(song);
+    check(songAlert->getButton("Create Project")!=nullptr,"Song preview Create button missing");
+    dismiss(*songAlert);
+    const auto songCreated=createProject({diskPath(song),diskPath(folder.getChildFile("SongProjects")),{},false});
+    if(songCreated.projectFile.empty())throw std::runtime_error("Song structure creation failed: "+songCreated.error);
+    const auto songDoc=mrs::persistence::load_project(songCreated.projectFile);
+    const auto& sp=songDoc.project;
+    check(sp.sample_rate==48000&&sp.time.tempos.size()==1&&sp.time.tempos[0].bpm==120&&sp.time.meters[0].numerator==4&&sp.time.meters[0].denominator==4,"Song native timing differs");
+    check(sp.sections.size()==2&&sp.sections[0].name=="Intro"&&sp.sections[0].start==0&&sp.sections[0].end==16*mrs::ppq&&sp.sections[1].name=="Tail"&&sp.sections[1].start==16*mrs::ppq&&sp.sections[1].end==24*mrs::ppq&&sp.sections[1].color==0x112233u,"Song native section geometry or color differs");
+    check(sp.chords.size()==1&&sp.chords[0].symbol==chord->name&&sp.chords[0].start==4*mrs::ppq&&sp.chords[0].end==6*mrs::ppq,"Song native chord differs");
+    check(sp.markers.size()==1&&sp.markers[0].name=="End"&&sp.markers[0].tick==16*mrs::ppq&&sp.tracks.empty()&&sp.clips.empty(),"Song native marker or structure-only contract differs");
+    check(!songDoc.extensions.empty()&&songDoc.extensions[0].tag=="SONG","Song source provenance missing");
+    mrs::desktop::Application songReopened;
+    songReopened.open_project(songCreated.projectFile);
+    check(*songReopened.services().projects->state().project==sp,"Song native open changed structure");
+    songReopened.save_project(songCreated.projectFile);
+    const auto songResaved=mrs::persistence::load_project(songCreated.projectFile);
+    check(songResaved.project==sp&&songResaved.extensions==songDoc.extensions,"Song Save/Reopen lost structure or source metadata");
+    unchanged();
     auto* alert=show(full);
     check(alert->getNumCustomComponents()==1&&alert->getCustomComponent(0)->getComponentID()=="dawproject-preview-details"&&alert->getButton("Create Project"),"Preview compatibility list or Create button missing");
     if(screenshot!=juce::File()){

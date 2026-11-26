@@ -69,7 +69,7 @@ public:
     void showExportAudio();
     std::unique_ptr<EditorWindow> exportWindow;
 #if defined(MRS_PROJECT_IMPORT_UI)
-    static constexpr int previewDawprojectAction=718;
+    static constexpr int previewDawprojectAction=718, previewSongAction=719;
     juce::PopupMenu projectImportMenu() const;
     void startProjectImportPreview(const juce::File&);
     void pollProjectImportPreview();

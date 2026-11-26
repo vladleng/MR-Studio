@@ -57,7 +57,7 @@ public:
     static void copyEmbeddedAudio(const std::filesystem::path&, const std::vector<EmbeddedAudioCopy>&, std::stop_token);
 };
 
-// Stage 1: read-only source adapter. Not a native project creation path yet.
+// Studio One source adapter for musical structure; audio/MIDI are not read yet.
 class StudioOneSongReader {
 public:
     static ImportSessionDTO read(const std::filesystem::path&);
@@ -65,7 +65,7 @@ public:
 
 class MRSProjectImport {
 public:
-    // P1 has no target Project Store and no commit API.
+    static ImportSessionDTO read(const std::filesystem::path&);
     static Preview preview(const std::filesystem::path&);
 };
 } // namespace mrs::project_import

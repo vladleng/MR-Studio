@@ -101,7 +101,7 @@ struct Projection {
     explicit Projection(const ImportSessionDTO& s,CreateResult& r,std::stop_token token):session(s),result(r),stop(token),children(s.objects.size()),audioTracks(s.objects.size()),midiTracks(s.objects.size()),folders(s.objects.size()),assets(s.objects.size()){
         doc.project.id=new_id();doc.project.title=s.title.empty()?"Imported DAWproject":s.title;
         doc.graph=processing::insert_graph({}); // Valid empty native graph; no imported processors.
-        provenance<<"DAWPROJECT 1\n"<<std::quoted(s.sourceVersion)<<' '<<std::quoted(s.application)<<' '<<std::quoted(s.applicationVersion)<<'\n';
+        provenance<<(s.sourceFormat=="StudioOneSong"?"STUDIOONESONG 1\n":"DAWPROJECT 1\n")<<std::quoted(s.sourceVersion)<<' '<<std::quoted(s.application)<<' '<<std::quoted(s.applicationVersion)<<'\n';
         for(std::size_t i=0;i<objects.size();++i){const auto& o=objects[i];if(o.parent)children[*o.parent].push_back(i);if(!o.id.empty())sourceIds.emplace(o.id,i);}
         for(std::size_t i=0;i<s.assets.size();++i)if(!s.assets[i].pluginState)assets[s.assets[i].owner]=i;
     }
@@ -111,6 +111,89 @@ struct Projection {
     std::optional<std::size_t> sourceTrack(std::size_t i) const {
         const auto at=objects[i].trackScope;if(!at)return {};
         const auto f=sourceIds.find(objects[*at].trackId); if(f==sourceIds.end()||objects[f->second].kind!=Kind::track)return {};return f->second;
+    }
+    bool isSong() const {return session.sourceFormat=="StudioOneSong";}
+    std::optional<std::uint32_t> songColor(const Object& o) const {
+        auto s=get(o,"color");
+        if(s.size()!=8)return {};
+        std::uint32_t argb{};
+        const auto end=s.data()+s.size();
+        const auto v=std::from_chars(s.data(),end,argb,16);
+        if(v.ec!=std::errc{}||v.ptr!=end)return {};
+        return argb&0xffffffu;
+    }
+    void songTimeMap(){
+        auto& project=doc.project;
+        bool tempo=false,meter=false;
+        for(const auto& o:objects){
+            if(o.type=="Attributes"&&o.kind==Kind::transport){
+                if(auto rate=integer(o,"sampleRate",8000,768000))project.sample_rate=static_cast<std::uint32_t>(*rate);
+                else warning("Song sample rate missing or invalid; using native default.");
+            }
+            if(o.type=="TempoMapSegment"||o.type=="TimeSignatureMapSegment"){
+                if(!o.time||*o.time!=0||o.timeUnit!=TimeUnit::beats)
+                    throw std::runtime_error("Song map has a nonzero or unverified segment; import stopped to avoid incorrect musical timing");
+                if(o.type=="TempoMapSegment"){
+                    if(tempo)throw std::runtime_error("Duplicate Song initial tempo");
+                    const auto period=numeric(o,"tempo");
+                    if(!period||*period<=0||60.0 / *period<1||60.0 / *period>1000||get(o,"curveType")!="0")
+                        throw std::runtime_error("Unsupported Song tempo or tempo curve");
+                    project.time.tempos[0].bpm=60.0 / *period;tempo=true;
+                }else{
+                    if(meter)throw std::runtime_error("Duplicate Song initial meter");
+                    auto n=integer(o,"numerator",1,64),d=integer(o,"denominator",1,64);
+                    if(!n||!d||(*d&(*d-1)))throw std::runtime_error("Invalid Song initial meter");
+                    project.time.meters[0]={1,*n,*d};meter=true;
+                }
+            }
+        }
+        if(!tempo||!meter)throw std::runtime_error("Song initial tempo or meter missing");
+    }
+    void songArrangement(){
+        auto& project=doc.project;
+        for(std::size_t i=0;i<objects.size();++i){
+            checkStop(stop);
+            const auto& o=objects[i];
+            // Preserve raw values and offsets in a dedicated provenance extension,
+            // including unsupported chords and source-only transport metadata.
+            provenance<<"RAW "<<i+1<<' '<<std::quoted(o.type)<<' '<<o.properties.size();
+            for(const auto& [key,value]:o.properties)provenance<<' '<<std::quoted(key)<<' '<<std::quoted(value);
+            provenance<<'\n';
+            if(o.kind!=Kind::section&&o.kind!=Kind::chord&&o.kind!=Kind::marker)continue;
+            if(!o.time||o.timeUnit!=TimeUnit::beats){
+                warning("Song event omitted: unverified time unit ("+o.type+").");continue;
+            }
+            const auto start=ticks(*o.time);
+            if(o.kind==Kind::marker){
+                auto id=entity(i,"song-marker");
+                project.markers.push_back({id,o.name,start,MarkerKind::generic,songColor(o)});map(i,id);
+                continue;
+            }
+            if(!o.duration||o.durationUnit!=TimeUnit::beats||*o.duration<=0){
+                warning("Song event omitted: invalid duration ("+o.type+").");continue;
+            }
+            const auto end=ticks(*o.time+*o.duration);
+            if(end<=start){warning("Song event omitted: span below tick resolution.");continue;}
+            if(o.kind==Kind::section){
+                if(o.name.empty()){warning("Unnamed Song section omitted.");continue;}
+                auto id=entity(i,"song-section");
+                project.sections.push_back({id,o.name,start,end,songColor(o).value_or(0x4056D6u)});map(i,id);
+            }else{
+                if(o.name.empty()||o.name.size()>256){warning("Undecoded Song chord omitted; raw encoding retained.");continue;}
+                auto id=entity(i,"song-chord");
+                project.chords.push_back({id,o.name,start,end,songColor(o)});map(i,id);
+            }
+        }
+        auto sortLane=[](auto& events){
+            std::stable_sort(events.begin(),events.end(),[](const auto& a,const auto& b){return a.start<b.start;});
+            Tick last=0;
+            for(const auto& e:events){
+                if(e.start<last)throw std::runtime_error("Overlapping Song musical events cannot be represented without data loss");
+                last=e.end;
+            }
+        };
+        sortLane(project.sections);sortLane(project.chords);
+        std::stable_sort(project.markers.begin(),project.markers.end(),[](const auto& a,const auto& b){return a.tick<b.tick;});
     }
     void timeMap(){
         auto& map=doc.project.time;
@@ -383,10 +466,11 @@ CreateResult perform(const CreateRequest& req,std::stop_token stop){
     const auto source=fs::absolute(req.source).lexically_normal();
     const auto sourceSize=fs::file_size(source);
     const auto sourceModified=fs::last_write_time(source);
-    const auto session=DAWprojectReader::read(source);
+    const auto session=MRSProjectImport::read(source);
     Projection p(session,result,stop);
-    p.timeMap();p.tracks();p.arrangement();
-    if(p.doc.project.tracks.empty()&&p.doc.project.folders.empty()&&p.doc.project.markers.empty())throw std::runtime_error("No supported tracks or markers found in the export");
+    if(p.isSong()){p.songTimeMap();p.songArrangement();}
+    else{p.timeMap();p.tracks();p.arrangement();}
+    if(!p.isSong()&&p.doc.project.tracks.empty()&&p.doc.project.folders.empty()&&p.doc.project.markers.empty())throw std::runtime_error("No supported tracks or markers found in the export");
     if(std::any_of(session.objects.begin(),session.objects.end(),[](const Object& o){return o.kind==Kind::device;}))p.warning("Plug-ins and mixer settings were not imported. Assign an instrument to hear imported MIDI.");
     for(const auto& warning:session.warnings)if(!warning.starts_with("Studio Pro DAWproject 0.1:"))p.warning(warning);
     const auto base=fs::canonical(source.parent_path());
@@ -460,7 +544,7 @@ CreateResult perform(const CreateRequest& req,std::stop_token stop){
         c.fade_out=std::clamp(samples(entry.fadeOut,rate),Sample{},c.length);
         p.map(entry.index,c.id);p.doc.project.clips.push_back(std::move(c));
     }
-    p.doc.extensions.push_back({"DAWP",p.provenance.str()});
+    p.doc.extensions.push_back({p.isSong()?"SONG":"DAWP",p.provenance.str()});
     p.doc.validate();
     if(p.doc.project.tracks.size()>audio::max_mixer_tracks||p.doc.project.clips.size()>audio::max_voices)
         throw std::runtime_error("Imported arrangement exceeds Studio playback track or clip limits");
@@ -480,7 +564,7 @@ CreateResult perform(const CreateRequest& req,std::stop_token stop){
         persistence::save_project(stagedFile,p.doc);
         const auto finalFile=folder/filename;
         if(fs::file_size(source)!=sourceSize||fs::last_write_time(source)!=sourceModified)
-            throw std::runtime_error("DAWproject changed during import; select it again");
+            throw std::runtime_error("Source project changed during import; select it again");
         checkStop(stop);
         if(MoveFileExW(stage.dir.c_str(),folder.c_str(),MOVEFILE_WRITE_THROUGH)){
             stage.dir.clear();result.projectFile=finalFile;result.missing.clear();return result;

@@ -628,7 +628,7 @@ ImportSessionDTO StudioOneSongReader::read(const std::filesystem::path& file) {
         object.name = source.get("name");
         object.properties = source.attributes;
         object.support = Support::partial;
-        object.detail = "Source metadata only; native Song projection is not implemented";
+        object.detail = "Source metadata retained; see compatibility warnings";
         dto.objects.push_back(std::move(object));
         return dto.objects.size() - 1;
     };
@@ -716,7 +716,8 @@ ImportSessionDTO StudioOneSongReader::read(const std::filesystem::path& file) {
         row.timeUnit = TimeUnit::seconds;
         // Loop coordinates and active state remain raw source properties.
     }
-    warning("Song stage 1: read-only musical metadata; audio, MIDI, plugins and native project creation are not implemented.");
+    warning("Song structure only: audio, MIDI, plug-ins, mixer and automation are not imported.");
+    warning("Source playhead and loop are retained as metadata, not applied to the running transport.");
     return dto;
 }
 
@@ -728,10 +729,16 @@ void DAWprojectReader::copyEmbeddedAudio(const std::filesystem::path& file, cons
     checkCancelled(stop);
 }
 
+ImportSessionDTO MRSProjectImport::read(const std::filesystem::path& file) {
+    if (juce::String(file.extension().wstring().c_str()).equalsIgnoreCase(".song"))
+        return StudioOneSongReader::read(file);
+    return DAWprojectReader::read(file);
+}
+
 Preview MRSProjectImport::preview(const std::filesystem::path& file) {
     Preview result;
     try {
-        result.session=DAWprojectReader::read(file);
+        result.session=read(file);
         result.projects=1;
         for (const auto& item : result.session->objects) {
             if (item.kind == Kind::track) ++result.tracks;

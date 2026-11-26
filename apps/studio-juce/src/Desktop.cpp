@@ -71,7 +71,14 @@ class ProjectImportAlert final : public StudioAlertWindow, private juce::ListBox
     }
     static juce::String count(std::size_t n){return juce::String(static_cast<int>(n));}
     static juce::String summary(const Preview& p){
-        if(!p.session)return "Cannot read the selected DAWproject.\n\n"+label(p.error)+"\n\nNo project was changed.";
+        if(!p.session)return "Cannot read the selected project.\n\n"+label(p.error)+"\n\nNo project was changed.";
+        if(p.session->sourceFormat=="StudioOneSong"){
+            using mrs::project_import::Kind;
+            const auto countKind=[&](Kind kind){return count(static_cast<std::size_t>(std::count_if(p.session->objects.begin(),p.session->objects.end(),[&](const auto& o){return o.kind==kind;})));};
+            return label(p.session->title).replaceCharacters("\r\n\t","   ").substring(0,100)
+                +"  |  Studio One / Studio Pro\n"+countKind(Kind::section)+" sections  /  "+countKind(Kind::chord)+" chords  /  "+countKind(Kind::marker)+" markers"
+                +"\n\nStructure-only import. Audio, MIDI, plug-ins and mixer are not imported yet.\nCreate a separate project; the current project stays open.";
+        }
         return label(p.session->title).replaceCharacters("\r\n\t","   ").substring(0,100)+"  |  "
             +label(p.session->application).substring(0,60)+" "+label(p.session->applicationVersion).substring(0,24)
             +"\n"+count(p.projects)+" project  /  "+count(p.tracks)+" tracks  /  "+count(p.clips)+" clips  /  "+count(p.plugins)+" plug-ins"
@@ -601,7 +608,7 @@ void Desktop::choose(int chooserOptions,std::function<void(const juce::File&)> c
 juce::PopupMenu Desktop::projectImportMenu() const {
     juce::PopupMenu formats;
     formats.addItem(previewDawprojectAction,"DAWproject (.dawproject)...",!projectImportPreview.valid()&&!projectImportCreate.valid()&&!projectImportDialog);
-    formats.addItem(719,"Studio One / Studio Pro (.song) - not available",false);
+    formats.addItem(previewSongAction,"Studio One / Studio Pro (.song) — structure only...",!projectImportPreview.valid()&&!projectImportCreate.valid()&&!projectImportDialog);
     return formats;
 }
 void Desktop::startProjectImportPreview(const juce::File& file){
@@ -609,14 +616,14 @@ void Desktop::startProjectImportPreview(const juce::File& file){
     projectImportSource=file;
     try {
         projectImportPreview=std::async(std::launch::async,[source=path(file)]{return mrs::project_import::MRSProjectImport::preview(source);});
-        message="Reading DAWproject preview...";
+        message="Reading project preview...";
     }catch(const std::exception& e){message=label(e.what());}
     repaint();
 }
 void Desktop::pollProjectImportPreview(){
     if(!projectImportPreview.valid()||projectImportPreview.wait_for(std::chrono::seconds(0))!=std::future_status::ready)return;
     auto result=projectImportPreview.get();
-    if(message=="Reading DAWproject preview...")message.clear();
+    if(message=="Reading project preview...")message.clear();
     auto* alert=new ProjectImportAlert(*this,std::move(result));
     projectImportDialog=alert;
     juce::Component::SafePointer<Desktop> safe(this);
@@ -637,7 +644,7 @@ void Desktop::startProjectImportCreate(mrs::project_import::CreateRequest reques
         projectImportRequest=request;
         projectImportCreate=std::async(std::launch::async,[request=std::move(request),token]{return mrs::project_import::createProject(request,token);});
     }catch(const std::exception& e){projectImportRequest.reset();message=label(e.what());repaint();return;}
-    auto* progress=new StudioAlertWindow(*this,"Importing DAWproject","Copying media and preparing a separate project…\nThe current project will not be changed.",juce::MessageBoxIconType::NoIcon);
+    auto* progress=new StudioAlertWindow(*this,"Importing project","Copying media and preparing a separate project…\nThe current project will not be changed.",juce::MessageBoxIconType::NoIcon);
     projectImportDialog=progress;
     progress->addButton("Cancel",1,juce::KeyPress(juce::KeyPress::escapeKey));
     progress->enterModalState(true,juce::ModalCallbackFunction::create([cancellation=projectImportStop](int answer) mutable {if(answer==1)cancellation.request_stop();}),true);
@@ -671,12 +678,12 @@ void Desktop::pollProjectImportCreate(){
     auto result=projectImportCreate.get();
     auto request=std::exchange(projectImportRequest,std::nullopt);
     if(auto* progress=projectImportDialog.getComponent())delete progress;
-    if(result.cancelled){message="DAWproject import cancelled; no project was created.";repaint();return;}
+    if(result.cancelled){message="Project import cancelled; no project was created.";repaint();return;}
     if(!result.missing.empty()&&result.projectFile.empty()&&request){resolveProjectImportMedia(std::move(*request),std::move(result.missing));return;}
     const bool created=!result.projectFile.empty();
     if(created)home->rescan();
     const auto info=created?juce::String("A new project is available on Project Home. The current project was not changed.\n\n")+juce::String(result.projectFile.filename().wstring().c_str()):"No project was created.\n\n"+label(result.error);
-    auto* alert=new StudioAlertWindow(*this,created?"Project Created":"DAWproject Import Failed",info,juce::MessageBoxIconType::NoIcon);
+    auto* alert=new StudioAlertWindow(*this,created?"Project Created":"Project Import Failed",info,juce::MessageBoxIconType::NoIcon);
     if(!result.warnings.empty()){
         juce::StringArray lines;for(const auto& warning:result.warnings)lines.add(label(warning));
         alert->addTextBlock(lines.joinIntoString("\n"));
@@ -887,9 +894,9 @@ void Desktop::action(int n){
     }
 #endif
 #if defined(MRS_PROJECT_IMPORT_UI)
-    if(n==previewDawprojectAction){
+    if(n==previewDawprojectAction||n==previewSongAction){
         if(!standaloneLive&&!projectImportPreview.valid()&&!projectImportCreate.valid()&&!projectImportDialog){
-            chooser=std::make_unique<juce::FileChooser>("Choose a DAWproject export",juce::File{},"*.dawproject",true);
+            chooser=std::make_unique<juce::FileChooser>(n==previewSongAction?"Choose a Studio One / Studio Pro song":"Choose a DAWproject export",juce::File{},n==previewSongAction?"*.song":"*.dawproject",true);
             juce::Component::SafePointer<Desktop> safe(this);
             chooser->launchAsync(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[safe](const juce::FileChooser& selection){
                 if(safe&&selection.getResult()!=juce::File())safe->startProjectImportPreview(selection.getResult());
