@@ -38,7 +38,7 @@ struct ViewSettings {
     int transcriptionGrid{3},transcriptionStrength{100},transcriptionVelocity{100};
     int separationCpuThreads{}; // 0 Auto; user intent, not an affinity-capped count
     juce::String separationModel; // Stable catalogue ID; app preference, never project state
-    bool noteClipColors{}, noteInstrumentColors{}; // Piano roll view preference; no project mutation.
+    bool noteClipColors{}, noteInstrumentColors{}; // Legacy/global standalone Live preference; Studio stores its mode per track.
     bool midiFollowPlayhead{},midiResumePlayback{true},midiQuantizeOpen{};
     int midiVelocityHeight{62}, midiControllerHeight{180};
     // Piano roll / drum grid snap grid: note value divisor, shape and swing

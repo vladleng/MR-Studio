@@ -60,7 +60,19 @@ void merges(){
     auto cross=p;auto other=cross.tracks[0];other.id=new_id();cross.tracks.push_back(other);cross.clips[1].track=other.id;ProjectStore two(cross);rejects([&]{two.execute(MergeMidiClips{{cross.clips[0].id,cross.clips[1].id},new_id()});});CHECK(*two.state().project==cross);
     auto split=project();ProjectStore halves(split);const auto right=new_id();halves.execute(SplitMidiClip{split.clips[0].id,ppq,right});halves.execute(MergeMidiClips{{split.clips[0].id,right},new_id()});CHECK(halves.state().project->clips.size()==1&&halves.state().project->clips[0].midi->notes.size()==3); // retrigger at split boundary retained
 }
-void model(){copies();auto p=project();ProjectStore s(p);auto id=p.clips.front().id,track=p.tracks.front().id;const auto note=p.clips.front().midi->notes.front().id;
+void model(){copies();
+    {
+        auto p=project();auto& track=p.tracks.front();track.color=0x24d67cu;
+        auto clip=p.clips.front();clip.id=new_id();clip.color.reset();clip.midi=MidiClip{8*ppq,ppq,0,{}};
+        ProjectStore store(p);store.execute(AddMidiClip{clip});
+        CHECK(store.state().project->clips.front()==p.clips.front());
+        CHECK(store.state().project->clips.back().color==0x24d67cu);
+        CHECK(store.undo() && *store.state().project==p);CHECK(store.redo());
+        auto explicitClip=clip;explicitClip.id=new_id();explicitClip.color=0x123456u;
+        store.execute(AddMidiClip{explicitClip});
+        CHECK(store.state().project->clips.back().color==explicitClip.color);
+    }
+    auto p=project();ProjectStore s(p);auto id=p.clips.front().id,track=p.tracks.front().id;const auto note=p.clips.front().midi->notes.front().id;
     {auto later=p;auto& m=*later.clips.front().midi;m.start=4*ppq;m.events={{new_id(),ppq,2,0,64,127}};ProjectStore extended(later);
         const auto before=compile_midi_clips(later,std::array{track});extended.execute(TrimMidiClip{id,0,8*ppq});
         const auto& after=*extended.state().project->clips.front().midi;CHECK(after.start==0&&after.source_offset==0&&after.length==8*ppq);

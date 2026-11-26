@@ -34,7 +34,7 @@ void PlaceSeparation::apply(Project& p) const {
         Track track;track.id=tracks_[i];track.name=stem.role;track.kind=TrackKind::audio;track.input=-1;
         Clip clip;clip.id=clips_[i];clip.track=track.id;clip.name=stem.role;
         clip.start=at->start;clip.length=at->frames;clip.source=stem.source;
-        clip.fade_in=at->fade_in;clip.fade_out=at->fade_out;
+        clip.fade_in=at->fade_in;clip.fade_out=at->fade_out;clip.color=track.default_clip_color();
         p.tracks.push_back(std::move(track));p.clips.push_back(std::move(clip));
     }
 }

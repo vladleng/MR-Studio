@@ -236,6 +236,9 @@ void Project::validate() const {
         require(track.midi_output.empty()||track.midi_input!=track.midi_output,"MIDI feedback: input and output cannot use the same endpoint");
         require(track.kind==TrackKind::instrument || (track.midi_input.empty()&&track.midi_channel==-1&&track.midi_monitor),"MIDI input requires an instrument track");
         require(!track.midi_drum_mode || track.kind == TrackKind::instrument, "MIDI editor presentation requires an instrument track");
+        require(track.midi_note_color_mode == MidiNoteColorMode::velocity ||
+                (track.kind == TrackKind::instrument && (track.midi_note_color_mode == MidiNoteColorMode::clip || track.midi_note_color_mode == MidiNoteColorMode::instrument)),
+                "invalid MIDI note color mode");
         if (track.drum_map) {
             require(track.kind == TrackKind::instrument, "drum map requires an instrument track");
             track.drum_map->validate();

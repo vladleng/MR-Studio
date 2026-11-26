@@ -103,12 +103,12 @@ void invalid(){
     check(*store.state().project==p);
 }
 void stem_placement(){
-    auto p=fixture();Track target;target.id=new_id();target.kind=TrackKind::instrument;target.name="Existing VSTi";p.tracks.push_back(target);p.validate();ProjectStore store(p);
+    auto p=fixture();Track target;target.id=new_id();target.kind=TrackKind::instrument;target.name="Existing VSTi";target.color=0x24d67cu;p.tracks.push_back(target);p.validate();ProjectStore store(p);
     TranscriptionPlacement placement;placement.target_track=target.id;placement.position=3*48000;placement.range_offset=24000;placement.range_length=48000;placement.velocity=81;
     const std::vector<TranscribedNote> notes{{40,2.0,2.75,"electric_bass"},{43,3.0,4.0,"electric_bass"}};
     store.execute(PlaceTranscription(store.state().project,p.clips[0].id,notes,{}, {},"stem fixture",placement));const auto result=*store.state().project;
     check(result.tracks==p.tracks&&result.clips.size()==2&&result.clips[0]==p.clips[0]);
-    const auto& c=result.clips.back();const Timeline timeline(p.time,p.sample_rate);check(c.track==target.id&&c.midi->start==timeline.to_ticks(*placement.position));
+    const auto& c=result.clips.back();const Timeline timeline(p.time,p.sample_rate);check(c.track==target.id&&c.color==target.color&&c.midi->start==timeline.to_ticks(*placement.position));
     check(c.midi->notes.size()==2&&c.midi->notes[0].start==0&&c.midi->notes[0].velocity==81);
     check(c.midi->notes[1].start==timeline.to_ticks(3*48000+24000)-c.midi->start);
     check(c.midi->notes[1].length==timeline.to_ticks(4*48000)-timeline.to_ticks(3*48000+24000));

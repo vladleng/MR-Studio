@@ -87,13 +87,21 @@ void ImportAudio::apply(Project& p) const {
         }
     }
     p.tracks.insert(p.tracks.end(),tracks_.begin(),tracks_.end());
-    p.clips.insert(p.clips.end(),clips_.begin(),clips_.end());
+    for (auto clip : clips_) {
+        if (!clip.color) {
+            const auto track = std::find_if(p.tracks.begin(), p.tracks.end(), [&](const auto& t) { return t.id == clip.track; });
+            clip.color = track->default_clip_color();
+        }
+        p.clips.push_back(std::move(clip));
+    }
 }
 void AddRecordedClip::apply(Project& p) const {
     const auto track = std::find_if(p.tracks.begin(),p.tracks.end(),[&](const auto& t) { return t.id == clip_.track; });
     if (track == p.tracks.end() || track->kind != TrackKind::audio || clip_.source.empty())
         throw std::invalid_argument("recording needs an existing audio track and source");
-    p.clips.push_back(clip_);
+    auto clip = clip_;
+    if (!clip.color) clip.color = track->default_clip_color();
+    p.clips.push_back(std::move(clip));
 }
 namespace {
 auto audio_clip(Project& p, const Id& id) {

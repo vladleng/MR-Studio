@@ -53,7 +53,7 @@ bool same_metadata(const Project& a,const Project& b){
 bool same_mix_only(const Project& a,const Project& b){
     const auto base=[](const Project& p){return std::tie(p.version,p.id,p.title,p.artist,p.sample_rate,p.time,p.folders,p.clips,p.markers,p.chords,p.sections,p.master_outputs,p.master_inserts,p.ara_bindings,p.separation_results);};
     if(base(a)!=base(b)||a.tracks.size()!=b.tracks.size())return false;
-    const auto track=[](const Track& t){return std::tie(t.id,t.name,t.kind,t.folder,t.output,t.sends,t.input,t.input_stereo,t.input_monitor,t.hardware_outputs,t.inserts,t.midi_input,t.midi_channel,t.midi_monitor,t.midi_output,t.midi_output_channel,t.stretch_backend,t.fx_channel,t.color,t.drum_map,t.midi_drum_mode);};
+    const auto track=[](const Track& t){return std::tie(t.id,t.name,t.kind,t.folder,t.output,t.sends,t.input,t.input_stereo,t.input_monitor,t.hardware_outputs,t.inserts,t.midi_input,t.midi_channel,t.midi_monitor,t.midi_output,t.midi_output_channel,t.stretch_backend,t.fx_channel,t.color,t.drum_map,t.midi_drum_mode,t.midi_note_color_mode);};
     for(std::size_t i=0;i<a.tracks.size();++i)if(track(a.tracks[i])!=track(b.tracks[i]))return false;
     return true;
 }
@@ -1904,6 +1904,11 @@ void Application::set_track_midi_drum_mode(const Id& id, bool active) {
     // Project display metadata only: no graph rebuild or MIDI-route publication.
     services_.projects->execute(SetTrackMidiDrumMode{id, active});
 }
+void Application::set_track_midi_note_color_mode(const Id& id, MidiNoteColorMode mode) {
+    require_not_recording();
+    // Display metadata only: no audio graph or MIDI-route publication.
+    services_.projects->execute(SetTrackMidiNoteColorMode{id, mode});
+}
 void Application::reconnect_midi(){require_not_recording();require_not_playing();midi_inputs_.reset();midi_route_revision_=~std::uint64_t{};rebuild_audio(true);if(midi_outputs_)midi_outputs_->reconnect();publish_midi_routes();}
 std::string Application::midi_output_status(const Id& id)const{
     const auto p=services_.projects->state().project;const auto t=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& track){return track.id==id;});
@@ -2515,7 +2520,7 @@ std::vector<Id> Application::import_midi(const std::vector<std::filesystem::path
     for(const auto& file:paths){auto parts=load_midi_file(file);for(auto& part:parts){
         const auto id=target&&!usedTarget?*target:new_id();if(!target||usedTarget)candidate.tracks.push_back({id,utf8(file.stem())+" — "+part.name,TrackKind::instrument,{}});usedTarget=true;
         require(part.midi.length<=max_tick-start,"MIDI drop exceeds timeline range");part.midi.start=start;
-        Clip c;c.id=new_id();c.track=id;c.name=utf8(file.stem())+" — "+part.name;c.midi=std::move(part.midi);clips.push_back(c.id);candidate.clips.push_back(std::move(c));
+        Clip c;c.id=new_id();c.track=id;c.name=utf8(file.stem())+" — "+part.name;c.midi=std::move(part.midi);AddMidiClip{c}.apply(candidate);clips.push_back(c.id);
     }}
     commit_midi_project(std::move(candidate),"Import MIDI");return clips;
 }
