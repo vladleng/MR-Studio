@@ -106,7 +106,14 @@ public:
         grabKeyboardFocus();sync();releaseNote();
         if(e.mods.isPopupMenu()){showNoteMenu(e);return;}
         if(!e.mods.isLeftButtonDown())return;
-        if(e.y<scrollY()+ruler&&e.x>=scrollX()+railWidth()){const auto p=owner.project();const auto tick=std::clamp(static_cast<mrs::Tick>(std::llround((e.x-railWidth())/beatWidth*mrs::ppq)),mrs::Tick{0},mrs::max_tick);owner.run([&]{owner.app.seek(mrs::Timeline(p->time,p->sample_rate).to_samples(tick));});repaint();return;}
+        if(e.y>=scrollY()&&e.y<scrollY()+ruler&&e.x>=scrollX()+railWidth()){
+            const auto p=owner.project();
+            const auto raw=std::clamp(static_cast<mrs::Tick>(std::llround((e.position.x-railWidth())/beatWidth*mrs::ppq)),mrs::Tick{0},mrs::max_tick);
+            // Ruler positions are global ticks, unlike note positions inside a clip.
+            const auto tick=snapGrid?std::clamp(gridSpec.snap(raw),mrs::Tick{0},mrs::max_tick):raw;
+            owner.run([&]{owner.app.seek(mrs::Timeline(p->time,p->sample_rate).to_samples(tick));});
+            repaint();return;
+        }
         if(e.x>=scrollX()+railWidth()&&e.y>=scrollY()+ruler)for(const auto& c:contextClips)if(c.id!=id&&e.x>=railWidth()+static_cast<double>(c.midi->start)/mrs::ppq*beatWidth&&e.x<railWidth()+static_cast<double>(c.midi->start+c.midi->length)/mrs::ppq*beatWidth){cancel();owner.activateClip(c.id);return;}
         if(drums&&e.x<scrollX()+railWidth()&&e.y>=scrollY()+ruler){
             if(const auto* r=drumRowAt(e.position.y)){

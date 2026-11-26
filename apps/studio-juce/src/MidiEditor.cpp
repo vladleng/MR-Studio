@@ -530,6 +530,61 @@ void noteGridSmoke(){
     check(roll.notes.size()==1&&roll.notes.front().start==swing.position(1),"swing double click snaps to the displaced eighth line");
     d.app.undo();roll.sync();
     editor.applyNoteGrid(NoteGridSpec{},true);
+    // Exercise actual ruler mouse events and transport, not just grid arithmetic.
+    struct RulerClock final:mrs::audio::IAudioDevice{
+        std::vector<mrs::audio::DeviceInfo> enumerate()override{return {{0,"MIDI ruler fixture",{}, {"L","R"},16,8192,128,1}};}
+        void control_panel(int)override{}
+        void open(const mrs::audio::DeviceConfig&,std::shared_ptr<mrs::audio::AudioEngine>)override{}
+        void start()override{}void stop()override{}void close()noexcept override{}
+        mrs::audio::DeviceStatus status()override{return {mrs::audio::DevicePhase::running,48000};}
+    };
+    d.app.connect(std::make_unique<RulerClock>(),{0,48000,128,{}, {0,1}});
+    std::array<float,256> audio{};const auto render=[&]{d.app.engine()->process(nullptr,audio.data(),128);};
+    const auto sampleAt=[&](mrs::Tick tick){const auto p=d.project();return mrs::Timeline(p->time,p->sample_rate).to_samples(tick);};
+    const auto seekRuler=[&](mrs::Tick raw,mrs::Tick expected){
+        const auto before=d.app.services().projects->state().revision;
+        const juce::Point<float> point{roll.railWidth()+static_cast<float>(raw)/mrs::ppq*roll.beatWidth,
+            static_cast<float>(editor.viewport.getViewPositionY())+8.f};
+        const auto event=juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),point,
+            juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier),1,0,0,0,0,&roll,&roll,
+            juce::Time::getCurrentTime(),point,juce::Time::getCurrentTime(),1,true);
+        roll.mouseDown(event);render();
+        check(d.message.isEmpty()&&d.app.engine()->state().sample==sampleAt(expected),"MIDI ruler seeks to the expected global grid or free position");
+        check(d.app.services().projects->state().revision==before,"ruler seek is not a project edit");
+    };
+    const auto pressSpace=[&]{
+        d.spaceKey(false);check(roll.keyPressed(juce::KeyPress(juce::KeyPress::spaceKey)),"MIDI editor consumes Space");render();
+    };
+    for(bool drumView:{false,true}){
+        editor.setDrumMode(drumView);check(roll.drums==drumView,"ruler fixture editor mode");
+        editor.viewport.setViewPosition(0,0);
+        editor.applyNoteGrid(NoteGridSpec{},true);
+        seekRuler(2*mrs::ppq+80,2*mrs::ppq);
+        editor.gridSnap.onClick();seekRuler(2*mrs::ppq+80,2*mrs::ppq+80);
+        editor.gridSnap.onClick();
+        const NoteGridSpec triplet{8,0,NoteGridSpec::Shape::triplet};
+        editor.applyNoteGrid(triplet,true);seekRuler(triplet.position(4)+40,triplet.position(4));
+        editor.applyNoteGrid(swing,true);seekRuler(swing.position(1)+40,swing.position(1));
+        // A scrolled timeline still uses project ticks, not viewport-relative ticks.
+        editor.applyNoteGrid(NoteGridSpec{},true);
+        editor.viewport.setViewPosition(100,0);
+        seekRuler(4*mrs::ppq+80,4*mrs::ppq);
+        editor.viewport.setViewPosition(0,0);
+        if(!d.view.midiResumePlayback)editor.playheadMode.onClick();
+        seekRuler(2*mrs::ppq+80,2*mrs::ppq);
+        pressSpace();check(d.app.engine()->state().playback==mrs::PlaybackState::playing,"MIDI editor starts at snapped position");
+        pressSpace();const auto pausedAt=d.app.engine()->state().sample;
+        check(d.app.engine()->state().playback==mrs::PlaybackState::paused&&pausedAt>sampleAt(2*mrs::ppq),"Resume preserves the last pause");
+        roll.keyPressed(juce::KeyPress(juce::KeyPress::spaceKey));render();
+        check(d.app.engine()->state().playback==mrs::PlaybackState::paused,"held Space does not restart playback");
+        pressSpace();check(d.app.engine()->state().sample>pausedAt,"Resume continues at the pause point");
+        d.action(31);render();d.spaceKey(false);
+        editor.playheadMode.onClick();seekRuler(2*mrs::ppq+80,2*mrs::ppq);
+        pressSpace();pressSpace();
+        check(d.app.engine()->state().playback==mrs::PlaybackState::stopped&&d.app.engine()->state().sample==sampleAt(2*mrs::ppq),"Return stops at the snapped playback start");
+        d.spaceKey(false);editor.playheadMode.onClick();
+    }
+    editor.setDrumMode(false);d.app.disconnect();
     const auto folder=juce::File::getCurrentWorkingDirectory();
     auto save=[&](juce::Component& component,const juce::String& name,float scale){
         auto stream=folder.getChildFile(name+"-"+juce::String(static_cast<int>(scale*100))+".png").createOutputStream();
