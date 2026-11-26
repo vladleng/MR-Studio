@@ -40,6 +40,14 @@ public:
     // grid stays the nominal step in ticks for callers that only need a length.
     NoteGridSpec gridSpec{};
     bool snapGrid{true};
+    bool quantizeKeyHeld{};
+    void releaseQuantizeKey(){if(!juce::KeyPress::isKeyCurrentlyDown('Q'))quantizeKeyHeld=false;}
+    void quantize(){
+        cancel();sync();if(selected.empty()||!editable())return;
+        const auto p=owner.app.midi_quantize_preferences();
+        const auto spec=canonicalNoteGrid({p.divisor,p.swing,static_cast<NoteGridSpec::Shape>(p.shape)});
+        submit(quantizeSelectedNotes(clip,selected,spec,{p.start,p.end,p.range}));
+    }
     void setNoteGrid(const NoteGridSpec& spec,bool snapEnabled){
         cancel();gridSpec=spec;snapGrid=snapEnabled;
         grid=std::max<mrs::Tick>(1,static_cast<mrs::Tick>(std::llround(gridSpec.step())));
@@ -202,6 +210,7 @@ public:
     void visibilityChanged() override{if(!isShowing())cancel();}
     void focusLost(FocusChangeType) override{cancel();}
     bool keyStateChanged(bool) override{
+        releaseQuantizeKey();
         const bool down=juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey);
         if(!down){owner.spaceKey(false);return false;}
         if(juce::Component::getCurrentlyModalComponent()||juce::ModifierKeys::getCurrentModifiersRealtime().isAnyModifierKeyDown())return false;
@@ -212,6 +221,10 @@ public:
         if(code==juce::KeyPress::spaceKey&&!mods.isAnyModifierKeyDown()){
             if(juce::Component::getCurrentlyModalComponent())return false;
             owner.spaceKey(true,owner.view.midiResumePlayback,[this]{cancel();repaint();});return true;
+        }
+        if(!owner.standaloneLive&&!mods.isAnyModifierKeyDown()&&(code=='Q'||code=='q')){
+            if(juce::Component::getCurrentlyModalComponent())return false;
+            releaseQuantizeKey();if(!quantizeKeyHeld){quantizeKeyHeld=juce::KeyPress::isKeyCurrentlyDown('Q');quantize();}return true;
         }
         if(code==juce::KeyPress::escapeKey){cancel();return true;}
         if(!mods.isAnyModifierKeyDown()&&(code=='1'||code=='3')){setSplitTool(code=='3');return true;}

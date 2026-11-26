@@ -44,7 +44,7 @@ public:
         controllerLane.toFront(false);addAndMakeVisible(divider);addAndMakeVisible(blockDivider);
         for(std::size_t i=0;i<quickCC.size();++i){auto& b=quickCC[i];const int cc=ccNumbers[i];divider.addAndMakeVisible(b);b.setButtonText("CC"+juce::String(cc));b.setTitle("Show controller "+juce::String(cc)+" lane");b.setComponentID("controller-cc"+juce::String(cc));b.getProperties().set("channelFont",true);b.onClick=[this,cc]{roll.cancel();controllerLane.selectCC(cc);};}
         controllerLane.laneChanged=[this]{updateQuickCC();};updateQuickCC();
-        addAndMakeVisible(noteGrid);noteGrid.setState(noteGridFromView(),owner.view.midiGridSnap);roll.setNoteGrid(noteGrid.spec(),noteGrid.snapEnabled());noteGrid.onClick=[this]{chooseNoteGrid();};
+        addAndMakeVisible(noteGrid);noteGrid.setState(noteGridFromView(),gridSnapEnabled());roll.setNoteGrid(noteGrid.spec(),noteGrid.snapEnabled());noteGrid.onClick=[this]{chooseNoteGrid();};
         for(auto* b:{&zoomIn,&zoomOut,&copy,&paste,&selectAll,&musical,&controllers,&attach,&details,&fullScreen})addAndMakeVisible(b);
         zoomIn.onClick=[this]{zoom(1.25f);};zoomOut.onClick=[this]{zoom(.8f);};copy.onClick=[this]{roll.copy();};paste.onClick=[this]{roll.paste();};selectAll.onClick=[this]{if(roll.drums)roll.selectVisible();else{for(const auto& n:roll.notes)roll.selected.insert(n.id.value);roll.repaint();}};
         musical.setComponentID("musical-edit-open");musical.onClick=[this]{roll.cancel();auto* musicalPanel=new MusicalEditPanel(owner.theme,[safe=juce::Component::SafePointer<MidiClipPanel>(this)](bool all,const mrs::NoteEdit& edit){if(!safe||!safe->isShowing())throw std::runtime_error("Piano roll is closed");safe->roll.cancel();safe->roll.sync();const auto p=safe->owner.project();const auto& clip=*safe->current(*p).midi;std::vector<mrs::Id> selected;for(const auto& n:clip.notes)if((!safe->roll.drums||safe->roll.noteVisible(n))&&(all?(n.start<clip.source_offset+clip.length&&n.start+n.length>clip.source_offset):safe->roll.selected.contains(n.id.value)))selected.push_back(n.id);if(selected.empty())throw std::runtime_error("Select visible notes or choose Whole clip");if(safe->roll.drums&&edit.kind==mrs::NoteEditKind::transpose){const auto next=mrs::transform_midi_notes(clip,selected,edit);std::set<std::string> targets;for(const auto& note:selected)targets.insert(note.value);for(const auto& n:next)if(targets.contains(n.id.value)&&!safe->roll.drumAddressVisible(n))throw std::runtime_error("Show the destination drum rows before transposing");}safe->owner.app.edit_midi_notes(safe->id,std::move(selected),edit);safe->owner.refresh();safe->roll.sync();safe->reload();});auto window=std::make_unique<EditorWindow>("Musical note edit",musicalPanel);window->getProperties().set("mrs-midi-clip",true);window->setOwner(owner);owner.windows.push_back(std::move(window));};
@@ -81,6 +81,7 @@ public:
             syncToolbarPreferences();owner.syncMidiEditorTools();owner.saveSettings();
             if(roll.isShowing())roll.grabKeyboardFocus();
         };
+        if(!owner.standaloneLive)setupQuantizePanel();
         syncToolbarPreferences();
         addAndMakeVisible(follow);follow.setComponentID("midi-follow-playhead");follow.setClickingTogglesState(true);
         follow.setToggleState(owner.view.midiFollowPlayhead,juce::dontSendNotification);
@@ -94,12 +95,13 @@ public:
     }
     bool keyPressed(const juce::KeyPress& key) override{if(owner.workspaceShortcut(key))return true;if(key.getKeyCode()==juce::KeyPress::F11Key){deferFullScreen();return true;}for(auto* c=juce::Component::getCurrentlyFocusedComponent();c&&c!=this;c=c->getParentComponent())if(dynamic_cast<juce::TextEditor*>(c)||dynamic_cast<juce::ComboBox*>(c))return false;return roll.keyPressed(key);}
     bool keyStateChanged(bool isKeyDown) override{
+        roll.releaseQuantizeKey();
         if(!juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey)){owner.spaceKey(false);return false;}
         for(auto* c=juce::Component::getCurrentlyFocusedComponent();c&&c!=this;c=c->getParentComponent())
             if(dynamic_cast<juce::TextEditor*>(c)||dynamic_cast<juce::ComboBox*>(c))return false;
         return roll.keyStateChanged(isKeyDown);
     }
-    void activate(mrs::Id next){id=next;roll.activate(next);controllerLane.activate(next);showDetails=false;controllerLane.setVisible(owner.view.controllersOpen);restoreDrumMode();reload();resized();}
+    void activate(mrs::Id next){id=next;roll.activate(next);controllerLane.activate(next);showDetails=false;controllerLane.setVisible(owner.view.controllersOpen);restoreDrumMode();syncToolbarPreferences();reload();resized();}
     ~MidiClipPanel() override{controllerLane.laneChanged=nullptr;sideViewport.setViewedComponent(nullptr,false);viewport.setViewedComponent(nullptr,false);setLookAndFeel(nullptr);}
     void resized() override{
         const int sideWidth=juce::jlimit(156,196,getWidth()/4);
@@ -134,6 +136,7 @@ public:
         auto toolbarArea=juce::Rectangle<int>{toolbarLeft,2,std::max(0,getWidth()-toolbarLeft-8),28};
         const int available=toolbarArea.getWidth();
         const auto take=[&](int requested){auto cell=toolbarArea.removeFromLeft(std::min(requested,toolbarArea.getWidth()));toolbarArea.removeFromLeft(std::min(4,toolbarArea.getWidth()));return cell;};
+        if(!owner.standaloneLive)quantizeButton.setBounds(take(32));
         gridSnap.setBounds(take(32));
         noteGrid.setBounds(take(juce::jlimit(72,104,available-300)));
         playheadMode.setBounds(take(juce::jlimit(70,94,available-270)));
@@ -141,6 +144,7 @@ public:
         noteColors.setBounds(take(std::max(0,std::min(156,toolbarArea.getWidth()-followWidth-4))).reduced(0,2));
         follow.setBounds(toolbarArea.removeFromLeft(std::min(followWidth,toolbarArea.getWidth())).reduced(0,2));
         follow.setButtonText(follow.getWidth()<100?"Follow":"Follow playhead");
+        layoutQuantizePanel(sideWidth+4,juce::jmax(90,getWidth()-sideWidth-12));
         layoutEditorPanes(sideWidth+4,juce::jmax(90,getWidth()-sideWidth-12));alignControllers();
         if(firstLayout){firstLayout=false;viewport.setViewPosition(static_cast<int>(static_cast<double>(roll.clip.start)/mrs::ppq*roll.beatWidth),PianoRoll::ruler+(127-78)*static_cast<int>(roll.rowHeight));}
     }
@@ -198,8 +202,66 @@ private:
         owner.app.set_track_drum_map(track->id,std::move(binding));owner.refresh();roll.sync();reload();
     }catch(const std::exception& e){hint.setText(juce::String::fromUTF8(e.what()),juce::dontSendNotification);}}
     void foldAll(bool folded){updateFold([folded](auto& b){b.collapsed.clear();if(folded)for(const auto& c:b.snapshot.categories){b.collapsed.push_back(c.id);for(const auto& i:c.instruments)b.collapsed.push_back(i.id);}});}
+    bool gridSnapEnabled() const{return owner.standaloneLive?owner.view.midiGridSnap:owner.app.midi_quantize_preferences().snap;}
     NoteGridSpec noteGridFromView() const{
-        return canonicalNoteGrid({owner.view.midiGridDivisor,owner.view.midiGridSwing,static_cast<NoteGridSpec::Shape>(owner.view.midiGridShape)});
+        if(owner.standaloneLive)return canonicalNoteGrid({owner.view.midiGridDivisor,owner.view.midiGridSwing,static_cast<NoteGridSpec::Shape>(owner.view.midiGridShape)});
+        const auto p=owner.app.midi_quantize_preferences();
+        return canonicalNoteGrid({p.divisor,p.swing,static_cast<NoteGridSpec::Shape>(p.shape)});
+    }
+    void setupQuantizePanel(){
+        addAndMakeVisible(quantizeButton);quantizeButton.setComponentID("midi-quantize-toggle");
+        quantizeButton.setTitle("Quantize settings");quantizeButton.setTooltip("Show quantize settings (keyboard Q applies to selected notes)");
+        quantizeButton.setWantsKeyboardFocus(false);
+        quantizeButton.onClick=[this]{owner.view.midiQuantizeOpen=!owner.view.midiQuantizeOpen;owner.saveSettings();syncToolbarPreferences();owner.syncMidiEditorTools();if(roll.isShowing())roll.grabKeyboardFocus();};
+        addChildComponent(quantizePanel);
+        for(std::size_t i=0;i<quantizeDivisors.size();++i){
+            auto& b=quantizeDivisors[i];quantizePanel.addAndMakeVisible(b);const int divisor=1<<i;
+            b.setButtonText("1/"+juce::String(divisor));b.setWantsKeyboardFocus(false);
+            b.onClick=[this,divisor]{auto spec=noteGridFromView();spec.divisor=divisor;applyNoteGrid(spec,gridSnapEnabled());};
+        }
+        const std::array<juce::String,4> shapes{"Straight","Triplet","Quintuplet","Septuplet"};
+        for(std::size_t i=0;i<quantizeShapes.size();++i){
+            auto& b=quantizeShapes[i];quantizePanel.addAndMakeVisible(b);b.setButtonText(shapes[i]);b.setWantsKeyboardFocus(false);
+            b.onClick=[this,i]{auto spec=noteGridFromView();if(i==0&&spec.shape==NoteGridSpec::Shape::swing)return;spec.shape=static_cast<NoteGridSpec::Shape>(i);spec.swing=0;applyNoteGrid(spec,gridSnapEnabled());};
+        }
+        const std::array<juce::String,5> names{"Swing","Start","End","Range","Velocity"};
+        for(std::size_t i=0;i<quantizeSliders.size();++i){
+            auto& s=quantizeSliders[i];auto& label=quantizeLabels[i];
+            quantizePanel.addAndMakeVisible(label);label.setText(names[i],juce::dontSendNotification);label.setFont(Theme::channelFont());
+            quantizePanel.addAndMakeVisible(s);s.setName(names[i]);s.setSliderStyle(juce::Slider::LinearHorizontal);s.setRange(0,100,1);
+            s.setTextBoxStyle(juce::Slider::TextBoxRight,false,44,20);s.setTextValueSuffix("%");
+            s.onValueChange=[this,i]{
+                if(i==4)return;
+                auto p=owner.app.midi_quantize_preferences();const auto value=static_cast<int>(quantizeSliders[i].getValue());
+                if(i==0){p.swing=value;p.shape=value?4:0;}else if(i==1)p.start=value;else if(i==2)p.end=value;else p.range=value;
+                owner.app.set_midi_quantize_preferences(p);syncToolbarPreferences();owner.syncMidiEditorTools();
+            };
+        }
+        quantizeSliders[4].setEnabled(false);quantizeLabels[4].setEnabled(false);
+        quantizeSliders[4].setTooltip("Velocity is available with Groove Quantize");
+    }
+    void syncQuantizePanel(){
+        if(owner.standaloneLive)return;
+        const auto p=owner.app.midi_quantize_preferences();
+        const bool visible=owner.view.midiQuantizeOpen,changed=quantizePanel.isVisible()!=visible;
+        quantizePanel.setVisible(visible);quantizeButton.setToggleState(visible,juce::dontSendNotification);
+        for(std::size_t i=0;i<quantizeDivisors.size();++i)quantizeDivisors[i].setToggleState(p.divisor==(1<<i),juce::dontSendNotification);
+        for(std::size_t i=0;i<quantizeShapes.size();++i)quantizeShapes[i].setToggleState((p.shape==4?0:p.shape)==static_cast<int>(i),juce::dontSendNotification);
+        const std::array<int,5> values{p.swing,p.start,p.end,p.range,0};
+        for(std::size_t i=0;i<values.size();++i)quantizeSliders[i].setValue(values[i],juce::dontSendNotification);
+        quantizeSliders[0].setEnabled(p.shape==0||p.shape==4);
+        if(changed&&getWidth()>0)resized();
+    }
+    void layoutQuantizePanel(int x,int width){
+        if(owner.standaloneLive||!quantizePanel.isVisible())return;
+        quantizePanel.setBounds(x,rollTop,width,quantizePanelHeight);
+        auto area=quantizePanel.getLocalBounds().reduced(2,1);
+        auto distribute=[](auto& controls,juce::Rectangle<int> row){for(std::size_t i=0;i<controls.size();++i)controls[i].setBounds(row.removeFromLeft(row.getWidth()/static_cast<int>(controls.size()-i)).reduced(1,1));};
+        distribute(quantizeDivisors,area.removeFromTop(24));
+        auto second=area.removeFromTop(26);auto rhythm=second.removeFromLeft(second.getWidth()*3/4);
+        distribute(quantizeShapes,rhythm);quantizeLabels[0].setBounds(second.removeFromLeft(40));quantizeSliders[0].setBounds(second.reduced(1));
+        auto third=area.removeFromTop(26);
+        for(std::size_t i=1;i<quantizeSliders.size();++i){auto cell=third.removeFromLeft(third.getWidth()/static_cast<int>(quantizeSliders.size()-i)).reduced(1);quantizeLabels[i].setBounds(cell.removeFromLeft(i==4?46:34));quantizeSliders[i].setBounds(cell);}
     }
     void chooseNoteGrid(){
         roll.cancel();controllerLane.cancelGesture();
@@ -208,9 +270,9 @@ private:
             if(safe)safe->applyNoteGrid(spec,snap);
         });
     }
-    // The grid is a view preference for both the piano roll and the drum grid.
+    // One project grid for both Piano Roll and Drum Grid; Live retains its prior preference path.
     void syncToolbarPreferences(){
-        const auto spec=noteGridFromView();const bool enabled=owner.view.midiGridSnap;
+        const auto spec=noteGridFromView();const bool enabled=gridSnapEnabled();
         if(roll.gridSpec!=spec||roll.snapGrid!=enabled){
             controllerLane.cancelGesture();velocity.cancel();roll.setNoteGrid(spec,enabled);
         }
@@ -221,13 +283,19 @@ private:
         playheadMode.setToggleState(resume,juce::dontSendNotification);
         playheadMode.setButtonText(resume?"Resume":"Return");
         playheadMode.setTooltip(resume?"Resume from the last stop position (click to return to start)":"Return to the last playback start (click to resume)");
+        syncQuantizePanel();
     }
     void applyNoteGrid(const NoteGridSpec& spec,bool snap){
         const auto canonical=canonicalNoteGrid(spec);
-        owner.view.midiGridDivisor=canonical.divisor;owner.view.midiGridShape=static_cast<int>(canonical.shape);
-        owner.view.midiGridSwing=canonical.swing;owner.view.midiGridSnap=snap;
+        if(owner.standaloneLive){
+            owner.view.midiGridDivisor=canonical.divisor;owner.view.midiGridShape=static_cast<int>(canonical.shape);
+            owner.view.midiGridSwing=canonical.swing;owner.view.midiGridSnap=snap;owner.saveSettings();
+        }else{
+            auto p=owner.app.midi_quantize_preferences();p.divisor=canonical.divisor;p.shape=static_cast<int>(canonical.shape);p.swing=canonical.swing;p.snap=snap;
+            owner.app.set_midi_quantize_preferences(p);
+        }
         syncToolbarPreferences();owner.syncMidiEditorTools();
-        owner.saveSettings();if(roll.isShowing())roll.grabKeyboardFocus();
+        if(roll.isShowing())roll.grabKeyboardFocus();
     }
 #if defined(MRS_DRUM_MAP_UI)
     void chooseMap(){try{
@@ -345,6 +413,11 @@ private:
     PianoRoll roll;ControllerPanel controllerLane;RollViewport viewport;bool showDetails{};bool firstLayout{true};
     bool fullScreenActive{},returnAttached{};
     juce::TextButton pointer{""},split{""},follow{"Follow playhead"},gridSnap{""},playheadMode{"Resume"};juce::ComboBox noteColors;NoteGridButton noteGrid;
+    juce::TextButton quantizeButton{"Q"};juce::Component quantizePanel;
+    std::array<juce::TextButton,7> quantizeDivisors;
+    std::array<juce::TextButton,4> quantizeShapes;
+    std::array<juce::Label,5> quantizeLabels;
+    std::array<juce::Slider,5> quantizeSliders;
     juce::Component sideBody;juce::Viewport sideViewport;
     static constexpr std::array<int,3> ccNumbers{1,11,64};
     std::array<juce::TextButton,3> quickCC;
@@ -363,17 +436,18 @@ private:
         void apply(int h) { if(total) owner.setBlockHeight(h); else owner.setLaneHeight(h); }
     } divider{*this},blockDivider{*this,true};
     void updateQuickCC(){for(std::size_t i=0;i<quickCC.size();++i)quickCC[i].setToggleState(controllerLane.displayedCC()==ccNumbers[i],juce::dontSendNotification);}
-    static constexpr int rollTop=36,dividerHeight=22,maxRowHeight=48;
+    static constexpr int rollTop=36,dividerHeight=22,maxRowHeight=48,quantizePanelHeight=80;
+    int editorRollTop() const{return rollTop+(quantizePanel.isVisible()&&!owner.standaloneLive?quantizePanelHeight:0);}
     int clampLaneHeight(int height) const{
         // Keep room for the ruler, a full pitch row even at maximum zoom, and the scrollbar.
         const int minRollHeight=PianoRoll::ruler+maxRowHeight+viewport.getScrollBarThickness();
-        const int maxHeight=juce::jmax(0,getHeight()-rollTop-dividerHeight-minRollHeight);
+        const int maxHeight=juce::jmax(0,getHeight()-editorRollTop()-dividerHeight-minRollHeight);
         return juce::jlimit(juce::jmin(90,maxHeight),maxHeight,height);
     }
     static constexpr int minVelocityHeight=24;
     int blockCapacity() const {
         const int minRollHeight=PianoRoll::ruler+maxRowHeight+viewport.getScrollBarThickness();
-        return std::max(0,getHeight()-rollTop-minRollHeight-dividerHeight*(controllerLane.isVisible()?2:1));
+        return std::max(0,getHeight()-editorRollTop()-minRollHeight-dividerHeight*(controllerLane.isVisible()?2:1));
     }
     void saveMidiLaneHeights(){
         if(owner.view.midiVelocityHeight==velocityHeight && owner.view.midiControllerHeight==laneHeight)return;
@@ -398,7 +472,7 @@ private:
         const bool showLane=controllerLane.isVisible(), showVelocity=velocity.isVisible();
         lastRollExtent={roll.getWidth(),roll.getHeight()};
         divider.setVisible(showLane); blockDivider.setVisible(showVelocity);
-        juce::Rectangle<int> rollArea{x,rollTop,width,juce::jmax(0,getHeight()-rollTop)};
+        const int top=editorRollTop();juce::Rectangle<int> rollArea{x,top,width,juce::jmax(0,getHeight()-top)};
         const int capacity=blockCapacity();
         const int ccHeight=showLane?(showVelocity?std::min(laneHeight,std::max(0,capacity-minVelocityHeight)):clampLaneHeight(laneHeight)):0;
         if(showLane){
@@ -492,7 +566,7 @@ void noteGridChecks(MidiClipPanel& editor,Desktop& d){
     check(editor.noteGrid.getComponentID()=="piano-note-grid"&&editor.noteGrid.getBounds().getRight()<=editor.getWidth()&&
           editor.noteGrid.getBounds().getY()<PianoRoll::ruler+8,"grid menu button sits on the piano roll top toolbar");
     editor.applyNoteGrid(tripletEighth,true);
-    check(roll.gridSpec==tripletEighth&&roll.snapGrid&&roll.grid==mrs::ppq/3&&d.view.midiGridDivisor==8&&d.view.midiGridShape==1,"grid selection drives the piano roll and settings");
+    check(roll.gridSpec==tripletEighth&&roll.snapGrid&&roll.grid==mrs::ppq/3&&d.app.midi_quantize_preferences().divisor==8&&d.app.midi_quantize_preferences().shape==1,"grid selection drives the piano roll and settings");
     // Painted lines follow the same grid: the triplet line is only inked when selected.
     const auto gridPixels=[&](mrs::Tick tick){
         const int x=roll.railWidth()+static_cast<int>(static_cast<double>(tick)/mrs::ppq*roll.beatWidth);
@@ -505,13 +579,20 @@ void noteGridChecks(MidiClipPanel& editor,Desktop& d){
     const auto sixteenthLine=gridPixels(tripletEighth.position(1));
     check(tripletLine!=sixteenthLine,"piano roll grid lines follow the selected note grid");
     editor.applyNoteGrid(defaultGrid,false);
-    check(!roll.snapGrid&&roll.grid==mrs::ppq/4&&!d.view.midiGridSnap,"snap off keeps the nominal step in ticks");
-    const auto settings=ViewSettings::decode(d.view.encode());
-    check(settings.midiGridDivisor==16&&settings.midiGridShape==0&&settings.midiGridSwing==0&&!settings.midiGridSnap,"note grid preference survives a settings round trip");
+    check(!roll.snapGrid&&roll.grid==mrs::ppq/4&&!d.app.midi_quantize_preferences().snap,"snap off keeps the nominal step in ticks");
+    const auto settings=d.app.midi_quantize_preferences();
+    const auto persisted=mrs::persistence::decode_project(mrs::persistence::encode(d.app.snapshot())).project;
+    (void)persisted;
+    check(settings.divisor==16&&settings.shape==0&&settings.swing==0&&!settings.snap,"note grid is stored on the active project");
+    const auto document=mrs::persistence::decode_project(mrs::persistence::encode(d.app.snapshot()));
+    check(std::any_of(document.extensions.begin(),document.extensions.end(),[](const auto& e){return e.tag=="MQTZ"&&e.bytes=="1 16 0 0 100 0 100 0";}),"project quantize settings survive archive round trip");
+    const bool oldPanel=d.view.midiQuantizeOpen;editor.quantizeButton.onClick();
+    check(editor.quantizePanel.isVisible()==!oldPanel&&ViewSettings::decode(d.view.encode()).midiQuantizeOpen==!oldPanel,"quantize panel visibility persists");
+    editor.quantizeButton.onClick();
     editor.applyNoteGrid(defaultGrid,true);
-    check(roll.snapGrid&&d.view.midiGridSnap,"snap stays on after the grid checks");
+    check(roll.snapGrid&&d.app.midi_quantize_preferences().snap,"snap stays on after the grid checks");
     editor.gridSnap.onClick();
-    check(!roll.snapGrid&&!d.view.midiGridSnap&&!editor.gridSnap.getToggleState()&&editor.noteGrid.spec()==defaultGrid,"direct Snap button disables the existing grid without changing resolution");
+    check(!roll.snapGrid&&!d.app.midi_quantize_preferences().snap&&!editor.gridSnap.getToggleState()&&editor.noteGrid.spec()==defaultGrid,"direct Snap button disables the existing grid without changing resolution");
     editor.gridSnap.onClick();
     check(roll.snapGrid&&editor.gridSnap.getToggleState(),"direct Snap button restores snapping");
     const auto previousResume=d.view.midiResumePlayback;

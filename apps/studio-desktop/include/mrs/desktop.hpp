@@ -28,6 +28,12 @@
 #include <mrs/transcription_controller.hpp>
 namespace mrs::desktop {
 enum class Workspace { arrange, edit, mix, live };
+// Studio MIDI editor settings, persisted in the project's optional MQTZ chunk.
+struct MidiQuantizePreferences {
+    int divisor{16},shape{},swing{},start{100},end{},range{100};
+    bool snap{true};
+    bool operator==(const MidiQuantizePreferences&) const=default;
+};
 struct AudioRecordingPreview { Clip clip; std::optional<audio::RecordPreview> waveform; };
 std::string_view workspace_name(Workspace);
 struct DeviceProfile {
@@ -215,6 +221,8 @@ public:
     void edit_midi_notes(const Id&,std::vector<Id>,const NoteEdit&);
     void set_midi_events(const Id&,std::vector<MidiChannelEvent>);
     void set_midi_notes(const Id&,std::vector<MidiNote>);
+    MidiQuantizePreferences midi_quantize_preferences() const;
+    void set_midi_quantize_preferences(MidiQuantizePreferences);
     Id duplicate_clip(const Id&);
 #ifdef MRS_HAS_ARA
     void attach_ara_source(const std::string& source,const std::string& module,const std::string& class_id);
