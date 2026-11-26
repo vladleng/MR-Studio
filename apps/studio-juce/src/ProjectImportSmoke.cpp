@@ -1,6 +1,7 @@
 #include "Desktop.h"
 #include "ProjectHome.h"
 #include <algorithm>
+#include <bit>
 #include <mrs/persistence.hpp>
 #include <mrs/audio.hpp>
 #include <stdexcept>
@@ -233,13 +234,21 @@ void dawprojectPreviewSmoke(const juce::File& screenshot){
     unchanged();
     // Two source time formats, shared WAV identity, static mix and non-destructive speed.
     const auto songAudioSource=folder.getChildFile("audio.song");
-    const auto songWav=wave();
+    // A native IEEE float64 bounce, same rate, no conversion of original bytes.
+    juce::MemoryOutputStream songFloat;
+    constexpr int songFrames=48000;
+    songFloat.write("RIFF",4);songFloat.writeInt(36+songFrames*8);songFloat.write("WAVEfmt ",8);
+    songFloat.writeInt(16);songFloat.writeShort(3);songFloat.writeShort(1);songFloat.writeInt(48000);
+    songFloat.writeInt(48000*8);songFloat.writeShort(8);songFloat.writeShort(64);
+    songFloat.write("data",4);songFloat.writeInt(songFrames*8);
+    for(int i=0;i<songFrames;++i)songFloat.writeInt64(std::bit_cast<std::int64_t>(0.125));
+    const std::string songWav(static_cast<const char*>(songFloat.getData()),songFloat.getDataSize());
     check(folder.getChildFile("Media").createDirectory().wasOk(),"Song fixture Media directory");
     check(folder.getChildFile("Media/take.wav").replaceWithData(songWav.data(),songWav.size()),"Song fixture WAV");
     archive(songAudioSource,{
         {"metainfo.xml",R"xml(<MetaInformation><Attribute id="Document:FormatVersion" value="9"/></MetaInformation>)xml"},
         {"Song/song.xml",R"xml(<Song><Attributes x:id="Root"><Attributes x:id="timeContext" sampleRate="48000"><TempoMap><TempoMapSegment start="0" tempo="0.5" curveType="0"/></TempoMap><TimeSignatureMap><TimeSignatureMapSegment start="0" numerator="4" denominator="4"/></TimeSignatureMap></Attributes><List x:id="Tracks"><MediaTrack mediaType="Audio" trackID="t" name="Audio" color="FF123456"><UID x:id="channelID" uid="c"/><List x:id="Events"><AudioEvent clipID="m" start="2" timeFormat="0" length="0.25" offset="0.125" name="Seconds" speed="1"/><AudioEvent clipID="m" start="4" timeFormat="2" length="0.5" offset="0.25" name="Beats" speed="2"/></List></MediaTrack><MediaTrack mediaType="Audio" trackID="empty" name="Empty"/></List></Attributes></Song>)xml"},
-        {"Song/mediapool.xml",R"xml(<MediaPool><Attributes x:id="rootFolder"><MediaFolder name="Audio"><AudioClip mediaID="m"><Url x:id="path" url="file:///C:/Example/audio/Media/take.wav"/><Attributes x:id="format" sampleRate="44100" numChannels="1" frameCount="44101"/></AudioClip></MediaFolder></Attributes></MediaPool>)xml"},
+        {"Song/mediapool.xml",R"xml(<MediaPool><Attributes x:id="rootFolder"><MediaFolder name="Audio"><AudioClip mediaID="m"><Url x:id="path" url="file:///C:/Example/audio/Media/take.wav"/><Attributes x:id="format" sampleRate="48000" numChannels="1" frameCount="48000" bitDepth="64" sampleType="1"/></AudioClip></MediaFolder></Attributes></MediaPool>)xml"},
         {"Devices/audiomixer.xml",R"xml(<AudioMixer><Attributes x:id="channels"><ChannelGroup><AudioTrackChannel gain="0.5" pan="0.75" mute="1" solo="0"><UID x:id="uniqueID" uid="c"/></AudioTrackChannel></ChannelGroup></Attributes></AudioMixer>)xml"}
     });
     const auto songAudioPreview=read(songAudioSource);
@@ -250,7 +259,10 @@ void dawprojectPreviewSmoke(const juce::File& screenshot){
     const auto& ap=songAudioDoc.project;
     check(ap.tracks.size()==2&&ap.tracks[0].mix.gain==0.5f&&ap.tracks[0].mix.pan==0.5f&&ap.tracks[0].mix.mute&&ap.tracks[0].color==0x123456u,"Song audio track mix/color differs");
     check(ap.clips.size()==2&&ap.clips[0].start==48000&&ap.clips[0].length==12000&&ap.clips[0].source_offset==6000&&!ap.clips[0].stretch,"Song seconds clip geometry differs");
-    check(ap.clips[1].start==96000&&ap.clips[1].length==12000&&ap.clips[1].source_offset==6000&&ap.clips[1].stretch&&ap.clips[1].stretch->parameters.duration_ratio==0.5&&ap.clips[0].source==ap.clips[1].source,"Song beat clip / speed / shared source differs");
+    check(ap.clips[1].start==96000&&ap.clips[1].length==12000&&ap.clips[1].source_offset==6000&&ap.clips[1].stretch&&ap.clips[1].stretch->parameters.duration_ratio==0.5&&ap.clips[1].stretch->source_frames==24000&&ap.clips[1].stretch->window_end==24000.0&&ap.clips[0].source==ap.clips[1].source,"Song beat clip / speed / shared source differs");
+    const auto importedFloat= songAudioCreated.projectFile.parent_path()/ap.clips[0].source;
+    check(mrs::audio::inspect_wav(importedFloat).bits==64,"Song float64 bounce was not retained");
+    check(mrs::audio::load_wav(importedFloat).samples.front()==0.125f,"Song float64 bounce decoding differs");
     mrs::persistence::save_project(songAudioCreated.projectFile,songAudioDoc);
     check(mrs::persistence::load_project(songAudioCreated.projectFile)==songAudioDoc,"Song audio Save/Reopen differs");
     unchanged();

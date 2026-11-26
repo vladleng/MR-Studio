@@ -496,6 +496,7 @@ struct Media {
     std::string failure;
     bool embedded{};
     std::optional<audio::WavFile> info;
+    Sample playbackFrames{};
 };
 fs::path safeFolderName(std::string_view title){
     auto text=juce::String::fromUTF8(title.data(),static_cast<int>(title.size())).replaceCharacters("\\/:*?\"<>|\r\n\t","_________   ").trim().substring(0,90);
@@ -562,6 +563,7 @@ CreateResult perform(const CreateRequest& req,std::stop_token stop){
                 p.warning("Original sample rate preserved in "+utf8(m.relative)+"; playback uses a project-rate copy.");
                 m.relative=playback;
             }
+            m.playbackFrames=audio::inspect_wav(stage.dir/m.relative).frame_count;
         }catch(const Cancelled&){throw;}catch(const std::exception& error){
             checkStop(stop);m.info.reset();m.failure=error.what();result.missing.push_back({key,m.failure});
             std::error_code removeError;fs::remove(target,removeError);
@@ -598,8 +600,7 @@ CreateResult perform(const CreateRequest& req,std::stop_token stop){
         if(p.isSong()&&!stretch::neutral(stretchParams)){
             // Use the native source-window contract. Compute from integer output
             // length to preserve exact timeline endpoints across Save/Open.
-            const auto playbackFrames=samples(static_cast<double>(wav.frame_count)/wav.sample_rate,rate);
-            const auto remaining=playbackFrames-c.source_offset;
+            const auto remaining=m.playbackFrames-c.source_offset;
             if(remaining<=0){p.warning("Song stretch source window empty: "+c.name);continue;}
             Sample extent{};
             if(stretch::output_frames(remaining,ratio,extent)!=stretch::Status::ok)
@@ -607,7 +608,10 @@ CreateResult perform(const CreateRequest& req,std::stop_token stop){
             c.length=std::min(c.length,extent);
             if(c.length<=0)continue;
             const auto end=std::min(static_cast<double>(remaining),static_cast<double>(c.length)/ratio);
-            c.stretch=ClipStretch{stretchParams,remaining,0.,end};
+            // Bound the processed source to the visible span, not the entire
+            // remaining tail of a long shared stem. Keep the original WAV intact.
+            const auto span=std::min(remaining,static_cast<Sample>(std::ceil(end)));
+            c.stretch=ClipStretch{stretchParams,span,0.,end};
         }
         c.fade_in=std::clamp(samples(entry.fadeIn,rate),Sample{},c.length);
         c.fade_out=std::clamp(samples(entry.fadeOut,rate),Sample{},c.length);

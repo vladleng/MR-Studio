@@ -6,6 +6,7 @@
 #include <cstring>
 #include <fstream>
 #include <numbers>
+#include <limits>
 #include <stdexcept>
 
 namespace mrs::audio {
@@ -16,6 +17,9 @@ std::uint16_t u16(const unsigned char* p) {
 std::uint32_t u32(const unsigned char* p) {
     return p[0] | (static_cast<std::uint32_t>(p[1]) << 8) |
            (static_cast<std::uint32_t>(p[2]) << 16) | (static_cast<std::uint32_t>(p[3]) << 24);
+}
+std::uint64_t u64(const unsigned char* p) {
+    return static_cast<std::uint64_t>(u32(p)) | (static_cast<std::uint64_t>(u32(p+4)) << 32);
 }
 void read_exact(std::istream& in, unsigned char* out, std::size_t bytes) {
     if (!in.read(reinterpret_cast<char*>(out), static_cast<std::streamsize>(bytes)))
@@ -65,9 +69,9 @@ WavFile inspect_wav(const std::filesystem::path& path) {
             }
             if ((format != 1 && format != 3) || channels == 0 || channels > max_channels ||
                 (format == 1 && bits != 16 && bits != 24 && bits != 32) ||
-                (format == 3 && bits != 32) || block_align != channels * (bits / 8) ||
+                (format == 3 && bits != 32 && bits != 64) || block_align != channels * (bits / 8) ||
                 rate < 8000 || rate > 768000)
-                throw std::invalid_argument("unsupported WAV format; use PCM16/24/32 or float32");
+                throw std::invalid_argument("unsupported WAV format; use PCM16/24/32 or float32/64");
             have_format = true;
         } else if (!std::memcmp(chunk.data(), "data", 4)) {
             if (have_data) throw std::invalid_argument("multiple WAV data chunks unsupported");
@@ -99,7 +103,14 @@ void WavFile::read(Sample first, std::span<float> output) const {
     std::size_t cursor{};
     for (auto& sample : output) {
         const auto* word = bytes.data()+cursor; cursor += bits/8;
-        if (format == 3) sample = std::bit_cast<float>(u32(word));
+        if (format == 3 && bits == 64) {
+            const double value = std::bit_cast<double>(u64(word));
+            // The native engine processes float32; keep the original WAV on disk.
+            // Reject non-finite/unrepresentable values before narrowing.
+            if (!std::isfinite(value) || std::abs(value) > std::numeric_limits<float>::max())
+                throw std::invalid_argument("non-finite or out-of-range float64 WAV sample");
+            sample = static_cast<float>(value);
+        } else if (format == 3) sample = std::bit_cast<float>(u32(word));
         else if (bits == 16) sample = static_cast<float>(std::bit_cast<std::int16_t>(u16(word))) / 32768.0F;
         else if (bits == 24) {
             std::int32_t value = static_cast<std::int32_t>(word[0] | (static_cast<std::uint32_t>(word[1]) << 8) |

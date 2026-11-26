@@ -774,7 +774,7 @@ ImportSessionDTO StudioOneSongReader::read(const std::filesystem::path& file) {
             if(const auto* volume=childById(event,"Attributes","volumeCurve")){
                 for(const auto& [key,value]:volume->attributes)
                     clip.properties.emplace_back("volumeCurve."+key,value);
-                warning("Song clip gain/envelope not applied: "+clip.name);
+                warning("Song clip gain/envelope not applied (raw level retained): "+clip.name);
             }
             const auto found=sources.find(std::string(event.get("clipID")));
             if(found==sources.end())fail("Song audio clip has no media-pool entry");

@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <numbers>
+#include <limits>
 #include <stop_token>
 #include <string_view>
 #include <thread>
@@ -49,6 +50,45 @@ void finish(desktop::Application& app){
     CHECK(!app.wav_import_status().busy);
 }
 void no_staging(const fs::path& root){for(const auto& f:fs::directory_iterator(root))CHECK(!f.path().filename().string().starts_with(".mrs-import-"));}
+void float64_compatibility(){
+    Directory dir;
+    const auto fixture=[&](const fs::path& path,bool extensible,double first){
+        std::ofstream out(path,std::ios::binary);
+        constexpr std::uint32_t rate=48000,frames=3,width=8,channels=2;
+        const std::uint32_t fmt=extensible?40:16,data=frames*channels*width;
+        const auto put=[&](std::uint64_t v,int bytes){for(int i=0;i<bytes;++i)out.put(static_cast<char>((v>>(8*i))&255));};
+        out.write("RIFF",4);put(20+fmt+data,4);out.write("WAVEfmt ",8);put(fmt,4);
+        put(extensible?0xfffe:3,2);put(channels,2);put(rate,4);put(rate*channels*width,4);put(channels*width,2);put(64,2);
+        if(extensible){
+            put(22,2);put(64,2);put(3,4);put(3,4);
+            const unsigned char tail[]={0,0,0x10,0,0x80,0,0,0xaa,0,0x38,0x9b,0x71};
+            out.write(reinterpret_cast<const char*>(tail),sizeof tail);
+        }
+        out.write("data",4);put(data,4);
+        for(double v:{first,-0.75,1.25,-1.25,0.125,-0.125})put(std::bit_cast<std::uint64_t>(v),8);
+        CHECK(static_cast<bool>(out));
+    };
+    for(bool extensible:{false,true}){
+        const auto file=dir.path/(extensible?"extensible.wav":"ieee.wav");
+        fixture(file,extensible,0.25);
+        const auto before=bytes(file);
+        const auto info=audio::inspect_wav(file);
+        CHECK(info.bits==64&&info.format==3&&info.frame_count==3&&info.channels==2&&info.sample_rate==48000);
+        const auto decoded=audio::load_wav(file);
+        CHECK(decoded.samples==std::vector<float>({0.25f,-0.75f,1.25f,-1.25f,0.125f,-0.125f}));
+        const auto streamed=audio::open_wav(file,0);
+        CHECK(streamed.frames()==3&&streamed.samples.empty());
+        std::vector<float> part(2);info.read(1,part);CHECK(part[0]==1.25f&&part[1]==-1.25f);
+        const auto converted=dir.path/(extensible?"extensible-converted.wav":"ieee-converted.wav");
+        audio::resample_wav_file(file,converted,44100);
+        CHECK(audio::inspect_wav(converted).bits==32&&audio::inspect_wav(converted).frame_count==3);
+        CHECK(bytes(file)==before);
+    }
+    for(double bad:{std::numeric_limits<double>::infinity(),std::numeric_limits<double>::quiet_NaN(),std::numeric_limits<double>::max()}){
+        const auto file=dir.path/"bad.wav";fixture(file,false,bad);
+        rejects([&]{(void)audio::load_wav(file);});
+    }
+}
 void quality(){
     Directory dir;const auto input=dir.path/"16-bit.wav",output=dir.path/"48.wav";
     wav(input,44100,4410,1000,true);const auto original=bytes(input);float progress{};
@@ -155,4 +195,4 @@ void streamed_lifetime(){
     }
 }
 }
-int main(){try{quality();project_path_alias();imports();streamed_lifetime();std::cout<<"WAV SRC, background import, persistence, cancellation and streaming lifetime PASS\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
+int main(){try{float64_compatibility();quality();project_path_alias();imports();streamed_lifetime();std::cout<<"WAV SRC, background import, persistence, cancellation and streaming lifetime PASS\n";return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
