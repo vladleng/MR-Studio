@@ -1,4 +1,5 @@
 #include "ProjectImport.h"
+#include "LiveStudioOneShowReader.h"
 #include <juce_core/juce_core.h>
 // Reuse the zlib implementation already built into the pinned JUCE SDK.
 #include <juce_core/zip/juce_zlib.h>
@@ -175,7 +176,7 @@ public:
         return found != entries.end() && !found->second.directory && found->second.name == path;
     }
     std::optional<std::string> xml(std::string_view name) {
-        const auto it = entries.find(std::string(name));
+        const auto it = entries.find(pathKey(name));
         if (it == entries.end()) return {};
         const auto& record = it->second;
         if (record.name != name || record.directory || record.size == 0 || record.size > maxXml || record.packed > maxXml + 65536
@@ -575,6 +576,147 @@ ImportSessionDTO DAWprojectReader::read(const std::filesystem::path& file) {
         if (child.tag != "Application") map.walk(child);
     }
     map.finish();
+    return dto;
+}
+
+ImportSessionDTO StudioOneSongReader::read(const std::filesystem::path& file) {
+    Archive archive(file);
+    const auto xml = archive.xml("Song/song.xml");
+    if (!xml) fail("Studio One archive is missing Song/song.xml");
+    const auto root = parseXml(::ui::live::normalizeStudioOneXml(*xml));
+    if (root.tag != "Song") fail("Unsupported Studio One Song XML root");
+
+    ImportSessionDTO dto;
+    dto.sourceFormat = "StudioOneSong";
+    dto.title = juce::String(file.stem().wstring().c_str()).toStdString();
+    if (const auto metadata = archive.xml("metainfo.xml")) {
+        const auto meta = parseXml(*metadata);
+        if (meta.tag != "MetaInformation") fail("Invalid Studio One metadata");
+        for (const auto& item : meta.children) {
+            if (item.tag != "Attribute") continue;
+            if (item.get("id") == "Document:FormatVersion") dto.sourceVersion = item.get("value");
+            if (item.get("id") == "Document:Title" && !item.get("value").empty()) dto.title = item.get("value");
+            if (item.get("id") == "Document:Generator") {
+                const auto generator = item.get("value");
+                const auto slash = generator.find('/');
+                dto.application = generator.substr(0, slash);
+                if (slash != generator.npos) dto.applicationVersion = generator.substr(slash + 1);
+            }
+        }
+    }
+    if (dto.sourceVersion != "9") fail("Studio One Song reader currently requires format version 9");
+    const auto childById = [](const Node& parent, std::string_view tag, std::string_view id) -> const Node* {
+        for (const auto& child : parent.children)
+            if (child.tag == tag && child.get("x_id") == id) return &child;
+        return nullptr;
+    };
+    const auto* model = childById(root, "Attributes", "Root");
+    if (!model) fail("Studio One Song model is missing");
+    const auto* context = childById(*model, "Attributes", "timeContext");
+    const auto* tracks = childById(*model, "List", "Tracks");
+    if (!context || !tracks) fail("Studio One Song time context or tracks are missing");
+
+    auto warning = [&](std::string message) {
+        if (dto.warnings.size() < 200) dto.warnings.push_back(std::move(message));
+        else if (dto.warnings.size() == 200) dto.warnings.emplace_back("Additional Song warnings omitted.");
+    };
+    auto add = [&](Kind kind, const Node& source, std::optional<std::size_t> parent = {}) -> std::size_t {
+        Object object{};
+        object.kind = kind;
+        object.type = source.tag;
+        object.parent = parent;
+        object.name = source.get("name");
+        object.properties = source.attributes;
+        object.support = Support::partial;
+        object.detail = "Source metadata only; native Song projection is not implemented";
+        dto.objects.push_back(std::move(object));
+        return dto.objects.size() - 1;
+    };
+    const auto contextIndex = add(Kind::transport, *context);
+    for (const auto& lane : context->children) {
+        if (lane.tag != "TempoMap" && lane.tag != "TimeSignatureMap") continue;
+        const bool tempo = lane.tag == "TempoMap";
+        const auto laneIndex = add(Kind::lane, lane, contextIndex);
+        for (const auto& segment : lane.children) {
+            if (segment.tag != (tempo ? "TempoMapSegment" : "TimeSignatureMapSegment")) continue;
+            auto& row = dto.objects[add(Kind::point, segment, laneIndex)];
+            const auto start = number(segment.get("start"));
+            if (!start || *start < 0) fail("Invalid Studio One map segment start");
+            // Only the origin of the map is verified across the supplied schema.
+            // Preserve nonzero segment positions verbatim until their units are verified.
+            row.time = start;
+            row.timeUnit = *start == 0 ? TimeUnit::beats : TimeUnit::unspecified;
+            if (*start != 0) warning("Nonzero Song map segment retained with unverified time unit.");
+            if (tempo) {
+                const auto period = number(segment.get("tempo"));
+                if (!period || *period <= 0 || !std::isfinite(60.0 / *period))
+                    fail("Invalid Studio One tempo period");
+                row.properties.emplace_back("bpm", std::to_string(60.0 / *period));
+                if (segment.get("curveType") != "0")
+                    warning("Song tempo curve retained; ramp interpretation not verified.");
+            } else {
+                const auto n = number(segment.get("numerator"));
+                const auto d = number(segment.get("denominator"));
+                if (!n || !d || *n < 1 || *n > 64 || *d < 1 || *d > 64 ||
+                    std::floor(*n) != *n || std::floor(*d) != *d ||
+                    (static_cast<int>(*d) & (static_cast<int>(*d) - 1)) != 0)
+                    fail("Invalid Studio One time signature");
+            }
+        }
+    }
+    for (const auto& lane : tracks->children) {
+        Kind kind{};
+        const char* eventTag = nullptr;
+        if (lane.tag == "ArrangerTrack") { kind = Kind::section; eventTag = "ArrangerEvent"; }
+        else if (lane.tag == "ChordTrack") { kind = Kind::chord; eventTag = "ChordEvent"; }
+        else if (lane.tag == "MarkerTrack") { kind = Kind::marker; eventTag = "MarkerEvent"; }
+        else continue;
+        const auto laneIndex = add(Kind::lane, lane);
+        for (const auto& event : lane.children) {
+            if (event.tag != eventTag) continue;
+            auto& row = dto.objects[add(kind, event, laneIndex)];
+            row.time = number(event.get("start"));
+            if (!row.time || *row.time < 0) fail("Invalid Studio One event start");
+            const auto format = event.get("timeFormat");
+            // The supplied format-9 project uses 2 for quarter-note positions.
+            // Other time formats are preserved but never guessed.
+            if (format == "2") row.timeUnit = TimeUnit::beats;
+            else warning("Song event time format is not verified; source position retained.");
+            if (kind != Kind::marker) {
+                row.duration = number(event.get("length"));
+                if (!row.duration || *row.duration < 0) fail("Invalid Studio One event length");
+                row.durationUnit = row.timeUnit;
+            }
+            // Preserve source order, offsets, colors and events beyond End.
+            if (kind == Kind::chord) {
+                const auto* encoded = childById(event, "Attributes", "chord");
+                if (!encoded) {
+                    warning("Song chord has no encoded chord data.");
+                    continue;
+                }
+                juce::XmlElement chord("Attributes");
+                for (const auto& [key, value] : encoded->attributes) {
+                    if (key == "x_id") continue;
+                    row.properties.emplace_back("chord." + key, value);
+                    chord.setAttribute(juce::String::fromUTF8(key.c_str()), juce::String::fromUTF8(value.c_str()));
+                }
+                try { row.name = ::ui::live::decodeStudioOneChord(chord).toStdString(); }
+                catch (const std::exception&) {
+                    warning("Song chord symbol could not be decoded; raw chord fields retained.");
+                }
+            }
+        }
+    }
+    if (const auto transport = archive.xml("Devices/transportdevice.xml")) {
+        const auto device = parseXml(*transport);
+        if (device.tag != "TransportDevice") fail("Invalid Studio One transport device");
+        const auto index = add(Kind::transport, device);
+        auto& row = dto.objects[index];
+        row.time = number(device.get("position"));
+        row.timeUnit = TimeUnit::seconds;
+        // Loop coordinates and active state remain raw source properties.
+    }
+    warning("Song stage 1: read-only musical metadata; audio, MIDI, plugins and native project creation are not implemented.");
     return dto;
 }
 

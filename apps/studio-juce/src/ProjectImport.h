@@ -9,7 +9,7 @@
 
 namespace mrs::project_import {
 enum class Support { supported, partial, unsupported };
-enum class Kind { transport, track, channel, send, device, lane, clip, note, marker, media, automation, point, parameter, warp };
+enum class Kind { transport, track, channel, send, device, lane, clip, note, marker, media, automation, point, parameter, warp, section, chord };
 enum class TimeUnit { unspecified, beats, seconds };
 
 struct Object {
@@ -55,6 +55,12 @@ public:
     // Read only; never extract archive entries or open referenced paths.
     static ImportSessionDTO read(const std::filesystem::path&);
     static void copyEmbeddedAudio(const std::filesystem::path&, const std::vector<EmbeddedAudioCopy>&, std::stop_token);
+};
+
+// Stage 1: read-only source adapter. Not a native project creation path yet.
+class StudioOneSongReader {
+public:
+    static ImportSessionDTO read(const std::filesystem::path&);
 };
 
 class MRSProjectImport {

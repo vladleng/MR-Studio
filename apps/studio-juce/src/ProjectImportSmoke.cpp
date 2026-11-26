@@ -86,6 +86,35 @@ void dawprojectPreviewSmoke(const juce::File& screenshot){
     if(const auto created=folder.createDirectory();created.failed())
         throw std::runtime_error("Fixture directory could not be created: "+created.getErrorMessage().toStdString());
     struct Cleanup{juce::File folder;~Cleanup(){folder.deleteRecursively();}} cleanup{folder};
+    // Synthetic format-9 fixture: no user project or vendor content.
+    const auto song=folder.getChildFile("structure.song");
+    archive(song, {
+        {"metainfo.xml", R"xml(<MetaInformation><Attribute id="Document:FormatVersion" value="9"/><Attribute id="Document:Title" value="Synthetic structure"/><Attribute id="Document:Generator" value="Studio Pro/8.2"/></MetaInformation>)xml"},
+        {"Song/song.xml", R"xml(<Song><Attributes x:id="Root"><Attributes x:id="timeContext" sampleRate="48000">
+            <TempoMap x:id="tempoMap"><TempoMapSegment start="0" tempo="0.5" curveType="0"/></TempoMap>
+            <TimeSignatureMap x:id="timeSignatureMap"><TimeSignatureMapSegment start="0" numerator="4" denominator="4"/></TimeSignatureMap>
+            </Attributes><List x:id="Tracks">
+            <MarkerTrack><MarkerEvent start="16" timeFormat="2" markerType="3" name="End"/></MarkerTrack>
+            <ArrangerTrack><ArrangerEvent start="16" length="8" timeFormat="2" name="Tail" color="FF112233"/><ArrangerEvent start="0" length="16" timeFormat="2" name="Intro"/></ArrangerTrack>
+            <ChordTrack><ChordEvent start="4" length="2" timeFormat="2"><Attributes x:id="chord" root="0" intervals="1 0 0 0 3 0 0 5 0 0 0 7" type="0"/></ChordEvent></ChordTrack>
+            </List></Attributes></Song>)xml"},
+        {"Devices/transportdevice.xml", R"xml(<TransportDevice position="3.5" loopStart="2" loopEnd="4" loopActive="1"/>)xml"}
+    });
+    const auto musical=StudioOneSongReader::read(diskPath(song));
+    check(musical.sourceFormat=="StudioOneSong"&&musical.sourceVersion=="9"&&musical.title=="Synthetic structure","Song metadata differs");
+    const auto countKind=[&](Kind kind){return std::count_if(musical.objects.begin(),musical.objects.end(),[&](const Object& o){return o.kind==kind;});};
+    check(countKind(Kind::section)==2&&countKind(Kind::chord)==1&&countKind(Kind::marker)==1&&countKind(Kind::point)==2,"Song musical event count differs");
+    const auto tail=std::find_if(musical.objects.begin(),musical.objects.end(),[](const Object& o){return o.kind==Kind::section;});
+    check(tail!=musical.objects.end()&&tail->name=="Tail"&&tail->time==16.0&&tail->duration==8.0&&tail->timeUnit==TimeUnit::beats,"Song section at End was lost or reordered");
+    const auto chord=std::find_if(musical.objects.begin(),musical.objects.end(),[](const Object& o){return o.kind==Kind::chord;});
+    check(chord!=musical.objects.end()&&!chord->name.empty()&&chord->time==4.0&&chord->duration==2.0,"Song chord decoding differs");
+    const auto transport=std::find_if(musical.objects.begin(),musical.objects.end(),[](const Object& o){return o.type=="TransportDevice";});
+    check(transport!=musical.objects.end()&&transport->time==3.5&&transport->timeUnit==TimeUnit::seconds,"Song transport position differs");
+    const auto invalidSong=folder.getChildFile("invalid.song");
+    archive(invalidSong,{{"Song/song.xml","<Song/>"},{"metainfo.xml","<MetaInformation><Attribute id=\"Document:FormatVersion\" value=\"99\"/></MetaInformation>"}});
+    bool rejected=false;
+    try { (void)StudioOneSongReader::read(diskPath(invalidSong)); } catch (const std::exception&) { rejected=true; }
+    check(rejected,"Unverified Song format was accepted");
     const auto small=folder.getChildFile("minimal.dawproject");
     archive(small,{{"project.xml",minimal}},0);
     const auto tiny=read(small);
