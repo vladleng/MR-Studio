@@ -575,7 +575,7 @@ private:
     std::vector<int> selected_inputs(const Project&, const std::vector<int>&) const;
     std::shared_ptr<const audio::AudioData> asset(const std::string&);
     void cache_asset(std::string, std::shared_ptr<const audio::AudioData>);
-    void edit(const ICommand&,std::optional<Id> authoritative={},bool retain_inserts=false);
+    void edit(const ICommand&,std::optional<Id> authoritative={},bool retain_inserts=false,bool force_graph_rebuild=false);
     bool edit_clip_state(const Project&,const ICommand*,std::optional<bool> history={});
     bool edit_midi_velocities(const Project&,const Project&,const ICommand*,std::optional<bool> history={});
     bool refresh_clip_audio(const Project&);

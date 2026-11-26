@@ -1590,12 +1590,12 @@ bool Application::edit_midi_velocities(const Project& before,const Project& afte
     transaction->finish();unsaved_=true;
     return true;
 }
-void Application::edit(const ICommand& command,std::optional<Id> authoritative,bool retain_inserts) {
+void Application::edit(const ICommand& command,std::optional<Id> authoritative,bool retain_inserts,bool force_graph_rebuild) {
     require_not_playing();
     auto candidate = *services_.projects->state().project;
     command.apply(candidate); candidate.validate();
-    if(edit_midi_velocities(*services_.projects->state().project,candidate,&command))return;
-    if(same_except_clips(*services_.projects->state().project,candidate)&&same_midi_clips(*services_.projects->state().project,candidate)&&
+    if(!force_graph_rebuild&&edit_midi_velocities(*services_.projects->state().project,candidate,&command))return;
+    if(!force_graph_rebuild&&same_except_clips(*services_.projects->state().project,candidate)&&same_midi_clips(*services_.projects->state().project,candidate)&&
        edit_clip_state(candidate,&command))return;
     {std::vector<Id> tracks;for(const auto& t:candidate.tracks)if(t.kind!=TrackKind::midi)tracks.push_back(t.id);(void)audio::compile_midi_clips(candidate,tracks);(void)audio::compile_midi_events(candidate,tracks);}
     const auto original=services_.projects->state().project;
@@ -3130,7 +3130,10 @@ bool Application::stop_recording() {
         }
         const auto project=services_.projects->state().project;const Timeline time(project->time,project->sample_rate);
         for(const auto& capture:midi_sessions){if(capture.recorder->end()<=recording_visible_start_)continue;auto data=capture.recorder->finish(time);if(capture.recorder->fault())recording_error_="MIDI recording interrupted (input/queue/capacity); captured prefix retained";if(data.notes.empty()&&data.events.empty())continue;const auto visible=time.to_ticks(recording_visible_start_);data.source_offset=visible-data.start;data.length=std::max(Tick{1},data.length-data.source_offset);data.start=visible;Clip clip;clip.id=new_id();clip.track=capture.track;clip.name="MIDI take";clip.midi=std::move(data);command.clips.push_back(std::move(clip));}
-        if (!command.clips.empty()) edit(command,{},true); else rebuild_audio(true);
+        // Capture sinks have been detached by preparing an empty render graph.
+        // A voice-only transition cannot restore that graph's mixer, inserts or MIDI.
+        // Rebuild the complete graph while retaining the existing insert runtimes.
+        if (!command.clips.empty()) edit(command,{},true,true); else rebuild_audio(true);
         if (!failure.empty()) throw std::runtime_error(failure);
         return !command.clips.empty();
     } catch (const std::exception& e) {

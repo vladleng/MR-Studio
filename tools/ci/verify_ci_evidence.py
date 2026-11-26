@@ -103,6 +103,7 @@ def verify_automatic(sha, scope, integration, runs, artifact_evidence, ref, need
     if plan['result'] != 'success':
         raise ValueError('Candidate plan did not pass')
     reused = set()
+    executed = set()
     for name in sorted(required_checks(scope, integration)):
         decision = plan['outputs'].get(f'need_{name}')
         if decision == 'false':
@@ -117,17 +118,29 @@ def verify_automatic(sha, scope, integration, runs, artifact_evidence, ref, need
             validate_evidence(artifact_evidence(run_id, name), sha, WORKFLOWS[name],
                               expected_check(name, scope, integration))
             print(f'{name}: PASS at {sha} (candidate run {run_id})')
-            # A concurrently started standalone failure/pending run must not
-            # be hidden by a successful candidate job.
-            try:
-                existing_check(sha, name, scope, integration, runs, artifact_evidence)
-            except (PendingCheck, FailedCheck):
-                raise
-            except (ValueError, KeyError, OSError, zipfile.BadZipFile):
-                pass  # New job has valid evidence for this SHA/profile.
+            executed.add(name)
         else:
             raise ValueError(f'{name}: missing or invalid plan decision')
-    return verify_existing(sha, scope, integration, runs, artifact_evidence, ref, checks=reused)
+    # Check all required child job results first. Wait only for independently
+    # running checks at the final barrier, never before scheduling missing jobs.
+    lines, pending = [], []
+    for name in sorted(reused | executed):
+        try:
+            line = existing_check(sha, name, scope, integration, runs, artifact_evidence)
+            if name in reused:
+                lines.append(line)
+        except PendingCheck as error:
+            pending.append(f'{name}: {error}')
+        except FailedCheck:
+            raise
+        except (ValueError, KeyError, OSError, zipfile.BadZipFile):
+            if name in reused:
+                raise
+            # A successful child with valid own evidence can replace missing or
+            # expired standalone evidence, but never a later failure.
+    if pending:
+        raise PendingCheck('; '.join(pending))
+    return lines
 
 
 def main():
@@ -173,15 +186,8 @@ def main():
         if mode == 'plan':
             # Allow synchronize-triggered PR checks to register before planning.
             time.sleep(20)
-            deadline = time.monotonic() + 30 * 60
-            while True:
-                missing, pending = plan_missing(sha, scope, integration, list_runs(), artifact)
-                if not pending:
-                    break
-                if time.monotonic() >= deadline:
-                    raise ValueError(f'Pending candidate checks: {sorted(pending)}')
-                print(f'Awaiting existing checks: {sorted(pending)}', flush=True)
-                time.sleep(60)
+            missing, pending = plan_missing(sha, scope, integration, list_runs(), artifact)
+            print(f'Existing checks running in parallel: {sorted(pending)}', flush=True)
         with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
             for name in WORKFLOWS:
                 output.write(f'need_{name}={"true" if name in missing else "false"}\n')
@@ -189,8 +195,19 @@ def main():
         return
     runs = list_runs()
     if mode == 'automatic':
-        lines = verify_automatic(sha, scope, integration, runs, artifact, ref,
-                                 json.loads(os.environ['CI_NEEDS']), int(os.environ['GITHUB_RUN_ID']))
+        needs = json.loads(os.environ['CI_NEEDS'])
+        run_id = int(os.environ['GITHUB_RUN_ID'])
+        deadline = time.monotonic() + 30 * 60
+        while True:
+            try:
+                lines = verify_automatic(sha, scope, integration, runs, artifact, ref, needs, run_id)
+                break
+            except PendingCheck as error:
+                if time.monotonic() >= deadline:
+                    raise ValueError(f'Pending candidate checks: {error}') from error
+                print(f'Awaiting existing checks at final gate: {error}', flush=True)
+                time.sleep(60)
+                runs = list_runs()
     elif mode == 'verify':
         lines = verify_existing(sha, scope, integration, runs, artifact, ref)
     else:

@@ -1045,7 +1045,12 @@ void recording() {
         a.play();a.engine()->process(in.data(),out.data(),128);const auto generation=a.insert_generation();
         a.start_project_recording(imported.path/"Projects");CHECK(a.recording()&&a.insert_generation()==generation);
         CHECK(persistence::load_project(a.path()).project.clips.front().source.starts_with("Media/"));
-        a.engine()->process(in.data(),out.data(),128);CHECK(a.stop_recording()&&a.insert_generation()==generation);a.disconnect();
+        a.engine()->process(in.data(),out.data(),128);CHECK(a.stop_recording()&&a.insert_generation()==generation);
+        const auto recorded=*a.services().projects->state().project;
+        CHECK(a.audio_running()&&recorded.clips.size()==2);
+        CHECK(a.undo()&&a.services().projects->state().project->clips.size()==1);
+        CHECK(a.redo()&&*a.services().projects->state().project==recorded);
+        CHECK(a.insert_generation()==generation);a.disconnect();
     }
     { // Managed destinations: no chooser, never overwrite, raw input, portable references.
         Directory managed;Application a;a.new_project(44100);

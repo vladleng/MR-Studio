@@ -2,7 +2,7 @@
 import unittest
 from pathlib import Path
 from ci_evidence import definition_hash
-from verify_ci_evidence import verify_existing, verify_automatic, plan_missing, WORKFLOWS
+from verify_ci_evidence import verify_existing, verify_automatic, plan_missing, PendingCheck, WORKFLOWS
 
 SHA = 'a' * 40
 class ExistingEvidenceTests(unittest.TestCase):
@@ -83,7 +83,7 @@ class ExistingEvidenceTests(unittest.TestCase):
         self.assertEqual(missing, {'runtime'})
         self.assertFalse(pending)
 
-    def test_plan_waits_for_pending_and_rejects_failure(self):
+    def test_plan_classifies_pending_and_rejects_failure(self):
         self.runs[0]['status'] = 'in_progress'
         self.runs[0]['conclusion'] = None
         missing, pending = plan_missing(SHA, 'studio', False, self.runs, lambda _, n: self.data[n])
@@ -92,6 +92,16 @@ class ExistingEvidenceTests(unittest.TestCase):
         self.runs[0].update(status='completed', conclusion='failure')
         with self.assertRaisesRegex(ValueError, 'core:'):
             plan_missing(SHA, 'studio', False, self.runs, lambda _, n: self.data[n])
+
+    def test_missing_runtime_is_scheduled_while_core_runs(self):
+        self.runs[0].update(status='in_progress', conclusion=None)
+        self.runs = [r for r in self.runs if r['path'] != '.github/workflows/'+WORKFLOWS['runtime']]
+        missing, pending = plan_missing(SHA, 'studio', False, self.runs, lambda _, n: self.data[n])
+        self.assertEqual(missing, {'runtime'})
+        self.assertEqual(pending, {'core'})
+        gate = Path('tools/ci/verify_ci_evidence.py').read_text()
+        plan = gate.split("if mode in ('plan', 'manual-plan'):", 1)[1].split('    runs = list_runs()', 1)[0]
+        self.assertNotIn('while True:', plan)
 
     def test_auto_gate_requires_actual_job_and_evidence(self):
         self.runs = [r for r in self.runs if r['path'] != '.github/workflows/'+WORKFLOWS['runtime']]
@@ -102,6 +112,11 @@ class ExistingEvidenceTests(unittest.TestCase):
         def verify():
             return verify_automatic(SHA, 'studio', False, self.runs,
                                     lambda _, n: self.data[n], 'feature', needs, 200)
+        self.assertEqual(len(verify()), 4)
+        self.runs[0].update(status='in_progress', conclusion=None)
+        with self.assertRaises(PendingCheck):
+            verify()
+        self.runs[0].update(status='completed', conclusion='success')
         self.assertEqual(len(verify()), 4)
         # A new standalone failure must block even if reused evidence was valid at planning time.
         self.runs[0].update(status='completed', conclusion='failure')
@@ -116,6 +131,18 @@ class ExistingEvidenceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             verify()
 
+
+    def test_native_midi_gate_and_independent_release_contracts(self):
+        gui = Path('.github/workflows/windows-juce-gui-compile.yml').read_text()
+        self.assertIn('  midi-host:', gui)
+        self.assertIn('mrs_vst3_fixture mrs_midi_live_tests mrs_midi_record_tests mrs_midi_clip_tests', gui)
+        self.assertIn("^midi_(live|recording|clips)$", gui)
+        core = Path('.github/workflows/core-contracts.yml').read_text()
+        self.assertIn('|desktop_recording|', core)
+        release = Path('.github/workflows/audio-engine.yml').read_text()
+        for step in ('host', 'export'):
+            self.assertIn("id: " + step + "\n        if: ${{ !cancelled() && steps.build.outcome == 'success'", release)
+        self.assertIn("id: package\n        if: success()", release)
 
     def test_newer_studio_gui_does_not_hide_live_evidence(self):
         self.data['gui']['checks'].append('gui-live')

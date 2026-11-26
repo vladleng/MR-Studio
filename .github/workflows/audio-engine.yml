@@ -33,7 +33,7 @@ jobs:
   plan:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.action == 'edited' && github.event.changes.title.from != null && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.ref == 'main' && !startsWith(github.event.changes.title.from, '[candidate:') && (startsWith(github.event.pull_request.title, '[candidate:studio]') || startsWith(github.event.pull_request.title, '[candidate:live]') || startsWith(github.event.pull_request.title, '[candidate:studio-live]'))) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 5
     outputs:
       scope: ${{ steps.request.outputs.scope }}
       integration: ${{ steps.request.outputs.integration }}
@@ -107,7 +107,7 @@ jobs:
   preflight:
     needs: [plan, core, gui, contracts, runtime, separation, mp3]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
-    timeout-minutes: 5
+    timeout-minutes: 35
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -259,7 +259,8 @@ jobs:
           elseif($env:INTEGRATION -ne 'true'){$args+=@('-R','^(midi_import|core_(ace_midi_protocol|audio_to_midi|stretch_contract|model|transport|commands|serialization|track_folders|remove_tracks)|stretch_.*|clip_stretch_.*|track_stretch_mode|drums_sdk_.*|ai_.*|ara_.*|juce_(transcription|separation_(models|project)|live_application|live_entry_smoke|clip_stretch|library_browser|j1_smoke|track_header_layout|track_folders|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(python_transcription|transcription_controller|audio_to_midi_worker|separation_assets|wav_import|track_folders|remove_tracks|clip_response)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
           if($env:CHECK_SCOPE -eq 'profile'){$args+=@('-E','^(ara_.*|ai_ara|juce_ara_editor)$')}
           & ctest @args
-          if($LASTEXITCODE){
+          $profileExit=$LASTEXITCODE
+          if($profileExit){
             if(Test-Path 'build/windows/separation-project-failure.txt'){Get-Content 'build/windows/separation-project-failure.txt'}
             if(Test-Path 'build/windows/separation-models-failure.txt'){Get-Content 'build/windows/separation-models-failure.txt'}
             if(Test-Path 'build/windows/wav-drop-failure.txt'){Get-Content 'build/windows/wav-drop-failure.txt'}
@@ -267,15 +268,16 @@ jobs:
             if(Test-Path 'build/windows/live-application-failure.txt'){Get-Content 'build/windows/live-application-failure.txt'}
             if(Test-Path 'build/windows/live-entry-failure.txt'){Get-Content 'build/windows/live-entry-failure.txt'}
             if(Test-Path 'build/windows/library261-failure.txt'){Get-Content 'build/windows/library261-failure.txt'}
-            throw "CTest failed ($env:CHECK_SCOPE)"
           }
+          $separationExit=0
           if($env:CHECK_SCOPE -notin @('live','separation','separation-ui','studio','studio-live')){
             & ctest --test-dir build/windows -C Release --output-on-failure --no-tests=error -R '^separation_(host|models)$'
-            if($LASTEXITCODE){throw 'Separation host contract failed'}
+            $separationExit=$LASTEXITCODE
           }
+          if($profileExit -or $separationExit){throw "CTest failed ($env:CHECK_SCOPE); profile=$profileExit separation=$separationExit"}
       - name: VST3 and ARA host contracts
         id: host
-        if: success() && (env.CHECK_SCOPE == 'studio' || env.CHECK_SCOPE == 'studio-live' || env.CHECK_SCOPE == 'profile')
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && (env.CHECK_SCOPE == 'studio' || env.CHECK_SCOPE == 'studio-live' || env.CHECK_SCOPE == 'profile') }}
         shell: pwsh
         run: |
           $pattern=if($env:BUILD_ARA -eq 'true'){'^(vst3_.*|midi_(live|recording|clips)|ara_.*|ai_ara|juce_ara_editor)$'}else{'^(vst3_.*|midi_(live|recording|clips))$'}
@@ -283,7 +285,7 @@ jobs:
           if($LASTEXITCODE){throw 'Host contracts failed'}
       - name: Offline audio export contracts
         id: export
-        if: success() && (env.CHECK_SCOPE == 'studio' || env.CHECK_SCOPE == 'studio-live' || env.CHECK_SCOPE == 'profile')
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && (env.CHECK_SCOPE == 'studio' || env.CHECK_SCOPE == 'studio-live' || env.CHECK_SCOPE == 'profile') }}
         shell: pwsh
         run: |
           ctest --test-dir build/windows -C Release --output-on-failure --no-tests=error -R '^(desktop_(offline_export|reverb|cab_collection|cab_combo)|audio_(reverb_library|mp3_export)|processing_(reverb|rig)|juce_export_audio)$'
@@ -292,7 +294,8 @@ jobs:
             throw 'Offline export contracts failed'
           }
       - name: Stretch foundation evidence (synthetic, not ASIO)
-        if: success() && env.CHECK_SCOPE != 'live' && env.CHECK_SCOPE != 'separation' && env.CHECK_SCOPE != 'separation-ui' && env.CHECK_SCOPE != 'studio' && env.CHECK_SCOPE != 'studio-live'
+        id: stretch
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && env.CHECK_SCOPE != 'live' && env.CHECK_SCOPE != 'separation' && env.CHECK_SCOPE != 'separation-ui' && env.CHECK_SCOPE != 'studio' && env.CHECK_SCOPE != 'studio-live' }}
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force build/stretch-evidence | Out-Null
@@ -310,7 +313,7 @@ jobs:
           @("MR Studio $env:MR_STUDIO_VERSION stretch foundation. Synthetic evidence, not ASIO or user listening acceptance.", 'mrs_stretch_bench.exe --seconds 300 --warmup 30 --repeats 3 --voices 8 --ratio 1.25', 'Experimental manual clip controls/cache playback are integrated; final realtime/quality acceptance remains in #59/#62.') | Set-Content build/stretch-evidence/README.txt
           Get-ChildItem build/stretch-evidence -File | Get-FileHash -Algorithm SHA256 | Format-Table -AutoSize | Out-String -Width 240 | Set-Content build/stretch-evidence/SHA256.txt
       - name: Upload stretch evidence
-        if: success() && env.CHECK_SCOPE != 'live' && env.CHECK_SCOPE != 'separation' && env.CHECK_SCOPE != 'separation-ui' && env.CHECK_SCOPE != 'studio' && env.CHECK_SCOPE != 'studio-live'
+        if: ${{ !cancelled() && steps.stretch.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ${{ env.RELEASE_ARTIFACT_VERSION }}-Stretch-Evidence-${{ needs.plan.outputs.sha }}
