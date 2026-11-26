@@ -226,6 +226,15 @@ void trackFolderSmoke(){
         gain->commit(.7);check(std::abs(d.project()->tracks[busIndex].mix.gain-std::pow(10.f,(-60.f+72.f*.7f)/20.f))<.0001f&&d.project()->master_gain==masterBefore,"inspector gain edits only the Bus");
         auto* insertViewport=dynamic_cast<juce::Viewport*>(inspectorPanel->findChildWithID("inspector-inserts"));
         check(insertViewport&&insertViewport->isVisible()&&insertViewport->getViewedComponent()->findChildWithID("inspector-insert:"+juce::String(effect.id.value))!=nullptr,"inspector lists the Bus insert");
+        // Keep the same selected channel while editing its insert chain.
+        const mrs::NativeInsert extra{mrs::new_id(),mrs::InsertKind::gain};
+        const auto extraId="inspector-insert:"+juce::String(extra.id.value);
+        const auto hasExtra=[&]{return insertViewport->getViewedComponent()->findChildWithID(extraId)!=nullptr;};
+        d.applyChain(bus,{effect,extra});
+        check(d.inspectorPanelChannel()==std::optional<mrs::Id>{bus}&&hasExtra(),"inspector immediately lists newly added insert on unchanged channel");
+        d.action(10);check(!hasExtra(),"inspector removes insert immediately on Undo");
+        d.action(11);check(hasExtra(),"inspector restores insert immediately on Redo");
+        d.applyChain(bus,{effect});check(!hasExtra(),"inspector immediately lists removal on unchanged channel");
         auto* sendViewport=dynamic_cast<juce::Viewport*>(inspectorPanel->findChildWithID("inspector-sends"));
         check(sendViewport&&sendViewport->isVisible()&&sendViewport->getViewedComponent()->findChildWithID("inspector-send:"+juce::String(busTrack.sends.front().bus.value))!=nullptr,"inspector lists the Bus send");
         check(inspectorPanel->findChildWithID("inspector-add-insert")->isVisible()&&inspectorPanel->findChildWithID("inspector-add-send")->isVisible(),"inspector can add an insert and a send");
@@ -1290,6 +1299,23 @@ void clipCopySmoke(){
         const auto expected=original.midi?time.to_samples(time.to_ticks(start+5600)):start+5600;check(mrs::clip_start(stored(id),time)==expected&&d.snap,"Shift after mouse-down bypasses clip grid without changing Snap setting");d.action(10);check(stored(id)==original,"Shift clip drag one Undo");d.action(11);check(mrs::clip_start(stored(id),time)==expected,"Shift clip drag Redo");d.action(10);
         const auto resumed=point.translated(21,0);a.mouseDown(mouse(point,juce::ModifierKeys::leftButtonModifier));a.mouseDrag(mouse(freePoint,juce::ModifierKeys::leftButtonModifier|juce::ModifierKeys::shiftModifier));a.mouseDrag(mouse(resumed,juce::ModifierKeys::leftButtonModifier));a.mouseUp(mouse(resumed,0));check(mrs::clip_start(stored(id),time)==a.snapSample(start+16800)&&d.snap,"releasing Shift during clip drag resumes Smart Snap");d.action(10);
     }
+    // Scissors use the same grid as clip editing, except while Shift is held.
+    a.pixelsPerSecond=120.;d.setKnifeMode(true);
+    for(const auto id:{audio,midi}){
+        const auto original=stored(id);const mrs::Timeline time(d.project()->time,d.project()->sample_rate);
+        const auto r=a.clipRect(original);const auto point=r.getCentre().roundToInt().toFloat().translated(3,0);
+        d.snap=false;const auto raw=a.sampleAt(point.x);d.snap=true;const auto snapped=a.sampleAt(point.x);
+        check(raw!=snapped&&raw>mrs::clip_start(original,time)&&raw<mrs::clip_end(original,time)&&snapped>mrs::clip_start(original,time)&&snapped<mrs::clip_end(original,time),"off-grid scissors fixture");
+        for(const bool shift:{true,false}){
+            d.activateClip(id);d.selectedClips={id.value};const auto beforeSplit=*d.project();
+            a.mouseDown(mouse(point,juce::ModifierKeys::leftButtonModifier|(shift?juce::ModifierKeys::shiftModifier:0)));
+            a.mouseUp(mouse(point,0));
+            const auto cut=shift?raw:snapped;const auto expected=original.midi?time.to_samples(time.to_ticks(cut)):cut;
+            check(d.message.isEmpty()&&d.selectedClip&&d.project()->clips.size()==beforeSplit.clips.size()+1&&mrs::clip_start(stored(*d.selectedClip),time)==expected&&d.snap,"scissors Shift bypass and normal Snap preserve global setting");
+            d.action(10);check(*d.project()==beforeSplit,"scissors split one Undo");
+        }
+    }
+    d.setKnifeMode(false);
     d.activateClip(midi);const auto before=*d.project();check(d.keyPressed(juce::KeyPress('D')),"D Duplicate shortcut");const auto copy=*d.selectedClip;check(d.project()->clips.size()==before.clips.size()+1,"D duplicates clip");
     d.selectedClips={midi.value,copy.value};check(d.keyPressed(juce::KeyPress('G')),"G Merge shortcut");const auto joined=*d.project();check(joined.clips.size()==before.clips.size()&&stored(*d.selectedClip).midi.has_value(),"G merges selected MIDI clips");
     d.action(10);check(d.project()->clips.size()==before.clips.size()+1,"Merge one Undo");d.action(11);check(*d.project()==joined,"Merge Redo stable IDs");d.action(10);d.action(10);check(*d.project()==before,"Duplicate/merge history restores original");
