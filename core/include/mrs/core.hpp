@@ -22,7 +22,7 @@ inline constexpr Tick ppq = 960;
 inline constexpr std::size_t max_project_midi_notes = 32768;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 36;
+inline constexpr std::uint32_t schema_version = 37;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -246,6 +246,7 @@ struct Track {
     bool fx_channel{}; // FX return role; processing/routing remains TrackKind::bus.
     std::optional<std::uint32_t> color{}; // Channel RGB; independent of clip colors.
     std::optional<DrumMapBinding> drum_map{}; // display only, instrument tracks
+    bool midi_drum_mode{}; // MIDI editor presentation only; instrument tracks
     bool operator==(const Track&) const = default;
 };
 struct MidiNote {

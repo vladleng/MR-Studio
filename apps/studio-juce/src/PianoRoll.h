@@ -106,7 +106,14 @@ public:
         grabKeyboardFocus();sync();releaseNote();
         if(e.mods.isPopupMenu()){showNoteMenu(e);return;}
         if(!e.mods.isLeftButtonDown())return;
-        if(e.y<scrollY()+ruler&&e.x>=scrollX()+railWidth()){const auto p=owner.project();const auto tick=std::clamp(static_cast<mrs::Tick>(std::llround((e.x-railWidth())/beatWidth*mrs::ppq)),mrs::Tick{0},mrs::max_tick);owner.run([&]{owner.app.seek(mrs::Timeline(p->time,p->sample_rate).to_samples(tick));});repaint();return;}
+        if(e.y>=scrollY()&&e.y<scrollY()+ruler&&e.x>=scrollX()+railWidth()){
+            const auto p=owner.project();
+            const auto raw=std::clamp(static_cast<mrs::Tick>(std::llround((e.position.x-railWidth())/beatWidth*mrs::ppq)),mrs::Tick{0},mrs::max_tick);
+            // Ruler positions are global ticks, unlike note positions inside a clip.
+            const auto tick=snapGrid?std::clamp(gridSpec.snap(raw),mrs::Tick{0},mrs::max_tick):raw;
+            owner.run([&]{owner.app.seek(mrs::Timeline(p->time,p->sample_rate).to_samples(tick));});
+            repaint();return;
+        }
         if(e.x>=scrollX()+railWidth()&&e.y>=scrollY()+ruler)for(const auto& c:contextClips)if(c.id!=id&&e.x>=railWidth()+static_cast<double>(c.midi->start)/mrs::ppq*beatWidth&&e.x<railWidth()+static_cast<double>(c.midi->start+c.midi->length)/mrs::ppq*beatWidth){cancel();owner.activateClip(c.id);return;}
         if(drums&&e.x<scrollX()+railWidth()&&e.y>=scrollY()+ruler){
             if(const auto* r=drumRowAt(e.position.y)){
@@ -194,9 +201,18 @@ public:
     }
     void visibilityChanged() override{if(!isShowing())cancel();}
     void focusLost(FocusChangeType) override{cancel();}
+    bool keyStateChanged(bool) override{
+        const bool down=juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey);
+        if(!down){owner.spaceKey(false);return false;}
+        if(juce::Component::getCurrentlyModalComponent()||juce::ModifierKeys::getCurrentModifiersRealtime().isAnyModifierKeyDown())return false;
+        return keyPressed(juce::KeyPress(juce::KeyPress::spaceKey));
+    }
     bool keyPressed(const juce::KeyPress& key) override{
         const int code=key.getKeyCode();const auto mods=key.getModifiers();
-        if(code==juce::KeyPress::spaceKey&&!mods.isAnyModifierKeyDown()){owner.run([&]{transport(owner.app.engine()->state().playback==mrs::PlaybackState::playing?31:30);});return true;}
+        if(code==juce::KeyPress::spaceKey&&!mods.isAnyModifierKeyDown()){
+            if(juce::Component::getCurrentlyModalComponent())return false;
+            owner.spaceKey(true,owner.view.midiResumePlayback,[this]{cancel();repaint();});return true;
+        }
         if(code==juce::KeyPress::escapeKey){cancel();return true;}
         if(!mods.isAnyModifierKeyDown()&&(code=='1'||code=='3')){setSplitTool(code=='3');return true;}
         if(mods.isCtrlDown()&&!mods.isAltDown()){

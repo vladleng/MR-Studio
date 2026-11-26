@@ -2,11 +2,14 @@
 import os
 import subprocess
 
-SCOPES = {'profile', 'studio', 'studio-live', 'live', 'separation', 'separation-ui'}
+SCOPES = {'profile', 'studio', 'studio-ui', 'studio-live', 'live', 'separation', 'separation-ui'}
 
 def required_checks(scope, integration):
     if scope not in SCOPES:
         raise ValueError(f'Unknown release scope: {scope}')
+    # UI Release compiles the actual executable and runs targeted MIDI/UI tests.
+    if scope == 'studio-ui' and not integration:
+        return {'core'}
     required = {'core'}
     if scope != 'separation' or integration:
         required.add('gui')

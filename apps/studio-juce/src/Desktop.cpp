@@ -1146,7 +1146,7 @@ void Desktop::refresh(bool force){
         for(const auto& fx:p->master_inserts)if(fx.kind==mrs::InsertKind::vst3)mrs::diagnostics::event("plugin master name="+fx.plugin_name+" path="+fx.plugin_path+" class="+fx.class_id);
         std::erase_if(selectedTracks,[&](const auto& id){return std::none_of(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id.value==id;});});arrangement->rebuildFolderLayout();arrangement->syncFolderChannels();arrangement->resized();rebuildMixerFolders();
         try{app.prepare_waveforms();}catch(const std::exception& e){message="Missing or unreadable media: "+juce::String::fromUTF8(e.what());}
-        for(auto& s:mixer)s->sync();for(auto& s:mixerFolders)s->sync();for(auto& s:arrangement->rows)s->sync();if(master)master->sync();refreshPresetLists();if(channelInspector)channelInspector->syncStretchSelection();revision=state.revision;resized();}
+        for(auto& s:mixer)s->sync();for(auto& s:mixerFolders)s->sync();for(auto& s:arrangement->rows)s->sync();if(master)master->sync();refreshPresetLists();if(channelInspector)channelInspector->syncStretchSelection();revision=state.revision;syncMidiEditorModes();resized();}
     // Arm is transient host state and may change without a project revision.
     if(assetSkin()){for(auto& s:mixer)s->refreshArmState();for(auto& s:arrangement->rows)s->refreshArmState();}
     navigationMode.setEnabled(!app.recording());previous.setEnabled(!app.recording());next.setEnabled(!app.recording());
@@ -1219,16 +1219,29 @@ bool Desktop::keyPressed(const juce::KeyPress& k){if(workspaceShortcut(k))return
     if(k.getModifiers().isShiftDown())return false;
     if(c=='1'){setKnifeMode(false);return true;}if(c=='3'){setKnifeMode(true);return true;}if(c=='D'){action(45);return true;}if(c=='G'){action(52);return true;}if(c=='S'){action(24);return true;}if(c=='R'){action(33);return true;}if(c==juce::KeyPress::backspaceKey||c==juce::KeyPress::deleteKey){action(25);return true;}return c==juce::KeyPress::spaceKey;
 }
-bool Desktop::keyStateChanged(bool){if(homeVisible||!shortcutAllowed()){spaceHeld=false;return false;}
-    const bool down=juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey);spaceKey(down);return down;}
-void Desktop::spaceKey(bool down){if(down&&!spaceHeld)run([&]{action(app.engine()->state().playback==mrs::PlaybackState::playing?32:30);});spaceHeld=down;}
+bool Desktop::keyStateChanged(bool){
+    const bool down=juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey);
+    if(!down){spaceKey(false);return false;}
+    if(homeVisible||!shortcutAllowed()||juce::ModifierKeys::getCurrentModifiersRealtime().isAnyModifierKeyDown())return false;
+    spaceKey(true);return true;
+}
+void Desktop::spaceKey(bool down,bool pausePlayback,std::function<void()> before){
+    if(!down){spaceHeld=false;return;}
+    if(spaceHeld)return;
+    // Latch before invoking transport: nested UI messages must not retrigger it.
+    spaceHeld=true;
+    run([&]{if(before)before();action(app.engine()->state().playback==mrs::PlaybackState::playing?(pausePlayback?31:32):30);});
+}
 void Desktop::updateRecordingPreview(){
     recordingPreview=app.midi_recording_preview();auto nextWaveforms=app.audio_recording_preview();
     for(auto& takePreview:nextWaveforms)if(!takePreview.waveform){const auto old=std::find_if(audioRecordingPreview.begin(),audioRecordingPreview.end(),[&](const auto& item){return item.clip.id==takePreview.clip.id;});if(old!=audioRecordingPreview.end())takePreview.waveform=old->waveform;}
     audioRecordingPreview=std::move(nextWaveforms);
 }
-void Desktop::focusLost(FocusChangeType){spaceHeld=false;}
-void Desktop::timerCallback(){if(app.export_active())return;try{const bool wasRecording=app.recording();app.poll();syncLivePlayback();pollLivePreflightJobs();
+void Desktop::focusLost(FocusChangeType){if(!juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey))spaceKey(false);}
+void Desktop::timerCallback(){
+    // Recover a missed key-up (e.g. focus moved out of the editor/window).
+    if(spaceHeld&&!juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey))spaceKey(false);
+    if(app.export_active())return;try{const bool wasRecording=app.recording();app.poll();syncLivePlayback();pollLivePreflightJobs();
 #if defined(MRS_PROJECT_IMPORT_UI)
     pollProjectImportPreview();pollProjectImportCreate();
 #endif

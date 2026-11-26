@@ -25,4 +25,15 @@ private:
     Id track_;
     std::optional<DrumMapBinding> binding_;
 };
+// MIDI editor presentation is independent of the selected drum map.
+class SetTrackMidiDrumMode final : public ICommand {
+public:
+    SetTrackMidiDrumMode(Id track, bool active)
+        : track_(std::move(track)), active_(active) {}
+    std::string_view name() const override { return "Set MIDI editor presentation"; }
+    void apply(Project&) const override;
+private:
+    Id track_;
+    bool active_;
+};
 } // namespace mrs

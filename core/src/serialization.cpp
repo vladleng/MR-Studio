@@ -93,7 +93,8 @@ std::string serialize(const Project& p) {
     out << std::setprecision(std::numeric_limits<double>::max_digits10);
     // Preserve the previous wire version for projects without Drum Maps.
     const auto drum_maps = std::count_if(p.tracks.begin(), p.tracks.end(), [](const auto& t) { return t.drum_map.has_value(); });
-    out << "MRS_CORE_SNAPSHOT " << (drum_maps ? 36 : !p.transcription_results.empty()?35:p.separation_results.empty()?32:std::all_of(p.separation_results.begin(),p.separation_results.end(),legacy_separation)?33:34) << '\n';
+    const auto drum_views = std::count_if(p.tracks.begin(), p.tracks.end(), [](const auto& t) { return t.midi_drum_mode; });
+    out << "MRS_CORE_SNAPSHOT " << (drum_views ? 37 : drum_maps ? 36 : !p.transcription_results.empty()?35:p.separation_results.empty()?32:std::all_of(p.separation_results.begin(),p.separation_results.end(),legacy_separation)?33:34) << '\n';
     out << "PROJECT " << std::quoted(p.id.value) << ' ' << std::quoted(p.title) << ' '
         << std::quoted(p.artist) << ' ' << p.sample_rate << '\n';
     section(out, "TEMPOS", p.time.tempos);
@@ -181,6 +182,11 @@ std::string serialize(const Project& p) {
             for (const auto& id : binding.collapsed) out << ' ' << std::quoted(id.value);
             out << '\n';
         }
+    }
+    if (drum_views) {
+        out << "MIDI_DRUM_VIEWS " << drum_views << '\n';
+        for (const auto& track : p.tracks) if (track.midi_drum_mode)
+            out << std::quoted(track.id.value) << '\n';
     }
     out << "END\n";
     auto result = out.str();
@@ -389,6 +395,18 @@ Project deserialize(std::string_view bytes) {
             if (collapsed > max_drum_map_groups) throw std::invalid_argument("too many collapsed drum map groups");
             for (std::size_t j = 0; j < collapsed; ++j) binding.collapsed.push_back(Id{quoted(in)});
             track->drum_map = std::move(binding);
+        }
+        in >> ending; check_stream(in);
+    }
+    if (input_version >= 37 && ending == "MIDI_DRUM_VIEWS") {
+        const auto total = count(in);
+        if (total > p.tracks.size()) throw std::invalid_argument("too many MIDI drum views");
+        for (std::size_t i = 0; i < total; ++i) {
+            const Id id{quoted(in)};
+            const auto track = std::find_if(p.tracks.begin(), p.tracks.end(), [&](const auto& t) { return t.id == id; });
+            if (track == p.tracks.end() || track->kind != TrackKind::instrument || track->midi_drum_mode)
+                throw std::invalid_argument("invalid MIDI drum view track identity");
+            track->midi_drum_mode = true;
         }
         in >> ending; check_stream(in);
     }

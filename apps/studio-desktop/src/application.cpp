@@ -53,7 +53,7 @@ bool same_metadata(const Project& a,const Project& b){
 bool same_mix_only(const Project& a,const Project& b){
     const auto base=[](const Project& p){return std::tie(p.version,p.id,p.title,p.artist,p.sample_rate,p.time,p.folders,p.clips,p.markers,p.chords,p.sections,p.master_outputs,p.master_inserts,p.ara_bindings,p.separation_results);};
     if(base(a)!=base(b)||a.tracks.size()!=b.tracks.size())return false;
-    const auto track=[](const Track& t){return std::tie(t.id,t.name,t.kind,t.folder,t.output,t.sends,t.input,t.input_stereo,t.input_monitor,t.hardware_outputs,t.inserts,t.midi_input,t.midi_channel,t.midi_monitor,t.midi_output,t.midi_output_channel,t.stretch_backend,t.fx_channel,t.color,t.drum_map);};
+    const auto track=[](const Track& t){return std::tie(t.id,t.name,t.kind,t.folder,t.output,t.sends,t.input,t.input_stereo,t.input_monitor,t.hardware_outputs,t.inserts,t.midi_input,t.midi_channel,t.midi_monitor,t.midi_output,t.midi_output_channel,t.stretch_backend,t.fx_channel,t.color,t.drum_map,t.midi_drum_mode);};
     for(std::size_t i=0;i<a.tracks.size();++i)if(track(a.tracks[i])!=track(b.tracks[i]))return false;
     return true;
 }
@@ -1898,6 +1898,11 @@ void Application::set_track_drum_map(const Id& id, std::optional<DrumMapBinding>
     require_not_recording();
     // Display metadata only; do not prepare a graph or republish MIDI routes.
     services_.projects->execute(SetTrackDrumMap{id, std::move(binding)});
+}
+void Application::set_track_midi_drum_mode(const Id& id, bool active) {
+    require_not_recording();
+    // Project display metadata only: no graph rebuild or MIDI-route publication.
+    services_.projects->execute(SetTrackMidiDrumMode{id, active});
 }
 void Application::reconnect_midi(){require_not_recording();require_not_playing();midi_inputs_.reset();midi_route_revision_=~std::uint64_t{};rebuild_audio(true);if(midi_outputs_)midi_outputs_->reconnect();publish_midi_routes();}
 std::string Application::midi_output_status(const Id& id)const{

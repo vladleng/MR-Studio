@@ -25,7 +25,7 @@ public:
         if(!owner.standaloneLive){
             for(auto* b:{&drumMode,&drumMap,&expand,&collapse})sideBody.addAndMakeVisible(*b);
             drumMode.setComponentID("midi-view-mode");drumMap.setComponentID("midi-display-map");
-            drumMode.onClick=[this]{setDrumMode(!roll.drums);};drumMap.onClick=[this]{chooseMap();};
+            drumMode.onClick=[this]{owner.run([this]{setDrumMode(!roll.drums);});};drumMap.onClick=[this]{chooseMap();};
             expand.onClick=[this]{foldAll(false);};collapse.onClick=[this]{foldAll(true);};
             roll.toggleDrumGroup=[this](const auto& group){updateFold([&](auto& binding){const auto at=std::find(binding.collapsed.begin(),binding.collapsed.end(),group);if(at==binding.collapsed.end())binding.collapsed.push_back(group);else binding.collapsed.erase(at);});};
             addAndMakeVisible(velocity);velocity.setVisible(false);
@@ -71,6 +71,17 @@ public:
         sideBody.addAndMakeVisible(hint);sideBody.addAndMakeVisible(controllerLane.controlsContent());
         details.setButtonText("Notes");details.setTitle("Show note details");
         const std::array<juce::String,5> compactNames{"Pitch","Start beat","Length","Velocity","Channel"};for(std::size_t i=0;i<labels.size();++i)labels[i].setText(compactNames[i],juce::dontSendNotification);
+        for(auto* b:{&gridSnap,&playheadMode}){addAndMakeVisible(b);b->setWantsKeyboardFocus(false);}
+        gridSnap.setComponentID("midi-grid-snap");gridSnap.setTitle("Snap grid");
+        gridSnap.getProperties().set("mrHostIcon","action_snap");gridSnap.getProperties().set("mrSmallToolbarIcon",true);
+        gridSnap.onClick=[this]{applyNoteGrid(noteGrid.spec(),!noteGrid.snapEnabled());};
+        playheadMode.setComponentID("midi-playhead-mode");playheadMode.setTitle("Playback stop mode");
+        playheadMode.onClick=[this]{
+            owner.view.midiResumePlayback=!owner.view.midiResumePlayback;
+            syncToolbarPreferences();owner.syncMidiEditorTools();owner.saveSettings();
+            if(roll.isShowing())roll.grabKeyboardFocus();
+        };
+        syncToolbarPreferences();
         addAndMakeVisible(follow);follow.setComponentID("midi-follow-playhead");follow.setClickingTogglesState(true);
         follow.setToggleState(owner.view.midiFollowPlayhead,juce::dontSendNotification);
         follow.onClick=[this]{
@@ -79,10 +90,16 @@ public:
             juce::MessageManager::callAsync([safe]{if(safe)safe->saveSettings();});
         };
         reload();setSize(1000,800);
-        if(drumMode.isVisible() && owner.view.midiDrumMode)setDrumMode(true,false);
+        restoreDrumMode();
     }
     bool keyPressed(const juce::KeyPress& key) override{if(owner.workspaceShortcut(key))return true;if(key.getKeyCode()==juce::KeyPress::F11Key){deferFullScreen();return true;}for(auto* c=juce::Component::getCurrentlyFocusedComponent();c&&c!=this;c=c->getParentComponent())if(dynamic_cast<juce::TextEditor*>(c)||dynamic_cast<juce::ComboBox*>(c))return false;return roll.keyPressed(key);}
-    void activate(mrs::Id next){id=next;roll.activate(next);controllerLane.activate(next);showDetails=false;controllerLane.setVisible(owner.view.controllersOpen);reload();resized();}
+    bool keyStateChanged(bool isKeyDown) override{
+        if(!juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey)){owner.spaceKey(false);return false;}
+        for(auto* c=juce::Component::getCurrentlyFocusedComponent();c&&c!=this;c=c->getParentComponent())
+            if(dynamic_cast<juce::TextEditor*>(c)||dynamic_cast<juce::ComboBox*>(c))return false;
+        return roll.keyStateChanged(isKeyDown);
+    }
+    void activate(mrs::Id next){id=next;roll.activate(next);controllerLane.activate(next);showDetails=false;controllerLane.setVisible(owner.view.controllersOpen);restoreDrumMode();reload();resized();}
     ~MidiClipPanel() override{controllerLane.laneChanged=nullptr;sideViewport.setViewedComponent(nullptr,false);viewport.setViewedComponent(nullptr,false);setLookAndFeel(nullptr);}
     void resized() override{
         const int sideWidth=juce::jlimit(156,196,getWidth()/4);
@@ -114,11 +131,16 @@ public:
         sideBody.setSize(width,juce::jmax(getHeight(),y+(form.isVisible()?form.getHeight():0)));
         pointer.setBounds(sideWidth+4,2,32,28);split.setBounds(sideWidth+38,2,32,28);
         const int toolbarLeft=sideWidth+74;
-        const int gridWidth=juce::jlimit(72,104,getWidth()-toolbarLeft-190);
-        noteGrid.setBounds(toolbarLeft,2,gridWidth,28);
-        const int colorsX=toolbarLeft+gridWidth+6;
-        const int colorWidth=juce::jlimit(60,156,getWidth()-colorsX-130);
-        noteColors.setBounds(colorsX,4,colorWidth,24);follow.setBounds(colorsX+colorWidth+6,4,118,24);
+        auto toolbarArea=juce::Rectangle<int>{toolbarLeft,2,std::max(0,getWidth()-toolbarLeft-8),28};
+        const int available=toolbarArea.getWidth();
+        const auto take=[&](int requested){auto cell=toolbarArea.removeFromLeft(std::min(requested,toolbarArea.getWidth()));toolbarArea.removeFromLeft(std::min(4,toolbarArea.getWidth()));return cell;};
+        gridSnap.setBounds(take(32));
+        noteGrid.setBounds(take(juce::jlimit(72,104,available-300)));
+        playheadMode.setBounds(take(juce::jlimit(70,94,available-270)));
+        const int followWidth=juce::jlimit(62,118,available-320);
+        noteColors.setBounds(take(std::max(0,std::min(156,toolbarArea.getWidth()-followWidth-4))).reduced(0,2));
+        follow.setBounds(toolbarArea.removeFromLeft(std::min(followWidth,toolbarArea.getWidth())).reduced(0,2));
+        follow.setButtonText(follow.getWidth()<100?"Follow":"Follow playhead");
         layoutEditorPanes(sideWidth+4,juce::jmax(90,getWidth()-sideWidth-12));alignControllers();
         if(firstLayout){firstLayout=false;viewport.setViewPosition(static_cast<int>(static_cast<double>(roll.clip.start)/mrs::ppq*roll.beatWidth),PianoRoll::ruler+(127-78)*static_cast<int>(roll.rowHeight));}
     }
@@ -146,15 +168,25 @@ private:
         const auto next=followedScrollX(x,visible.getX(),visible.getWidth()-roll.railWidth(),std::max(0,roll.getWidth()-visible.getWidth()));
         if(next!=visible.getX())viewport.setViewPosition(next,visible.getY());
     }
+    void restoreDrumMode(){
+        if(!drumMode.isVisible())return;
+        const auto p=owner.project();
+        const auto clip=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id&&c.midi.has_value();});
+        if(clip==p->clips.end())return;
+        const auto track=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& t){return t.id==clip->track;});
+        if(track!=p->tracks.end()&&track->midi_drum_mode!=roll.drums)setDrumMode(track->midi_drum_mode,false);
+    }
     void setDrumMode(bool active,bool persist=true){
         if(roll.drums==active)return;
         (roll.drums?drumsY:pianoY)=viewport.getViewPositionY();
         const auto x=viewport.getViewPositionX();
         roll.cancel();roll.sync();if(!roll.isEnabled())return;
-        controllerLane.cancelGesture();roll.setDrums(active);setName(active?"Drum Grid":"Piano roll");
+        controllerLane.cancelGesture();
+        if(persist)owner.app.set_track_midi_drum_mode(roll.trackId(),active);
+        roll.setDrums(active);setName(active?"Drum Grid":"Piano roll");
         drumMode.setToggleState(active,juce::dontSendNotification);drumMode.setButtonText(active?"Drum Grid / Piano":"Piano Roll / Drums");
-        velocity.setVisible(active);reload();resized();viewport.setViewPosition(x,active?drumsY:pianoY);if(roll.isShowing())roll.grabKeyboardFocus();
-        if(persist && owner.view.midiDrumMode!=active){owner.view.midiDrumMode=active;owner.saveSettings();}
+        velocity.setVisible(active);reload();resized();viewport.setViewPosition(x,active?drumsY:pianoY);
+        if(persist&&roll.isShowing())roll.grabKeyboardFocus();
     }
     const mrs::Track* currentTrack(const mrs::Project& project) const{
         const auto at=std::find_if(project.tracks.begin(),project.tracks.end(),[&](const auto& t){return t.id==roll.trackId();});
@@ -177,12 +209,25 @@ private:
         });
     }
     // The grid is a view preference for both the piano roll and the drum grid.
+    void syncToolbarPreferences(){
+        const auto spec=noteGridFromView();const bool enabled=owner.view.midiGridSnap;
+        if(roll.gridSpec!=spec||roll.snapGrid!=enabled){
+            controllerLane.cancelGesture();velocity.cancel();roll.setNoteGrid(spec,enabled);
+        }
+        noteGrid.setState(spec,enabled);
+        gridSnap.setToggleState(enabled,juce::dontSendNotification);
+        gridSnap.setTooltip(enabled?"Snap enabled":"Snap disabled");
+        const bool resume=owner.view.midiResumePlayback;
+        playheadMode.setToggleState(resume,juce::dontSendNotification);
+        playheadMode.setButtonText(resume?"Resume":"Return");
+        playheadMode.setTooltip(resume?"Resume from the last stop position (click to return to start)":"Return to the last playback start (click to resume)");
+    }
     void applyNoteGrid(const NoteGridSpec& spec,bool snap){
         const auto canonical=canonicalNoteGrid(spec);
         owner.view.midiGridDivisor=canonical.divisor;owner.view.midiGridShape=static_cast<int>(canonical.shape);
         owner.view.midiGridSwing=canonical.swing;owner.view.midiGridSnap=snap;
-        noteGrid.setState(canonical,snap);roll.setNoteGrid(canonical,snap);
-        owner.saveSettings();roll.grabKeyboardFocus();
+        syncToolbarPreferences();owner.syncMidiEditorTools();
+        owner.saveSettings();if(roll.isShowing())roll.grabKeyboardFocus();
     }
 #if defined(MRS_DRUM_MAP_UI)
     void chooseMap(){try{
@@ -299,7 +344,7 @@ private:
     struct RollViewport : juce::Viewport {std::function<void()> changed;void visibleAreaChanged(const juce::Rectangle<int>&) override{if(changed)changed();}};
     PianoRoll roll;ControllerPanel controllerLane;RollViewport viewport;bool showDetails{};bool firstLayout{true};
     bool fullScreenActive{},returnAttached{};
-    juce::TextButton pointer{""},split{""},follow{"Follow playhead"};juce::ComboBox noteColors;NoteGridButton noteGrid;
+    juce::TextButton pointer{""},split{""},follow{"Follow playhead"},gridSnap{""},playheadMode{"Resume"};juce::ComboBox noteColors;NoteGridButton noteGrid;
     juce::Component sideBody;juce::Viewport sideViewport;
     static constexpr std::array<int,3> ccNumbers{1,11,64};
     std::array<juce::TextButton,3> quickCC;
@@ -444,6 +489,18 @@ void noteGridChecks(MidiClipPanel& editor,Desktop& d){
     check(settings.midiGridDivisor==16&&settings.midiGridShape==0&&settings.midiGridSwing==0&&!settings.midiGridSnap,"note grid preference survives a settings round trip");
     editor.applyNoteGrid(defaultGrid,true);
     check(roll.snapGrid&&d.view.midiGridSnap,"snap stays on after the grid checks");
+    editor.gridSnap.onClick();
+    check(!roll.snapGrid&&!d.view.midiGridSnap&&!editor.gridSnap.getToggleState()&&editor.noteGrid.spec()==defaultGrid,"direct Snap button disables the existing grid without changing resolution");
+    editor.gridSnap.onClick();
+    check(roll.snapGrid&&editor.gridSnap.getToggleState(),"direct Snap button restores snapping");
+    const auto previousResume=d.view.midiResumePlayback;
+    editor.playheadMode.onClick();
+    check(d.view.midiResumePlayback!=previousResume&&editor.playheadMode.getToggleState()==d.view.midiResumePlayback&&ViewSettings::decode(d.view.encode()).midiResumePlayback==d.view.midiResumePlayback,"playback mode toggle and persisted setting");
+    editor.playheadMode.onClick();
+    const auto originalSize=editor.getBounds();
+    editor.setSize(720,300);
+    check(editor.gridSnap.getWidth()>0&&editor.playheadMode.getWidth()>0&&editor.follow.getRight()<=editor.getWidth()&&!editor.gridSnap.getBounds().intersects(editor.noteGrid.getBounds())&&!editor.playheadMode.getBounds().intersects(editor.noteColors.getBounds()),"MIDI toolbar controls fit the small editor");
+    editor.setSize(originalSize.getWidth(),originalSize.getHeight());
 }
 void noteGridSmoke(){
     const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
@@ -473,6 +530,61 @@ void noteGridSmoke(){
     check(roll.notes.size()==1&&roll.notes.front().start==swing.position(1),"swing double click snaps to the displaced eighth line");
     d.app.undo();roll.sync();
     editor.applyNoteGrid(NoteGridSpec{},true);
+    // Exercise actual ruler mouse events and transport, not just grid arithmetic.
+    struct RulerClock final:mrs::audio::IAudioDevice{
+        std::vector<mrs::audio::DeviceInfo> enumerate()override{return {{0,"MIDI ruler fixture",{}, {"L","R"},16,8192,128,1}};}
+        void control_panel(int)override{}
+        void open(const mrs::audio::DeviceConfig&,std::shared_ptr<mrs::audio::AudioEngine>)override{}
+        void start()override{}void stop()override{}void close()noexcept override{}
+        mrs::audio::DeviceStatus status()override{return {mrs::audio::DevicePhase::running,48000};}
+    };
+    d.app.connect(std::make_unique<RulerClock>(),{0,48000,128,{}, {0,1}});
+    std::array<float,256> audio{};const auto render=[&]{d.app.engine()->process(nullptr,audio.data(),128);};
+    const auto sampleAt=[&](mrs::Tick tick){const auto p=d.project();return mrs::Timeline(p->time,p->sample_rate).to_samples(tick);};
+    const auto seekRuler=[&](mrs::Tick raw,mrs::Tick expected){
+        const auto before=d.app.services().projects->state().revision;
+        const juce::Point<float> point{roll.railWidth()+static_cast<float>(raw)/mrs::ppq*roll.beatWidth,
+            static_cast<float>(editor.viewport.getViewPositionY())+8.f};
+        const auto event=juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),point,
+            juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier),1,0,0,0,0,&roll,&roll,
+            juce::Time::getCurrentTime(),point,juce::Time::getCurrentTime(),1,true);
+        roll.mouseDown(event);render();
+        check(d.message.isEmpty()&&d.app.engine()->state().sample==sampleAt(expected),"MIDI ruler seeks to the expected global grid or free position");
+        check(d.app.services().projects->state().revision==before,"ruler seek is not a project edit");
+    };
+    const auto pressSpace=[&]{
+        d.spaceKey(false);check(roll.keyPressed(juce::KeyPress(juce::KeyPress::spaceKey)),"MIDI editor consumes Space");render();
+    };
+    for(bool drumView:{false,true}){
+        editor.setDrumMode(drumView);check(roll.drums==drumView,"ruler fixture editor mode");
+        editor.viewport.setViewPosition(0,0);
+        editor.applyNoteGrid(NoteGridSpec{},true);
+        seekRuler(2*mrs::ppq+80,2*mrs::ppq);
+        editor.gridSnap.onClick();seekRuler(2*mrs::ppq+80,2*mrs::ppq+80);
+        editor.gridSnap.onClick();
+        const NoteGridSpec triplet{8,0,NoteGridSpec::Shape::triplet};
+        editor.applyNoteGrid(triplet,true);seekRuler(triplet.position(4)+40,triplet.position(4));
+        editor.applyNoteGrid(swing,true);seekRuler(swing.position(1)+40,swing.position(1));
+        // A scrolled timeline still uses project ticks, not viewport-relative ticks.
+        editor.applyNoteGrid(NoteGridSpec{},true);
+        editor.viewport.setViewPosition(100,0);
+        seekRuler(4*mrs::ppq+80,4*mrs::ppq);
+        editor.viewport.setViewPosition(0,0);
+        if(!d.view.midiResumePlayback)editor.playheadMode.onClick();
+        seekRuler(2*mrs::ppq+80,2*mrs::ppq);
+        pressSpace();check(d.app.engine()->state().playback==mrs::PlaybackState::playing,"MIDI editor starts at snapped position");
+        pressSpace();const auto pausedAt=d.app.engine()->state().sample;
+        check(d.app.engine()->state().playback==mrs::PlaybackState::paused&&pausedAt>sampleAt(2*mrs::ppq),"Resume preserves the last pause");
+        roll.keyPressed(juce::KeyPress(juce::KeyPress::spaceKey));render();
+        check(d.app.engine()->state().playback==mrs::PlaybackState::paused,"held Space does not restart playback");
+        pressSpace();check(d.app.engine()->state().sample>pausedAt,"Resume continues at the pause point");
+        d.action(31);render();d.spaceKey(false);
+        editor.playheadMode.onClick();seekRuler(2*mrs::ppq+80,2*mrs::ppq);
+        pressSpace();pressSpace();
+        check(d.app.engine()->state().playback==mrs::PlaybackState::stopped&&d.app.engine()->state().sample==sampleAt(2*mrs::ppq),"Return stops at the snapped playback start");
+        d.spaceKey(false);editor.playheadMode.onClick();
+    }
+    editor.setDrumMode(false);d.app.disconnect();
     const auto folder=juce::File::getCurrentWorkingDirectory();
     auto save=[&](juce::Component& component,const juce::String& name,float scale){
         auto stream=folder.getChildFile(name+"-"+juce::String(static_cast<int>(scale*100))+".png").createOutputStream();
@@ -518,7 +630,7 @@ void drumGridSmoke(){
     check(roll.drumLayout().index(48,0)==roll.drumLayout().index(50,0),"default and alternate share one row");
     editor.noteColors.setSelectedId(3,juce::sendNotificationSync);
     check(roll.noteColour(a,d.project()->clips.front()).getARGB()==0xfff07468u && ViewSettings::decode(d.view.encode()).noteInstrumentColors,"third mode inherits category RGB and persists");
-    check(roll.noteColour(b,d.project()->clips.front()).getARGB()==0xff53bce4u && ViewSettings::decode(d.view.encode()).midiDrumMode,"instrument overrides category and drum mode persists");
+    check(roll.noteColour(b,d.project()->clips.front()).getARGB()==0xff53bce4u && editor.currentTrack(*d.project())->midi_drum_mode,"instrument overrides category and drum mode persists on track");
     roll.selectVisible();check(roll.selected.size()==4,"select all visible");
     roll.toggleDrumGroup({"rack"});check(roll.noteRect(a).isEmpty()&&!roll.noteRect(b).isEmpty()&&!roll.noteRect(c).isEmpty(),"independent instrument fold");
     check(roll.selected.contains("a")&&d.project()->clips.front().midi->notes==original,"fold keeps displayed selection and events");
@@ -561,7 +673,7 @@ void drumGridSmoke(){
     check(d.app.undo(),"undo grouped velocity in one step");roll.sync();check(roll.notes==original,"group undo restores all events");
     d.view.midiFollowPlayhead=true;
     { const auto savedView=ViewSettings::decode(d.view.encode()); MidiClipPanel reopened(d,id);
-      check(savedView.midiDrumMode && savedView.midiFollowPlayhead && reopened.roll.drums && reopened.follow.getToggleState(),"editor restores drum mode and follow toggle"); }
+      check(savedView.midiFollowPlayhead && reopened.roll.drums && reopened.follow.getToggleState(),"editor restores drum mode and follow toggle"); }
     editor.controllerLane.setVisible(true); editor.resized();
     const auto preferredVelocity=editor.velocityHeight;
     const auto preferredControllers=editor.laneHeight;
@@ -621,6 +733,21 @@ void drumGridSmoke(){
     check(roll.selected.size()==4100&&roll.notes.size()==4100,"dense fold keeps all displayed hits selected");
     editor.viewport.setViewPosition(200,480);editor.alignControllers();
     check(editor.viewport.getViewPositionX()>0&&editor.viewport.getViewPositionY()>0,"dense grid scrolls on both axes");
+    // Same panel is reused by both the attached and separate editor.
+    const auto keys=d.app.add_instrument_track("Keys");
+    const auto keysClip=d.app.create_midi_clip(keys,20*mrs::ppq,2*mrs::ppq);
+    const auto otherDrumClip=d.app.create_midi_clip(track,24*mrs::ppq,2*mrs::ppq);
+    editor.activate(keysClip);check(!roll.drums,"new track defaults to Piano Roll, not previous track mode");
+    editor.activate(otherDrumClip);check(roll.drums,"another clip on the same drum track restores Drum Grid");
+    editor.activate(keysClip);check(!roll.drums,"track switch restores Piano Roll");
+    editor.setDrumMode(true);check(roll.drums,"explicit grid on another track");
+    editor.setDrumMode(false);check(!roll.drums,"explicit Piano Roll on second track");
+    check(d.app.undo(),"undo track presentation");editor.restoreDrumMode();check(roll.drums,"undo restores active editor mode");
+    check(d.app.redo(),"redo track presentation");editor.restoreDrumMode();check(!roll.drums,"redo restores active editor mode");
+    editor.activate(id);check(roll.drums,"changing the second track does not affect original drum track");
+    const auto views=mrs::persistence::decode_project(mrs::persistence::encode(d.app.snapshot())).project;
+    const auto mode=[&](const auto& trackId){return std::find_if(views.tracks.begin(),views.tracks.end(),[&](const auto& t){return t.id==trackId;})->midi_drum_mode;};
+    check(mode(track)&&!mode(keys),"project archive restores independent track presentations");
     d.app.remove_clips({id});editor.setDrumMode(false);check(!roll.isEnabled(),"switch safely refused after clip deletion");
 }
 #endif
@@ -849,6 +976,19 @@ private:
     void reload(){const auto p=owner.project();const auto it=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});if(it==p->clips.end()||it->midi){setEnabled(false);return;}clip=*it;start.setText(juce::String(static_cast<double>(clip.start)/p->sample_rate,6));end.setText(juce::String(static_cast<double>(clip.start+clip.length)/p->sample_rate,6));hint.setText("Start / end in project seconds. Apply trim: one Undo. Ctrl+Z/Y in main window.",juce::dontSendNotification);wave.repaint();}
     void timerCallback() override{const auto p=owner.project();const auto it=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});if(it==p->clips.end()){setEnabled(false);return;}if(it->start!=clip.start||it->length!=clip.length||it->source_offset!=clip.source_offset)reload();wave.repaint();}
 };
+void Desktop::syncMidiEditorTools(){
+    if(standaloneLive)return;
+    if(auto* midiEditor=dynamic_cast<MidiClipPanel*>(dockedEditor.get()))midiEditor->syncToolbarPreferences();
+    for(const auto& window:windows)
+        if(auto* midiEditor=dynamic_cast<MidiClipPanel*>(window->getContentComponent()))midiEditor->syncToolbarPreferences();
+}
+void Desktop::syncMidiEditorModes(){
+    if(standaloneLive)return;
+    if(dockedEditor&&dockedEditor->isVisible())
+        if(auto* midiEditor=dynamic_cast<MidiClipPanel*>(dockedEditor.get()))midiEditor->restoreDrumMode();
+    for(const auto& window:windows)if(window->isVisible())
+        if(auto* midiEditor=dynamic_cast<MidiClipPanel*>(window->getContentComponent()))midiEditor->restoreDrumMode();
+}
 std::optional<mrs::Id> Desktop::activeMidiEditorTrack() const {
     if (dockedEditor && dockedEditor->isShowing())
         if (const auto* midiPanel = dynamic_cast<const MidiClipPanel*>(dockedEditor.get())) return midiPanel->roll.trackId();

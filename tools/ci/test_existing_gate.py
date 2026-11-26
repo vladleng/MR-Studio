@@ -77,6 +77,27 @@ class ExistingEvidenceTests(unittest.TestCase):
         for name in WORKFLOWS:
             self.assertIn("needs.plan.outputs.automatic == 'true' && needs.plan.outputs.need_" + name + " == 'true'", release)
 
+    def test_ui_candidate_does_not_wait_for_unrelated_checks(self):
+        for run in self.runs[1:]:
+            run.update(status='in_progress', conclusion=None)
+        self.assertEqual(plan_missing(SHA, 'studio-ui', False, self.runs, lambda _, n:self.data[n]), (set(),set()))
+        needs = {name: {'result': 'skipped'} for name in WORKFLOWS}
+        needs['plan'] = {'result': 'success', 'outputs': {'need_'+name: 'false' for name in WORKFLOWS}}
+        self.assertEqual(len(verify_automatic(SHA,'studio-ui',False,self.runs,lambda _,n:self.data[n],'feature',needs,200)),1)
+        self.runs[0].update(status='completed',conclusion='failure')
+        with self.assertRaises(ValueError):
+            verify_automatic(SHA,'studio-ui',False,self.runs,lambda _,n:self.data[n],'feature',needs,200)
+
+    def test_ui_release_requires_targeted_runtime_tests(self):
+        release=Path('.github/workflows/audio-engine.yml').read_text()
+        self.assertIn("'[candidate:studio-ui]'",release)
+        self.assertIn("'studio-ui','separation-ui'",release)
+        self.assertIn("elseif($env:CHECK_SCOPE -eq 'studio-ui'){$args+=@('--target','MoonRiverStudioJuce'",release)
+        self.assertIn("$requiredUiTests=@('juce_note_grid','juce_drum_grid','midi_live','midi_recording','midi_clips')",release)
+        self.assertIn('Missing required MIDI/UI test:',release)
+        self.assertIn("steps.test.outcome == 'success'",release)
+        self.assertIn('add_test(NAME juce_note_grid COMMAND MoonRiverStudioJuce --note-grid-smoke)',Path('cmake/Juce.cmake').read_text())
+
     def test_plan_reuses_and_schedules_missing_only(self):
         self.runs = [r for r in self.runs if r['path'] != '.github/workflows/'+WORKFLOWS['runtime']]
         missing, pending = plan_missing(SHA, 'studio', False, self.runs, lambda _, n: self.data[n])
