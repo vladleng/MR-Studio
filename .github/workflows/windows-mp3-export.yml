@@ -1,5 +1,6 @@
 name: Windows MP3 export contract
 on:
+  workflow_call:
   pull_request:
     paths:
       - 'core/audio/src/mp3_windows.cpp'
@@ -19,7 +20,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-mp3-${{ github.event.pull_request.number || github.ref }}-${{ github.workflow == 'Windows Studio Release' && github.run_id || '' }}
   cancel-in-progress: true
 jobs:
   mp3:
@@ -45,3 +46,13 @@ jobs:
         run: |
           ctest --test-dir build/mp3 -C Release --output-on-failure --no-tests=error -R '^audio_mp3_export$'
           if($LASTEXITCODE){throw 'MP3 encoding contract failed'}
+      - name: Record successful source and profile evidence
+        run: python tools/ci/ci_evidence.py windows-mp3-export.yml mp3
+      - name: Upload check evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ci-evidence-mp3-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ci-evidence.json
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 14

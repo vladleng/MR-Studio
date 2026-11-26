@@ -14,6 +14,8 @@ def required_checks(scope, integration):
         required.add('separation')
     if scope != 'live' or integration:
         required.update({'contracts', 'runtime'})
+    if scope in {'profile', 'studio', 'studio-live'} or integration:
+        required.add('mp3')
     return required
 
 
@@ -27,5 +29,5 @@ if __name__ == '__main__':
     if sha != os.environ['GITHUB_SHA']:
         raise SystemExit('Candidate checkout SHA mismatch')
     verify_candidate(os.environ['RELEASE_CHECKS'], os.environ['INTEGRATION'] == 'true',
-                     {name: os.environ.get(name.upper()) for name in ('core','gui','contracts','runtime','separation')})
+                     {name: os.environ.get(name.upper()) for name in ('core','gui','contracts','runtime','separation','mp3')})
     print(f'Candidate dependencies PASS at {sha}')
