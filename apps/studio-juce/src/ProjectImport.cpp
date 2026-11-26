@@ -707,6 +707,109 @@ ImportSessionDTO StudioOneSongReader::read(const std::filesystem::path& file) {
             }
         }
     }
+    // Audio source adapter: only direct active Audio MediaTracks/Events.
+    // Resolve identities through the media pool, never by matching display names.
+    std::optional<Node> pool;
+    if(const auto data=archive.xml("Song/mediapool.xml"))
+        pool=parseXml(::ui::live::normalizeStudioOneXml(*data));
+    std::map<std::string,const Node*> sources;
+    if(pool){
+        if(pool->tag!="MediaPool")fail("Invalid Song media pool");
+        const auto scan=[&](const auto& self,const Node& node)->void{
+            if(node.tag=="AudioClip"){
+                const auto id=node.get("mediaID");
+                if(id.empty()||!sources.emplace(std::string(id),&node).second)fail("Invalid or duplicate Song media ID");
+            }
+            for(const auto& child:node.children)self(self,child);
+        };
+        scan(scan,*pool);
+    }
+    std::optional<Node> mixer;
+    if(const auto data=archive.xml("Devices/audiomixer.xml"))
+        mixer=parseXml(::ui::live::normalizeStudioOneXml(*data));
+    std::map<std::string,const Node*> channels;
+    if(mixer){
+        if(mixer->tag!="AudioMixer")fail("Invalid Song mixer");
+        const auto scan=[&](const auto& self,const Node& node)->void{
+            if(node.tag=="AudioTrackChannel"){
+                const auto* uid=childById(node,"UID","uniqueID");
+                if(uid&&!uid->get("uid").empty()&&!channels.emplace(std::string(uid->get("uid")),&node).second)
+                    fail("Duplicate Song mixer channel ID");
+            }
+            for(const auto& child:node.children)self(self,child);
+        };
+        scan(scan,*mixer);
+    }
+    for(const auto& track:tracks->children){
+        if(track.tag!="MediaTrack"||track.get("mediaType")!="Audio")continue;
+        const auto trackIndex=add(Kind::track,track);
+        auto& target=dto.objects[trackIndex];
+        target.id=track.get("trackID");
+        target.detail="Audio track and static mixer settings";
+        target.support=Support::supported;
+        if(const auto* uid=childById(track,"UID","channelID")){
+            const auto found=channels.find(std::string(uid->get("uid")));
+            if(found!=channels.end()){
+                for(const auto key:{"gain","pan","mute","solo"})
+                    if(!found->second->get(key).empty())target.properties.emplace_back(std::string("mix.")+key,found->second->get(key));
+            }else warning("Song track mixer channel not found: "+target.name);
+        }
+        const auto* events=childById(track,"List","Events");
+        if(!events)continue;
+        for(const auto& event:events->children){
+            if(event.tag!="AudioEvent"){warning("Unsupported Song audio event type: "+event.tag);continue;}
+            const auto clipIndex=add(Kind::clip,event,trackIndex);
+            auto& clip=dto.objects[clipIndex];
+            clip.time=number(event.get("start"));
+            clip.duration=number(event.get("length"));
+            if(!clip.time||*clip.time<0||!clip.duration||*clip.duration<=0)fail("Invalid Song audio range");
+            // Cross-checked against Capture: start is in quarter notes for both
+            // observed formats; length/offset are seconds (0) or quarter notes (2).
+            clip.timeUnit=TimeUnit::beats;
+            const auto format=event.get("timeFormat");
+            if(format=="0")clip.durationUnit=clip.contentTimeUnit=TimeUnit::seconds;
+            else if(format=="2")clip.durationUnit=clip.contentTimeUnit=TimeUnit::beats;
+            else fail("Unverified Song audio event time format");
+            clip.detail="Audio placement; source WAV must be available";
+            if(const auto* volume=childById(event,"Attributes","volumeCurve")){
+                for(const auto& [key,value]:volume->attributes)
+                    clip.properties.emplace_back("volumeCurve."+key,value);
+                warning("Song clip gain/envelope not applied: "+clip.name);
+            }
+            const auto found=sources.find(std::string(event.get("clipID")));
+            if(found==sources.end())fail("Song audio clip has no media-pool entry");
+            const auto* url=childById(*found->second,"Url","path");
+            if(!url||url->get("url").empty())fail("Song audio source path missing");
+            const auto sourceUrl=std::string(url->get("url"));
+            clip.properties.emplace_back("sourceUrl",sourceUrl);
+            if(const auto* info=childById(*found->second,"Attributes","format")){
+                for(const auto key:{"sampleRate","frameCount","bitDepth","sampleType"})
+                    if(!info->get(key).empty())clip.properties.emplace_back(key,info->get(key));
+                if(!info->get("numChannels").empty())clip.properties.emplace_back("channels",info->get("numChannels"));
+            }
+            // Never open archived absolute paths automatically. Recognize the
+            // original project-relative Media/Bounces leaf; all other URLs need
+            // an explicit user-selected replacement in the existing relink UI.
+            std::string reference=sourceUrl;
+            auto location=AssetReference::Location::missing;
+            if(sourceUrl.starts_with("file:///")){
+                const auto last=sourceUrl.rfind('/');
+                const auto previous=last==sourceUrl.npos?sourceUrl.npos:sourceUrl.rfind('/',last-1);
+                const auto prior=previous==sourceUrl.npos?sourceUrl.npos:sourceUrl.rfind('/',previous-1);
+                if(prior!=sourceUrl.npos&&previous>prior&&last>previous){
+                    const auto folder=sourceUrl.substr(previous+1,last-previous-1);
+                    const auto project=sourceUrl.substr(prior+1,previous-prior-1);
+                    if((folder=="Media"||folder=="Bounces")&&
+                       juce::String::fromUTF8(project.c_str()).equalsIgnoreCase(juce::String(file.stem().wstring().c_str()))){
+                        const auto relative=sourceUrl.substr(previous+1);
+                        try{(void)pathKey(relative);reference=relative;location=AssetReference::Location::externalUnchecked;}
+                        catch(const std::exception&){/* Explicit relink for unsafe or unfamiliar names. */}
+                    }
+                }
+            }
+            dto.assets.push_back({clipIndex,std::move(reference),false,location});
+        }
+    }
     if (const auto transport = archive.xml("Devices/transportdevice.xml")) {
         const auto device = parseXml(*transport);
         if (device.tag != "TransportDevice") fail("Invalid Studio One transport device");
@@ -716,7 +819,7 @@ ImportSessionDTO StudioOneSongReader::read(const std::filesystem::path& file) {
         row.timeUnit = TimeUnit::seconds;
         // Loop coordinates and active state remain raw source properties.
     }
-    warning("Song structure only: audio, MIDI, plug-ins, mixer and automation are not imported.");
+    warning("Song import includes audio tracks, direct audio events and static channel mix. MIDI, plug-ins, routing, clip gain curves and automation are not imported.");
     warning("Source playhead and loop are retained as metadata, not applied to the running transport.");
     return dto;
 }

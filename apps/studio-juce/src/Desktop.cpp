@@ -77,7 +77,8 @@ class ProjectImportAlert final : public StudioAlertWindow, private juce::ListBox
             const auto countKind=[&](Kind kind){return count(static_cast<std::size_t>(std::count_if(p.session->objects.begin(),p.session->objects.end(),[&](const auto& o){return o.kind==kind;})));};
             return label(p.session->title).replaceCharacters("\r\n\t","   ").substring(0,100)
                 +"  |  Studio One / Studio Pro\n"+countKind(Kind::section)+" sections  /  "+countKind(Kind::chord)+" chords  /  "+countKind(Kind::marker)+" markers"
-                +"\n\nStructure-only import. Audio, MIDI, plug-ins and mixer are not imported yet.\nCreate a separate project; the current project stays open.";
+                +"  /  "+count(p.tracks)+" audio tracks  /  "+count(p.clips)+" audio clips"
+                +"\n\nStructure and audio import. MIDI, plug-ins, routing and automation are not imported yet.\nCreate a separate project; the current project stays open.";
         }
         return label(p.session->title).replaceCharacters("\r\n\t","   ").substring(0,100)+"  |  "
             +label(p.session->application).substring(0,60)+" "+label(p.session->applicationVersion).substring(0,24)
@@ -608,7 +609,7 @@ void Desktop::choose(int chooserOptions,std::function<void(const juce::File&)> c
 juce::PopupMenu Desktop::projectImportMenu() const {
     juce::PopupMenu formats;
     formats.addItem(previewDawprojectAction,"DAWproject (.dawproject)...",!projectImportPreview.valid()&&!projectImportCreate.valid()&&!projectImportDialog);
-    formats.addItem(previewSongAction,"Studio One / Studio Pro (.song) — structure only...",!projectImportPreview.valid()&&!projectImportCreate.valid()&&!projectImportDialog);
+    formats.addItem(previewSongAction,"Studio One / Studio Pro (.song) — structure and audio...",!projectImportPreview.valid()&&!projectImportCreate.valid()&&!projectImportDialog);
     return formats;
 }
 void Desktop::startProjectImportPreview(const juce::File& file){

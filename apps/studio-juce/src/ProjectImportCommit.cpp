@@ -195,6 +195,51 @@ struct Projection {
         sortLane(project.sections);sortLane(project.chords);
         std::stable_sort(project.markers.begin(),project.markers.end(),[](const auto& a,const auto& b){return a.tick<b.tick;});
     }
+    void songAudio(){
+        const auto bpm=doc.project.time.tempos.front().bpm;
+        const double secondsPerBeat=60.0/bpm;
+        // The reader currently accepts only the verified constant-tempo schema.
+        for(std::size_t i=0;i<objects.size();++i){
+            checkStop(stop);
+            const auto& o=objects[i];
+            if(o.kind!=Kind::track||o.type!="MediaTrack")continue;
+            Track t;t.id=entity(i,"song-audio-track");t.name=name(o,"Imported audio");t.kind=TrackKind::audio;
+            t.color=songColor(o);t.input=-1;
+            if(auto v=numeric(o,"mix.gain");v&&*v>=0&&*v<=Track::Mix::maximum_gain)t.mix.gain=static_cast<float>(*v);
+            else if(!get(o,"mix.gain").empty())warning("Unverified Song channel gain: "+t.name);
+            if(auto v=numeric(o,"mix.pan");v&&*v>=0&&*v<=1)t.mix.pan=static_cast<float>(*v*2-1);
+            else if(!get(o,"mix.pan").empty())warning("Unverified Song channel pan: "+t.name);
+            t.mix.mute=get(o,"mix.mute")=="1"||get(o,"mute")=="1";
+            t.mix.solo=get(o,"mix.solo")=="1";
+            audioTracks[i]=doc.project.tracks.size();map(i,t.id);
+            doc.project.tracks.push_back(std::move(t));
+        }
+        for(std::size_t i=0;i<objects.size();++i){
+            checkStop(stop);
+            const auto& o=objects[i];
+            if(o.kind!=Kind::clip||o.type!="AudioEvent")continue;
+            if(!o.parent||!audioTracks[*o.parent]||!assets[i]||!o.time||!o.duration)
+                throw std::runtime_error("Incomplete Song audio placement");
+            const auto track=*audioTracks[*o.parent];
+            const auto unit=o.durationUnit==TimeUnit::beats?secondsPerBeat:1.0;
+            const auto offset=numeric(o,"offset").value_or(0.)*unit;
+            const auto length=*o.duration*unit;
+            if(offset<0||length<=0)throw std::runtime_error("Invalid Song audio source window");
+            const auto speed=numeric(o,"speed").value_or(1.);
+            stretch::Parameters parameters;
+            if(speed<=0)throw std::runtime_error("Invalid Song clip speed");
+            parameters.duration_ratio=1./speed;
+            parameters.semitones=numeric(o,"transpose").value_or(0.);
+            parameters.cents=numeric(o,"tune").value_or(0.);
+            if(stretch::validate(parameters)!=stretch::Status::ok)
+                throw std::runtime_error("Song clip stretch parameters outside native range");
+            Clip clip;clip.id=entity(i,"song-audio");clip.track=doc.project.tracks[track].id;clip.name=name(o,"Imported audio");
+            clip.color=songColor(o);
+            if(get(o,"normalize")=="1"||(!get(o,"modification").empty()&&get(o,"modification")!="0"))
+                warning("Song normalization or clip modification not applied: "+clip.name);
+            audio.push_back({*assets[i],i,*o.time*secondsPerBeat,length,offset,0.,0.,std::move(clip)});
+        }
+    }
     void timeMap(){
         auto& map=doc.project.time;
         auto meter=[&](const Object& o){return std::pair{integer(o,"numerator",1,64),integer(o,"denominator",1,64)};};
@@ -468,7 +513,7 @@ CreateResult perform(const CreateRequest& req,std::stop_token stop){
     const auto sourceModified=fs::last_write_time(source);
     const auto session=MRSProjectImport::read(source);
     Projection p(session,result,stop);
-    if(p.isSong()){p.songTimeMap();p.songArrangement();}
+    if(p.isSong()){p.songTimeMap();p.songArrangement();p.songAudio();}
     else{p.timeMap();p.tracks();p.arrangement();}
     if(!p.isSong()&&p.doc.project.tracks.empty()&&p.doc.project.folders.empty()&&p.doc.project.markers.empty())throw std::runtime_error("No supported tracks or markers found in the export");
     if(std::any_of(session.objects.begin(),session.objects.end(),[](const Object& o){return o.kind==Kind::device;}))p.warning("Plug-ins and mixer settings were not imported. Assign an instrument to hear imported MIDI.");
@@ -488,7 +533,7 @@ CreateResult perform(const CreateRequest& req,std::stop_token stop){
         else if(ref.location==AssetReference::Location::externalUnchecked){
             if(auto external=externalAudio(base,ref.path))m.source=*external;
             else m.failure="External media not found at its exact relative path; locate it explicitly";
-        }else m.failure="Embedded media is missing";
+        }else m.failure=p.isSong()?"Source WAV needs explicit relink":"Embedded media is missing";
         const auto file=m.embedded?fromUtf8(ref.path):m.source;
         if(m.failure.empty()&&!juce::String(file.extension().wstring().c_str()).equalsIgnoreCase(".wav"))m.failure="Only WAV media is supported";
         if(!m.failure.empty())result.missing.push_back({ref.path,m.failure});
@@ -534,12 +579,36 @@ CreateResult perform(const CreateRequest& req,std::stop_token stop){
             p.warning("Audio sample rate differs from source metadata: "+entry.clip.name);
         if(const auto expected=integer(sourceObject,"channels",1,64);expected&&static_cast<std::uint32_t>(*expected)!=wav.channels)
             p.warning("Audio channel count differs from source metadata: "+entry.clip.name);
-        const auto available=static_cast<double>(wav.frame_count)/wav.sample_rate-entry.offset;
+        // Song speed is source/output; native duration_ratio is output/source.
+        // Offset is interpreted as source-domain time (verified Capture geometry,
+        // actual stretched audio playback still requires acceptance).
+        stretch::Parameters stretchParams;
+        if(p.isSong()){
+            stretchParams.duration_ratio=1./numeric(sourceObject,"speed").value_or(1.);
+            stretchParams.semitones=numeric(sourceObject,"transpose").value_or(0.);
+            stretchParams.cents=numeric(sourceObject,"tune").value_or(0.);
+        }
+        const auto ratio=stretchParams.duration_ratio;
+        const auto available=(static_cast<double>(wav.frame_count)/wav.sample_rate-entry.offset)*ratio;
         if(available<=0){p.warning("Audio trim starts beyond available media: "+entry.clip.name);continue;}
         if(entry.length>available+0.002)p.warning("Audio clip shortened to available media: "+entry.clip.name);
         auto& c=entry.clip;c.start=samples(entry.start,rate);c.length=std::min(samples(entry.start+std::min(available,entry.length),rate)-c.start,samples(available,rate));
         if(c.length<=0)continue;
         c.source_offset=samples(entry.offset,rate);c.source=utf8(m.relative);
+        if(p.isSong()&&!stretch::neutral(stretchParams)){
+            // Use the native source-window contract. Compute from integer output
+            // length to preserve exact timeline endpoints across Save/Open.
+            const auto playbackFrames=samples(static_cast<double>(wav.frame_count)/wav.sample_rate,rate);
+            const auto remaining=playbackFrames-c.source_offset;
+            if(remaining<=0){p.warning("Song stretch source window empty: "+c.name);continue;}
+            Sample extent{};
+            if(stretch::output_frames(remaining,ratio,extent)!=stretch::Status::ok)
+                throw std::runtime_error("Song stretched source length invalid");
+            c.length=std::min(c.length,extent);
+            if(c.length<=0)continue;
+            const auto end=std::min(static_cast<double>(remaining),static_cast<double>(c.length)/ratio);
+            c.stretch=ClipStretch{stretchParams,remaining,0.,end};
+        }
         c.fade_in=std::clamp(samples(entry.fadeIn,rate),Sample{},c.length);
         c.fade_out=std::clamp(samples(entry.fadeOut,rate),Sample{},c.length);
         p.map(entry.index,c.id);p.doc.project.clips.push_back(std::move(c));
