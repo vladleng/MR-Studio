@@ -557,7 +557,7 @@ public:
     std::unique_ptr<Strip> master;
     std::unique_ptr<ChannelInspector> channelInspector;
     bool inspectorVisible{};
-    void syncInspector();
+    void syncInspector(bool projectChanged);
     void toggleInspector();
     bool inspectorPanelVisible() const;
     std::optional<mrs::Id> inspectorPanelChannel() const;
@@ -734,7 +734,7 @@ public:
     mrs::Tick displaySpacing() const;
     mrs::Tick snapTick(mrs::Tick) const;
     mrs::Sample snapSample(mrs::Sample) const;
-    mrs::Sample sampleAt(float) const;
+    mrs::Sample sampleAt(float,bool useSnap=true) const;
     mrs::Sample seekSampleAt(float) const;
     std::optional<mrs::LoopRange> rememberedLoop() const;
     bool selectingLoop() const {return rulerLoop.has_value();}

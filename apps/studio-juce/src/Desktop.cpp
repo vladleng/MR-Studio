@@ -190,8 +190,8 @@ public:
             juce::MessageManager::callAsync([safe,store,revision,id]{if(safe&&safe->owner.app.services().projects==store&&store->state().revision==revision)safe->owner.run([&]{safe->owner.toggleInsertPower(id);});});};
         sync();
     }
-    void setTargets(std::optional<mrs::Id> track,std::optional<mrs::Id> folderId){
-        if(track==targetTrack&&folderId==targetFolder)return;
+    void setTargets(std::optional<mrs::Id> track,std::optional<mrs::Id> folderId,bool projectChanged){
+        if(track==targetTrack&&folderId==targetFolder){if(projectChanged)sync();return;}
         stretchMode.hidePopup();
         targetTrack=track;targetFolder=folderId;sync();
     }
@@ -1140,7 +1140,8 @@ void Desktop::refresh(bool force){
     if(replaced){selectedTracks.clear();displayedStore=app.services().projects;visualTransport.reset();revision=~0ULL;peaks={};masterPeak={};arrangement->horizontal=0;arrangement->vertical=0;mixerViewport.setViewPosition(0,0);}
     if(replaced||current!=ids){auto oldIds=ids,newIds=current;const auto byId=[](const auto& a,const auto& b){return a.value<b.value;};std::sort(oldIds.begin(),oldIds.end(),byId);std::sort(newIds.begin(),newIds.end(),byId);const bool reorder=!replaced&&oldIds==newIds;if(!reorder)closeEditors();cancelPreview();ids=current;if(reorder){std::vector<std::unique_ptr<Strip>> ordered;for(const auto& id:current){auto at=std::find_if(mixer.begin(),mixer.end(),[&](const auto& s){return s&&s->target==id;});ordered.push_back(std::move(*at));}mixer=std::move(ordered);arrangement->rebuild();resized();}else{mixer.clear();for(const auto& t:p->tracks){auto s=std::make_unique<Strip>(*this,t.id);mixerBody.addAndMakeVisible(*s);mixer.push_back(std::move(s));}
         master=std::make_unique<Strip>(*this,std::nullopt);addAndMakeVisible(*master);arrangement->rows.clear();arrangement->rebuild();resized();}}
-    if(force || revision!=state.revision){
+    const bool projectChanged=force||revision!=state.revision;
+    if(projectChanged){
         mrs::diagnostics::event("project_snapshot title="+p->title+" tracks="+std::to_string(p->tracks.size())+" clips="+std::to_string(p->clips.size())+" revision="+std::to_string(state.revision)+" insert_generation="+std::to_string(app.insert_generation()));
         for(const auto& t:p->tracks)for(const auto& fx:t.inserts)if(fx.kind==mrs::InsertKind::vst3)mrs::diagnostics::event("plugin track="+t.name+" name="+fx.plugin_name+" path="+fx.plugin_path+" class="+fx.class_id);
         for(const auto& fx:p->master_inserts)if(fx.kind==mrs::InsertKind::vst3)mrs::diagnostics::event("plugin master name="+fx.plugin_name+" path="+fx.plugin_path+" class="+fx.class_id);
@@ -1162,9 +1163,9 @@ void Desktop::refresh(bool force){
     mixButton.setToggleState(app.workspace()==mrs::desktop::Workspace::mix,juce::dontSendNotification);
     record.setToggleState(app.recording(),juce::dontSendNotification);loop.setToggleState(displayState().loop.has_value(),juce::dontSendNotification);
     const auto click=app.click_settings();clickButton.setToggleState(click.playback||click.recording,juce::dontSendNotification);clickButton.setEnabled(!app.recording());countButton.setEnabled(!app.recording());countButton.setButtonText(click.count_bars?"Count "+juce::String(click.count_bars):"Count off");countButton.setToggleState(click.count_bars>0,juce::dontSendNotification);
-    brows.setToggleState(sidebar,juce::dontSendNotification);inspectorButton.setToggleState(inspectorVisible,juce::dontSendNotification);if(shellTheme)refreshShell();syncInspector();repaint();arrangement->repaint();
+    brows.setToggleState(sidebar,juce::dontSendNotification);inspectorButton.setToggleState(inspectorVisible,juce::dontSendNotification);if(shellTheme)refreshShell();syncInspector(projectChanged);repaint();arrangement->repaint();
 }
-void Desktop::syncInspector(){if(!channelInspector)return;channelInspector->setTargets(selectedTrack,selectedFolder);channelInspector->syncStretchAvailability();}
+void Desktop::syncInspector(bool projectChanged){if(!channelInspector)return;channelInspector->setTargets(selectedTrack,selectedFolder,projectChanged);channelInspector->syncStretchAvailability();}
 void Desktop::toggleInspector(){inspectorVisible=!inspectorVisible;view.channelInspector=inspectorVisible;inspectorButton.setToggleState(inspectorVisible,juce::dontSendNotification);resized();repaint();saveSettings();}
 bool Desktop::inspectorPanelVisible() const{return channelInspector&&channelInspector->isVisible();}
 std::optional<mrs::Id> Desktop::inspectorPanelChannel() const{return channelInspector?channelInspector->channel():std::nullopt;}
@@ -2040,8 +2041,8 @@ mrs::Sample Arrangement::snapSample(mrs::Sample sample) const {
     const auto p=owner.project();const mrs::Timeline time(p->time,p->sample_rate);const auto [a,b]=displayGridNeighbours(p->time,time.to_ticks(sample),displaySpacing());
     const auto leftSample=time.to_samples(a),rightSample=time.to_samples(b);return sample-leftSample<=rightSample-sample?leftSample:rightSample;
 }
-mrs::Sample Arrangement::sampleAt(float x) const{auto sample=static_cast<mrs::Sample>(juce::jmax(0.,(x-left+horizontal)/pixelsPerSecond)*owner.project()->sample_rate);
-    if(owner.snap)sample=snapSample(sample);return sample;}
+mrs::Sample Arrangement::sampleAt(float x,bool useSnap) const{auto sample=static_cast<mrs::Sample>(juce::jmax(0.,(x-left+horizontal)/pixelsPerSecond)*owner.project()->sample_rate);
+    if(owner.snap&&useSnap)sample=snapSample(sample);return sample;}
 mrs::Sample Arrangement::seekSampleAt(float x) const{
     const auto p=owner.project();const mrs::Timeline time(p->time,p->sample_rate);
     const auto raw=static_cast<mrs::Sample>(std::llround(juce::jmax(0.,(x-left+horizontal)/pixelsPerSecond)*p->sample_rate));
@@ -2286,7 +2287,7 @@ void Arrangement::mouseDown(const juce::MouseEvent& e){
             selectedAudioRange=AudioRange{c->id,audioRangeAnchor,1,owner.app.services().projects->state().revision};repaint();return;
         }
         if(selectedAudioRange&&selectedAudioRange->clip!=c->id)selectedAudioRange.reset();
-        if(owner.knifeMode){std::vector<mrs::Id> ids;if(owner.selectedClips.contains(c->id.value)){for(const auto& item:p->clips)if(owner.selectedClips.contains(item.id.value))ids.push_back(item.id);}else ids.push_back(c->id);owner.run([&]{const auto right=owner.app.split_clips(ids,sampleAt(e.position.x));owner.activateClip(right.front());owner.selectedClips.clear();for(const auto& id:right)owner.selectedClips.insert(id.value);});return;}
+        if(owner.knifeMode){std::vector<mrs::Id> ids;if(owner.selectedClips.contains(c->id.value)){for(const auto& item:p->clips)if(owner.selectedClips.contains(item.id.value))ids.push_back(item.id);}else ids.push_back(c->id);owner.run([&]{const auto right=owner.app.split_clips(ids,sampleAt(e.position.x,!e.mods.isShiftDown()));owner.activateClip(right.front());owner.selectedClips.clear();for(const auto& id:right)owner.selectedClips.insert(id.value);});return;}
         const auto edge=edgeAt(*c,e.position);
         if(e.mods.isAltDown()&&edge&&!c->midi&&!owner.standaloneLive){
             owner.activateClip(c->id);
