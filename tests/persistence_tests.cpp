@@ -216,6 +216,37 @@ void model() {
     s.selected = Id{"missing"}; rejects([&] { s.validate(); });
 }
 void roundtrip() {
+    {
+        auto project=fixture().project;
+        Track drums;drums.id={"note-colors-drums"};drums.name="Drums";drums.kind=TrackKind::instrument;
+        Track keys;keys.id={"note-colors-keys"};keys.name="Keys";keys.kind=TrackKind::instrument;
+        Track audio;audio.id={"note-colors-audio"};audio.name="Audio";
+        project.tracks.push_back(drums);project.tracks.push_back(keys);project.tracks.push_back(audio);
+        const auto legacy=serialize(project);
+        ProjectStore store(project);
+        store.execute(SetTrackMidiNoteColorMode{drums.id,MidiNoteColorMode::instrument});
+        store.execute(SetTrackMidiNoteColorMode{keys.id,MidiNoteColorMode::clip});
+        const auto selected=*store.state().project;
+        const auto bytes=serialize(selected);
+        CHECK(bytes.starts_with("MRS_CORE_SNAPSHOT 38\n") && deserialize(bytes)==selected);
+        CHECK(deserialize(legacy)==project);
+        CHECK(selected.tracks[selected.tracks.size()-3].midi_note_color_mode==MidiNoteColorMode::instrument);
+        CHECK(selected.tracks[selected.tracks.size()-2].midi_note_color_mode==MidiNoteColorMode::clip);
+        CHECK(selected.tracks.back().midi_note_color_mode==MidiNoteColorMode::velocity);
+        const auto revision=store.state().revision;
+        store.execute(SetTrackMidiNoteColorMode{keys.id,MidiNoteColorMode::clip});
+        CHECK(store.state().revision==revision);
+        rejects([&]{store.execute(SetTrackMidiNoteColorMode{audio.id,MidiNoteColorMode::clip});});
+        rejects([&]{store.execute(SetTrackMidiNoteColorMode{keys.id,static_cast<MidiNoteColorMode>(9)});});
+        CHECK(store.undo() && store.state().project->tracks[project.tracks.size()-2].midi_note_color_mode==MidiNoteColorMode::velocity);
+        CHECK(store.redo() && *store.state().project==selected);
+        auto malformed=bytes;
+        const std::string row="\"note-colors-keys\" 2\n";
+        const auto at=malformed.find(row);
+        CHECK(at!=std::string::npos);
+        malformed.replace(at,row.size(),"\"note-colors-drums\" 2\n");
+        rejects([&]{(void)deserialize(malformed);});
+    }
     auto d = fixture(); auto bytes = encode(d); CHECK(decode_project(bytes) == d);
     CHECK(encode(decode_project(bytes)) == bytes);
     CHECK(decode_project(bytes).graph.nodes.front().plugin.component[1] == std::byte{255});

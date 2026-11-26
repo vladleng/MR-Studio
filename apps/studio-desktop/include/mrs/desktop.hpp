@@ -130,6 +130,7 @@ public:
     void set_midi_output(const Id&,std::string port,int channel=-1);
     void set_track_drum_map(const Id&, std::optional<DrumMapBinding>);
     void set_track_midi_drum_mode(const Id&, bool active);
+    void set_track_midi_note_color_mode(const Id&, MidiNoteColorMode);
     std::string midi_output_status(const Id&) const;
     void reconnect_midi();
     std::string midi_status(const Id&) const;

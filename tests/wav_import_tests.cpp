@@ -91,12 +91,13 @@ void project_path_alias(){
 void imports(){
     Directory dir;const auto input=dir.path/"original.wav",matching=dir.path/"matching.wav";
     wav(input,44100,4410,1000,true);wav(matching,48000,4800);const auto original=bytes(input);
-    desktop::Application app;app.new_project(48000);const auto track=app.add_audio_track("Target");
+    desktop::Application app;app.new_project(48000);const auto track=app.add_audio_track("Target");app.set_track_color(track,0xb45df0u);
     const auto revision=app.services().projects->state().revision;
     app.queue_wav_import({input,matching,input},track,123);CHECK(app.wav_import_status().busy);
     CHECK(app.snapshot().project.clips.empty());rejects([&]{app.queue_wav_import({input});});finish(app);
     const auto project=app.snapshot().project;CHECK(project.clips.size()==3);CHECK(app.services().projects->state().revision==revision+1);
     CHECK(project.clips[0].start==123&&project.clips[1].start==4923&&project.clips[2].start==9723);
+    for(const auto& clip:project.clips)CHECK(clip.color==0xb45df0u);
     CHECK(project.clips[0].length==4800&&project.clips[0].source==project.clips[2].source);
     const auto temporary=sourcePath(project.clips[0].source);CHECK(fs::is_regular_file(temporary));
     CHECK(app.undo()&&app.snapshot().project.clips.empty());CHECK(fs::exists(temporary));

@@ -1,4 +1,5 @@
 #include <mrs/audio_to_midi.hpp>
+#include <mrs/midi_clips.hpp>
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -116,6 +117,6 @@ void PlaceTranscription::apply(Project& project) const{
     if(time_)project.time=*time_;
     if(provenance_)project.transcription_results.push_back(*provenance_);
     project.tracks.insert(project.tracks.end(),tracks_.begin(),tracks_.end());
-    project.clips.insert(project.clips.end(),clips_.begin(),clips_.end());
+    for (const auto& clip : clips_) AddMidiClip{clip}.apply(project);
 }
 }

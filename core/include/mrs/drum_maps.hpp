@@ -36,4 +36,14 @@ private:
     Id track_;
     bool active_;
 };
+class SetTrackMidiNoteColorMode final : public ICommand {
+public:
+    SetTrackMidiNoteColorMode(Id track, MidiNoteColorMode mode)
+        : track_(std::move(track)), mode_(mode) {}
+    std::string_view name() const override { return "Set MIDI note color mode"; }
+    void apply(Project&) const override;
+private:
+    Id track_;
+    MidiNoteColorMode mode_;
+};
 } // namespace mrs

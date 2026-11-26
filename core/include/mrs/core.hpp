@@ -22,7 +22,7 @@ inline constexpr Tick ppq = 960;
 inline constexpr std::size_t max_project_midi_notes = 32768;
 inline constexpr Tick max_tick = 1'000'000'000'000;
 inline constexpr Sample max_sample = 4'503'599'627'370'496;
-inline constexpr std::uint32_t schema_version = 37;
+inline constexpr std::uint32_t schema_version = 38;
 struct Id {
     std::string value;
     bool operator==(const Id&) const = default;
@@ -210,6 +210,8 @@ struct DrumMapBinding {
     void validate() const;
     bool operator==(const DrumMapBinding&) const = default;
 };
+enum class MidiNoteColorMode { velocity = 1, clip = 2, instrument = 3 };
+inline constexpr std::uint32_t default_channel_color = 0x3797ef;
 struct Track {
     Id id;
     std::string name;
@@ -247,6 +249,8 @@ struct Track {
     std::optional<std::uint32_t> color{}; // Channel RGB; independent of clip colors.
     std::optional<DrumMapBinding> drum_map{}; // display only, instrument tracks
     bool midi_drum_mode{}; // MIDI editor presentation only; instrument tracks
+    MidiNoteColorMode midi_note_color_mode{MidiNoteColorMode::velocity}; // MIDI editor display only
+    std::uint32_t default_clip_color() const noexcept { return color.value_or(default_channel_color); }
     bool operator==(const Track&) const = default;
 };
 struct MidiNote {

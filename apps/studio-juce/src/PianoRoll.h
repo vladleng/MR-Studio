@@ -22,6 +22,7 @@ public:
     bool drums{};
     int railWidth() const{return drums?188:keys;}
     const mrs::Id& trackId() const{return track;}
+    mrs::MidiNoteColorMode noteColorMode() const{return owner.standaloneLive?(owner.view.noteInstrumentColors?mrs::MidiNoteColorMode::instrument:owner.view.noteClipColors?mrs::MidiNoteColorMode::clip:mrs::MidiNoteColorMode::velocity):trackNoteColorMode;}
     void setDrums(bool active){cancel();drums=active;rowProject.reset();sync();}
     void selectVisible(){cancel();sync();for(const auto& n:notes)if(noteDisplayed(n))selected.insert(n.id.value);repaint();}
     bool noteVisible(const mrs::MidiNote& n) const{return visible(n);}
@@ -61,24 +62,24 @@ public:
     void transport(int command){cancel();owner.action(command);repaint();}
     void activate(mrs::Id next){cancel();id=std::move(next);selected.clear();cursor=0;setEnabled(true);sync();}
     mrs::MidiClip clip;
-    void sync(){if(gesture)return;const auto p=owner.project();const auto at=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});if(at==p->clips.end()||!at->midi){setEnabled(false);releaseNote();return;}setEnabled(true);if(track!=at->track){track=at->track;liveActivity=owner.app.live_note_activity(track);liveKey=-1;}clip=*at->midi;notes=clip.notes;contextClips.clear();timelineEnd=clip.start+clip.length;for(const auto& c:p->clips)if(c.midi&&c.track==track){contextClips.push_back(c);timelineEnd=std::max(timelineEnd,c.midi->start+c.midi->length);}std::stable_partition(contextClips.begin(),contextClips.end(),[&](const auto& c){return c.id!=id;});timelineEnd=std::min(mrs::max_tick,timelineEnd+4*mrs::ppq);if((drums||owner.view.noteInstrumentColors)&&(rowProject!=p||rowTrack!=track)){const auto t=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& value){return value.id==track;});drumRows.rebuild(t!=p->tracks.end()&&t->drum_map?&*t->drum_map:nullptr,contextClips);rowProject=p;rowTrack=track;}if(cursor<clip.source_offset)cursor=clip.source_offset;if(!selected.empty()){std::set<std::string> retained;for(const auto& n:notes)if(selected.contains(n.id.value)&&(!drums||noteDisplayed(n)))retained.insert(n.id.value);selected.swap(retained);}setSize(railWidth()+static_cast<int>(std::min(1000000.,std::ceil(static_cast<double>(timelineEnd)/mrs::ppq*beatWidth)))+2,ruler+std::max(1,rowCount())*static_cast<int>(rowHeight));repaint();if(viewChanged)viewChanged();}
+    void sync(){if(gesture)return;const auto p=owner.project();const auto at=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});if(at==p->clips.end()||!at->midi){setEnabled(false);releaseNote();return;}setEnabled(true);if(track!=at->track){track=at->track;liveActivity=owner.app.live_note_activity(track);liveKey=-1;}clip=*at->midi;notes=clip.notes;contextClips.clear();timelineEnd=clip.start+clip.length;for(const auto& c:p->clips)if(c.midi&&c.track==track){contextClips.push_back(c);timelineEnd=std::max(timelineEnd,c.midi->start+c.midi->length);}std::stable_partition(contextClips.begin(),contextClips.end(),[&](const auto& c){return c.id!=id;});timelineEnd=std::min(mrs::max_tick,timelineEnd+4*mrs::ppq);const auto t=std::find_if(p->tracks.begin(),p->tracks.end(),[&](const auto& value){return value.id==track;});trackNoteColorMode=t!=p->tracks.end()?t->midi_note_color_mode:mrs::MidiNoteColorMode::velocity;if((drums||noteColorMode()==mrs::MidiNoteColorMode::instrument)&&(rowProject!=p||rowTrack!=track)){drumRows.rebuild(t!=p->tracks.end()&&t->drum_map?&*t->drum_map:nullptr,contextClips);rowProject=p;rowTrack=track;}if(cursor<clip.source_offset)cursor=clip.source_offset;if(!selected.empty()){std::set<std::string> retained;for(const auto& n:notes)if(selected.contains(n.id.value)&&(!drums||noteDisplayed(n)))retained.insert(n.id.value);selected.swap(retained);}setSize(railWidth()+static_cast<int>(std::min(1000000.,std::ceil(static_cast<double>(timelineEnd)/mrs::ppq*beatWidth)))+2,ruler+std::max(1,rowCount())*static_cast<int>(rowHeight));repaint();if(viewChanged)viewChanged();}
     juce::Rectangle<float> noteRect(const mrs::MidiNote& n) const{return eventRect(n,clip);}
     juce::Rectangle<float> eventRect(const mrs::MidiNote& n,const mrs::MidiClip& midi) const{
         const int row=rowOf(n);if(row<0)return {};
         const float x=railWidth()+static_cast<float>(static_cast<double>(midi.start+n.start-midi.source_offset)/mrs::ppq)*beatWidth;
         const float y=ruler+row*rowHeight;
-        if(drums){if(n.start<midi.source_offset||n.start>=midi.source_offset+midi.length)return {};const float size=std::clamp(rowHeight-4.f,5.f,14.f);return {x-size*.5f,y+(rowHeight-size)*.5f,size,size};}
+        if(drums){if(n.start<midi.source_offset||n.start>=midi.source_offset+midi.length)return {};const float size=rowHeight;return {x-size*.5f,y+(rowHeight-size)*.5f,size,size};}
         return {x,y,static_cast<float>(static_cast<double>(n.length)/mrs::ppq)*beatWidth,rowHeight-1};
     }
     static juce::String noteName(int pitch){static const std::array<const char*,12> names{"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};return juce::String(names[static_cast<std::size_t>(pitch%12)])+juce::String(pitch/12-1);}
     juce::Colour noteColour(const mrs::MidiNote& n,const mrs::Clip& c,int velocity=-1)const{
-        if(owner.view.noteInstrumentColors){const auto rgb=drumRows.color(n.pitch,n.channel);return juce::Colour(0xff000000u | rgb.value_or(c.color.value_or(ObjectPalette::defaultClip)));}
-        if(owner.view.noteClipColors)return juce::Colour(0xff000000|c.color.value_or(ObjectPalette::defaultClip));
+        if(noteColorMode()==mrs::MidiNoteColorMode::instrument){const auto rgb=drumRows.color(n.pitch,n.channel);return juce::Colour(0xff000000u | rgb.value_or(c.color.value_or(ObjectPalette::defaultClip)));}
+        if(noteColorMode()==mrs::MidiNoteColorMode::clip)return juce::Colour(0xff000000|c.color.value_or(ObjectPalette::defaultClip));
         return ObjectPalette::midiVelocityColour(velocity<0?n.velocity:velocity);
     }
     juce::Colour displayedNoteColour(const mrs::MidiNote& n,const mrs::Clip& c,bool active,int velocity=-1)const{
         const int value=velocity<0?n.velocity:velocity;
-        return shadeNote(noteColour(n,c,value),value,active);
+        return shadeNote(noteColour(n,c,value),value,active,!owner.standaloneLive&&noteColorMode()!=mrs::MidiNoteColorMode::velocity);
     }
     int edgeAt(const mrs::MidiNote& n,juce::Point<float> point)const{const auto r=noteRect(n);if(drums||!r.contains(point))return 0;const auto left=point.x-r.getX(),right=r.getRight()-point.x;return std::min(left,right)<std::min(6.f,r.getWidth()/3)?(left<=right?-1:1):0;}
     void mouseMove(const juce::MouseEvent& e)override{const auto hit=hitNote(e.position);if(splitTool){setMouseCursor(juce::MouseCursor::CrosshairCursor);return;}const auto edge=hit<0?0:edgeAt(notes[static_cast<std::size_t>(hit)],e.position);setMouseCursor(edge?noteTrimCursor(edge>0):juce::MouseCursor::NormalCursor);}
@@ -303,6 +304,7 @@ private:
     std::shared_ptr<const mrs::Project> rowProject;
     mrs::Id rowTrack;
     DrumGridRows drumRows;
+    mrs::MidiNoteColorMode trackNoteColorMode{mrs::MidiNoteColorMode::velocity};
     int rowCount() const{return drums?static_cast<int>(drumRows.rows.size()):128;}
     int rowOf(const mrs::MidiNote& n) const{return drums?drumRows.index(n.pitch,n.channel):127-n.pitch;}
     int rowAt(float y) const{return static_cast<int>(std::floor((y-ruler)/rowHeight));}
@@ -395,15 +397,16 @@ private:
         const auto normal=eventRect(note,midi);
         if(!normal.isEmpty()||!drums||note.start<midi.source_offset||note.start>=midi.source_offset+midi.length)return normal;
         const int row=drumRows.summaryIndex(note.pitch,note.channel);if(row<0)return {};
-        const float size=std::clamp(rowHeight-4.f,5.f,14.f);
+        const float size=rowHeight;
         const float x=railWidth()+static_cast<float>(static_cast<double>(midi.start+note.start-midi.source_offset)/mrs::ppq)*beatWidth;
         return {x-size*.5f,ruler+row*rowHeight+(rowHeight-size)*.5f,size,size};
     }
     bool visible(const mrs::MidiNote& n)const{return drumAddressVisible(n)&&n.start<clip.source_offset+clip.length&&(drums?n.start>=clip.source_offset:n.start+n.length>clip.source_offset);}
     juce::Rectangle<float> visibleRect(const mrs::MidiNote& n)const{const auto left=std::max(static_cast<float>(scrollX()+railWidth()),railWidth()+static_cast<float>(clip.start)/mrs::ppq*beatWidth),right=railWidth()+static_cast<float>(clip.start+clip.length)/mrs::ppq*beatWidth;return displayedNoteRect(n).getIntersection({left,static_cast<float>(scrollY()+ruler),std::max(0.f,right-left),static_cast<float>(getHeight()-scrollY()-ruler)});}
-    static juce::Colour shadeNote(juce::Colour base,int velocity,bool active){
+    static juce::Colour shadeNote(juce::Colour base,int velocity,bool active,bool expandedContrast){
         const float unit=velocity/127.f;
-        return base.withMultipliedBrightness(.76f+.24f*unit).withAlpha((active?1.f:.55f)*(1.f-.286f*(1.f-unit)));
+        const float alphaRange=.286f*(expandedContrast?1.1f:1.f);
+        return base.withMultipliedBrightness(.76f+.24f*unit).withAlpha((active?1.f:.55f)*(1.f-alphaRange*(1.f-unit)));
     }
     void drawNote(juce::Graphics& g,const mrs::MidiNote& n,const mrs::Clip& c,juce::Rectangle<float> rect,bool active){
         juce::Graphics::ScopedSaveState noteState(g);

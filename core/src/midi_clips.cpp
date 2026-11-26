@@ -36,7 +36,7 @@ Sample free_copy_start(const Project& p,const Clip& source){
     throw std::invalid_argument("no free bar for clip copy within timeline range");
 }
 }
-void AddMidiClip::apply(Project& p) const{instrument(p,clip_.track);if(!clip_.midi)throw std::invalid_argument("missing MIDI clip data");p.clips.push_back(clip_);}
+void AddMidiClip::apply(Project& p) const{instrument(p,clip_.track);if(!clip_.midi)throw std::invalid_argument("missing MIDI clip data");auto clip=clip_;if(!clip.color){const auto t=std::find_if(p.tracks.begin(),p.tracks.end(),[&](const auto& t){return t.id==clip.track;});clip.color=t->default_clip_color();}p.clips.push_back(std::move(clip));}
 void SetMidiNotes::apply(Project& p) const{midi_clip(p,id_)->midi->notes=notes_;}
 int midi_event_value(const MidiChannelEvent& e){if(e.kind<2||e.kind>6)throw std::invalid_argument("unsupported MIDI event kind");return e.kind==5?(e.data2*128+e.data1)-8192:e.kind==3||e.kind==4?e.data1:e.data2;}
 void set_midi_event_value(MidiChannelEvent& e,int value){if(e.kind<2||e.kind>6||value<(e.kind==5?-8192:0)||value>(e.kind==5?8191:127))throw std::invalid_argument("MIDI event value outside range");if(e.kind==5){const int bend=value+8192;e.data1=bend%128;e.data2=bend/128;}else if(e.kind==3||e.kind==4){e.data1=value;e.data2=0;}else e.data2=value;}

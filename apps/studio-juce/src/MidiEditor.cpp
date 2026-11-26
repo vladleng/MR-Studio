@@ -56,8 +56,16 @@ public:
         pointer.setComponentID("piano-pointer");split.setComponentID("piano-split");pointer.setTitle("Pointer (1)");split.setTitle("Split notes (3)");pointer.setTooltip(pointer.getTitle());split.setTooltip("Split notes (3); S splits selected notes at the cursor");
         pointer.onClick=[this]{roll.setSplitTool(false);roll.grabKeyboardFocus();};split.onClick=[this]{roll.setSplitTool(true);roll.grabKeyboardFocus();};
         roll.toolChanged=[this]{pointer.setToggleState(!roll.splitTool,juce::dontSendNotification);split.setToggleState(roll.splitTool,juce::dontSendNotification);};roll.toolChanged();
-        addAndMakeVisible(noteColors);noteColors.setComponentID("piano-note-colors");noteColors.setTitle("Note color mode");noteColors.setTooltip("Velocity, clip or drum group color");noteColors.addItem("Velocity colors",1);noteColors.addItem("Clip color",2);noteColors.addItem("Instrument color",3);noteColors.setSelectedId(owner.view.noteInstrumentColors?3:owner.view.noteClipColors?2:1,juce::dontSendNotification);
-        noteColors.onChange=[this]{roll.cancel();owner.view.noteClipColors=noteColors.getSelectedId()==2;owner.view.noteInstrumentColors=noteColors.getSelectedId()==3;owner.saveSettings();roll.sync();};
+        addAndMakeVisible(noteColors);noteColors.setComponentID("piano-note-colors");noteColors.setTitle("Note color mode");noteColors.setTooltip("Velocity, clip or drum group color");noteColors.addItem("Velocity colors",1);noteColors.addItem("Clip color",2);noteColors.addItem("Instrument color",3);noteColors.setSelectedId(static_cast<int>(roll.noteColorMode()),juce::dontSendNotification);
+        noteColors.onChange=[this]{
+            const int selected=noteColors.getSelectedId();if(selected<1||selected>3)return;
+            roll.cancel();roll.sync();if(!roll.isEnabled()){syncNoteColors();return;}
+            const auto mode=static_cast<mrs::MidiNoteColorMode>(selected);
+            if(owner.standaloneLive){
+                owner.view.noteClipColors=mode==mrs::MidiNoteColorMode::clip;owner.view.noteInstrumentColors=mode==mrs::MidiNoteColorMode::instrument;owner.saveSettings();
+            }else owner.run([this,mode]{owner.app.set_track_midi_note_color_mode(roll.trackId(),mode);});
+            roll.sync();syncNoteColors();
+        };
         addAndMakeVisible(selector);selector.setTitle("Select MIDI note");selector.onChange=[this]{loadNote();const int index=selector.getSelectedId()-1;if(index>=0&&index<static_cast<int>(notes.size())){roll.selected={notes[static_cast<std::size_t>(index)].id.value};roll.repaint();}};
         const std::array<juce::String,5> names{"Pitch (0..127)","Start (beats)","Length (beats)","Velocity (1..127)","Channel (1..16)"};
         for(std::size_t i=0;i<fields.size();++i){labels[i].setText(names[i],juce::dontSendNotification);labels[i].setFont(owner.theme.font(13));addAndMakeVisible(labels[i]);fields[i].setFont(owner.theme.font(13));fields[i].setTitle(names[i]);fields[i].setComponentID("midi-note-"+juce::String(static_cast<int>(i)));addAndMakeVisible(fields[i]);}
@@ -172,7 +180,16 @@ private:
         const auto next=followedScrollX(x,visible.getX(),visible.getWidth()-roll.railWidth(),std::max(0,roll.getWidth()-visible.getWidth()));
         if(next!=visible.getX())viewport.setViewPosition(next,visible.getY());
     }
+    void syncNoteColors(){
+        if(!owner.standaloneLive){
+            const auto p=owner.project();
+            const auto* track=currentTrack(*p);
+            if(track&&track->midi_note_color_mode!=roll.noteColorMode()){roll.cancel();roll.sync();}
+        }
+        noteColors.setSelectedId(static_cast<int>(roll.noteColorMode()),juce::dontSendNotification);
+    }
     void restoreDrumMode(){
+        syncNoteColors();
         if(!drumMode.isVisible())return;
         const auto p=owner.project();
         const auto clip=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id&&c.midi.has_value();});
@@ -272,6 +289,7 @@ private:
     }
     // One project grid for both Piano Roll and Drum Grid; Live retains its prior preference path.
     void syncToolbarPreferences(){
+        syncNoteColors();
         const auto spec=noteGridFromView();const bool enabled=gridSnapEnabled();
         if(roll.gridSpec!=spec||roll.snapGrid!=enabled){
             controllerLane.cancelGesture();velocity.cancel();roll.setNoteGrid(spec,enabled);
@@ -747,7 +765,13 @@ void drumGridSmoke(){
     check(!roll.noteRect(a).isEmpty()&&!roll.noteRect(u).isEmpty(),"mapped and unmapped notes visible");
     check(roll.drumLayout().index(48,0)==roll.drumLayout().index(50,0),"default and alternate share one row");
     editor.noteColors.setSelectedId(3,juce::sendNotificationSync);
-    check(roll.noteColour(a,d.project()->clips.front()).getARGB()==0xfff07468u && ViewSettings::decode(d.view.encode()).noteInstrumentColors,"third mode inherits category RGB and persists");
+    check(roll.noteColour(a,d.project()->clips.front()).getARGB()==0xfff07468u && editor.currentTrack(*d.project())->midi_note_color_mode==mrs::MidiNoteColorMode::instrument,"third mode inherits category RGB and persists on track");
+    const auto heightBefore=roll.rowHeight;
+    for(float height:{8.f,18.f,32.f}){roll.rowHeight=height;roll.sync();check(std::abs(roll.noteRect(a).getHeight()-height)<.01f&&std::abs(roll.noteRect(a).getWidth()-height)<.01f,"drum diamond follows row height");}
+    roll.rowHeight=heightBefore;roll.sync();
+    const auto alphaRange=[&](int mode){editor.noteColors.setSelectedId(mode,juce::sendNotificationSync);const auto p=d.project();return int(roll.displayedNoteColour(a,p->clips.front(),true,127).getAlpha())-int(roll.displayedNoteColour(a,p->clips.front(),true,1).getAlpha());};
+    const int velocityRange=alphaRange(1),clipRange=alphaRange(2),instrumentRange=alphaRange(3);
+    check(std::abs(clipRange-velocityRange*1.1f)<=1.f&&clipRange==instrumentRange,"ten percent wider velocity alpha range for fixed RGB modes");
     check(roll.noteColour(b,d.project()->clips.front()).getARGB()==0xff53bce4u && editor.currentTrack(*d.project())->midi_drum_mode,"instrument overrides category and drum mode persists on track");
     roll.selectVisible();check(roll.selected.size()==4,"select all visible");
     roll.toggleDrumGroup({"rack"});check(roll.noteRect(a).isEmpty()&&!roll.noteRect(b).isEmpty()&&!roll.noteRect(c).isEmpty(),"independent instrument fold");
@@ -755,6 +779,8 @@ void drumGridSmoke(){
     const int foldedRow=roll.drumLayout().summaryIndex(50,0);
     check(foldedRow>=0 && roll.drumLayout().rows[static_cast<std::size_t>(foldedRow)].group==mrs::Id{"rack"},"folded alternate note projects onto instrument header only");
     d.resetDevice();
+    for(float height:{8.f,18.f,32.f}){roll.rowHeight=height;roll.sync();check(std::abs(roll.displayedNoteRect(a).getHeight()-height)<.01f,"folded diamond follows row height");}
+    roll.rowHeight=heightBefore;roll.sync();
     const auto foldedPoint=roll.displayedNoteRect(a).getCentre();
     const auto foldedEvent=[&](int mods){return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),foldedPoint,juce::ModifierKeys(mods),1,0,0,0,0,&roll,&roll,juce::Time::getCurrentTime(),foldedPoint,juce::Time::getCurrentTime(),1,false);};
     roll.selected.clear();roll.mouseDown(foldedEvent(juce::ModifierKeys::leftButtonModifier));
@@ -855,9 +881,10 @@ void drumGridSmoke(){
     const auto keys=d.app.add_instrument_track("Keys");
     const auto keysClip=d.app.create_midi_clip(keys,20*mrs::ppq,2*mrs::ppq);
     const auto otherDrumClip=d.app.create_midi_clip(track,24*mrs::ppq,2*mrs::ppq);
-    editor.activate(keysClip);check(!roll.drums,"new track defaults to Piano Roll, not previous track mode");
-    editor.activate(otherDrumClip);check(roll.drums,"another clip on the same drum track restores Drum Grid");
-    editor.activate(keysClip);check(!roll.drums,"track switch restores Piano Roll");
+    editor.activate(keysClip);check(!roll.drums&&editor.noteColors.getSelectedId()==1,"new track defaults to Piano Roll and Velocity colors, not previous track mode");
+    editor.noteColors.setSelectedId(2,juce::sendNotificationSync);
+    editor.activate(otherDrumClip);check(roll.drums&&editor.noteColors.getSelectedId()==3,"another clip on the same drum track restores Drum Grid and Instrument color");
+    editor.activate(keysClip);check(!roll.drums&&editor.noteColors.getSelectedId()==2,"track switch restores Piano Roll and Clip color");
     editor.setDrumMode(true);check(roll.drums,"explicit grid on another track");
     editor.setDrumMode(false);check(!roll.drums,"explicit Piano Roll on second track");
     check(d.app.undo(),"undo track presentation");editor.restoreDrumMode();check(roll.drums,"undo restores active editor mode");
@@ -866,6 +893,8 @@ void drumGridSmoke(){
     const auto views=mrs::persistence::decode_project(mrs::persistence::encode(d.app.snapshot())).project;
     const auto mode=[&](const auto& trackId){return std::find_if(views.tracks.begin(),views.tracks.end(),[&](const auto& t){return t.id==trackId;})->midi_drum_mode;};
     check(mode(track)&&!mode(keys),"project archive restores independent track presentations");
+    const auto colors=[&](const auto& trackId){return std::find_if(views.tracks.begin(),views.tracks.end(),[&](const auto& t){return t.id==trackId;})->midi_note_color_mode;};
+    check(colors(track)==mrs::MidiNoteColorMode::instrument&&colors(keys)==mrs::MidiNoteColorMode::clip,"project archive restores independent note colors");
     d.app.remove_clips({id});editor.setDrumMode(false);check(!roll.isEnabled(),"switch safely refused after clip deletion");
 }
 #endif
@@ -1068,10 +1097,10 @@ void pianoRoll214Smoke(){
     check(halves.size()==5&&halves[0].length==cut-base[0].start&&halves[3].start==cut&&halves[3].velocity==base[0].velocity&&halves[4].channel==base[1].channel&&rev()==splitRevision+1,"Split tool cuts selected group once, retaining velocity/channel");
     undo(base);d.action(11);roll.sync();check(state()==halves,"Split Redo retains new IDs");undo(base);roll.keyPressed(juce::KeyPress('1'));check(!roll.splitTool&&editor.pointer.getToggleState(),"Pointer shortcut");
     selectGroup();roll.cursor=base[0].start;const auto boundaryRevision=rev();roll.selected={base[0].id.value};roll.splitAt(roll.cursor);check(state()==base&&rev()==boundaryRevision,"Split at note boundary is no-op");
-    const auto visualRevision=rev();d.view.noteClipColors=false;const auto p=d.project();const auto source=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==clipId;});check(roll.noteColour(base[0],*source)!=roll.noteColour(base[1],*source),"Velocity color gradation");
-    editor.noteColors.setSelectedId(2,juce::sendNotificationSync);check(d.view.noteClipColors&&roll.noteColour(base[0],*source)==roll.noteColour(base[1],*source)&&rev()==visualRevision,"Clip color mode changes view only");check(ViewSettings::decode(d.view.encode()).noteClipColors,"Note color preference roundtrip");
+    editor.noteColors.setSelectedId(1,juce::sendNotificationSync);const auto visualRevision=rev();const auto p=d.project();const auto source=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==clipId;});check(roll.noteColour(base[0],*source)!=roll.noteColour(base[1],*source),"Velocity color gradation");
+    editor.noteColors.setSelectedId(2,juce::sendNotificationSync);check(editor.currentTrack(*d.project())->midi_note_color_mode==mrs::MidiNoteColorMode::clip&&roll.noteColour(base[0],*source)==roll.noteColour(base[1],*source)&&rev()==visualRevision+1,"Clip color mode changes only track metadata");check(mrs::deserialize(mrs::serialize(*d.project()))==*d.project(),"Note color preference project roundtrip");
     check(roll.noteColour(base[0],*source)==juce::Colour(0xffb45df0),"Exact clip RGB mode");roll.selected.clear();
-    {juce::Image image(juce::Image::ARGB,240,40,true,juce::SoftwareImageType{});{juce::Graphics g(image);auto n=base[0];n.velocity=64;roll.drawNote(g,n,*source,{10,6,200,24},true);}auto opacityOut=folder.getChildFile("piano214-opacity.png").createOutputStream();check(opacityOut!=nullptr,"Opacity preview");opacityOut->setPosition(0);opacityOut->truncate();juce::PNGImageFormat().writeImageToStream(image,*opacityOut);check(std::abs(image.getPixelAt(70,26).getAlpha()-204)<=1&&std::abs(image.getPixelAt(190,26).getAlpha()-204)<=1,"Both velocity regions have 80 percent body opacity");check(image.getPixelAt(70,26)!=image.getPixelAt(190,26),"Full height velocity fill has visible tail");}
+    {juce::Image image(juce::Image::ARGB,240,40,true,juce::SoftwareImageType{});{juce::Graphics g(image);auto n=base[0];n.velocity=64;roll.drawNote(g,n,*source,{10,6,200,24},true);}auto opacityOut=folder.getChildFile("piano214-opacity.png").createOutputStream();check(opacityOut!=nullptr,"Opacity preview");opacityOut->setPosition(0);opacityOut->truncate();juce::PNGImageFormat().writeImageToStream(image,*opacityOut);auto n=base[0];n.velocity=64;const int alpha=roll.displayedNoteColour(n,*source,true).getAlpha();check(std::abs(int(image.getPixelAt(70,26).getAlpha())-alpha)<=1&&std::abs(int(image.getPixelAt(190,26).getAlpha())-alpha)<=1,"Uniform note body follows velocity opacity");}
     std::vector<mrs::MidiNote> gallery;for(int i=0;i<5;++i){auto n=base[0];n.id=mrs::new_id();n.start=(4+i)*mrs::ppq;n.length=4*mrs::ppq;n.pitch=68-i*2;n.velocity=std::array{1,32,64,96,127}[static_cast<std::size_t>(i)];gallery.push_back(n);}d.app.set_midi_notes(clipId,gallery);roll.sync();roll.selected={gallery[2].id.value};editor.setSize(1000,700);editor.resized();vp.setViewPosition(static_cast<int>(6*roll.beatWidth),static_cast<int>(roll.noteRect(gallery.front()).getY())-60);
     const auto save=[&](juce::String name){for(float scale:{1.f,1.25f,1.5f,2.f}){auto out=folder.getChildFile(name+"-"+juce::String(juce::roundToInt(scale*100))+".png").createOutputStream();check(out!=nullptr,"Piano preview file");out->setPosition(0);out->truncate();check(juce::PNGImageFormat().writeImageToStream(editor.createComponentSnapshot(editor.getLocalBounds(),true,scale,juce::SoftwareImageType{}),*out),"Piano preview PNG");}};
     editor.noteColors.setSelectedId(1,juce::sendNotificationSync);save("piano214-velocity");editor.noteColors.setSelectedId(2,juce::sendNotificationSync);save("piano214-clip");

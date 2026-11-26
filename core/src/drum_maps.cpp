@@ -347,4 +347,10 @@ void SetTrackMidiDrumMode::apply(Project& project) const {
     require(track != project.tracks.end() && track->kind == TrackKind::instrument, "MIDI editor presentation requires an instrument track");
     track->midi_drum_mode = active_;
 }
+void SetTrackMidiNoteColorMode::apply(Project& project) const {
+    const auto track = std::find_if(project.tracks.begin(), project.tracks.end(), [this](const auto& t) { return t.id == track_; });
+    require(track != project.tracks.end() && track->kind == TrackKind::instrument, "MIDI note color mode requires an instrument track");
+    require(mode_ == MidiNoteColorMode::velocity || mode_ == MidiNoteColorMode::clip || mode_ == MidiNoteColorMode::instrument, "invalid MIDI note color mode");
+    track->midi_note_color_mode = mode_;
+}
 } // namespace mrs

@@ -94,7 +94,8 @@ std::string serialize(const Project& p) {
     // Preserve the previous wire version for projects without Drum Maps.
     const auto drum_maps = std::count_if(p.tracks.begin(), p.tracks.end(), [](const auto& t) { return t.drum_map.has_value(); });
     const auto drum_views = std::count_if(p.tracks.begin(), p.tracks.end(), [](const auto& t) { return t.midi_drum_mode; });
-    out << "MRS_CORE_SNAPSHOT " << (drum_views ? 37 : drum_maps ? 36 : !p.transcription_results.empty()?35:p.separation_results.empty()?32:std::all_of(p.separation_results.begin(),p.separation_results.end(),legacy_separation)?33:34) << '\n';
+    const auto note_color_views = std::count_if(p.tracks.begin(), p.tracks.end(), [](const auto& t) { return t.midi_note_color_mode != MidiNoteColorMode::velocity; });
+    out << "MRS_CORE_SNAPSHOT " << (note_color_views ? 38 : drum_views ? 37 : drum_maps ? 36 : !p.transcription_results.empty()?35:p.separation_results.empty()?32:std::all_of(p.separation_results.begin(),p.separation_results.end(),legacy_separation)?33:34) << '\n';
     out << "PROJECT " << std::quoted(p.id.value) << ' ' << std::quoted(p.title) << ' '
         << std::quoted(p.artist) << ' ' << p.sample_rate << '\n';
     section(out, "TEMPOS", p.time.tempos);
@@ -187,6 +188,11 @@ std::string serialize(const Project& p) {
         out << "MIDI_DRUM_VIEWS " << drum_views << '\n';
         for (const auto& track : p.tracks) if (track.midi_drum_mode)
             out << std::quoted(track.id.value) << '\n';
+    }
+    if (note_color_views) {
+        out << "MIDI_NOTE_COLORS " << note_color_views << '\n';
+        for (const auto& track : p.tracks) if (track.midi_note_color_mode != MidiNoteColorMode::velocity)
+            out << std::quoted(track.id.value) << ' ' << static_cast<int>(track.midi_note_color_mode) << '\n';
     }
     out << "END\n";
     auto result = out.str();
@@ -407,6 +413,21 @@ Project deserialize(std::string_view bytes) {
             if (track == p.tracks.end() || track->kind != TrackKind::instrument || track->midi_drum_mode)
                 throw std::invalid_argument("invalid MIDI drum view track identity");
             track->midi_drum_mode = true;
+        }
+        in >> ending; check_stream(in);
+    }
+    if (input_version >= 38 && ending == "MIDI_NOTE_COLORS") {
+        const auto total = count(in);
+        if (total > p.tracks.size()) throw std::invalid_argument("too many MIDI note color views");
+        for (std::size_t i = 0; i < total; ++i) {
+            const Id id{quoted(in)};
+            int mode{}; in >> mode; check_stream(in);
+            const auto track = std::find_if(p.tracks.begin(), p.tracks.end(), [&](const auto& t) { return t.id == id; });
+            if (track == p.tracks.end() || track->kind != TrackKind::instrument ||
+                track->midi_note_color_mode != MidiNoteColorMode::velocity ||
+                (mode != static_cast<int>(MidiNoteColorMode::clip) && mode != static_cast<int>(MidiNoteColorMode::instrument)))
+                throw std::invalid_argument("invalid MIDI note color view");
+            track->midi_note_color_mode = static_cast<MidiNoteColorMode>(mode);
         }
         in >> ending; check_stream(in);
     }
