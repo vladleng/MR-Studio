@@ -581,8 +581,6 @@ void noteGridChecks(MidiClipPanel& editor,Desktop& d){
     editor.applyNoteGrid(defaultGrid,false);
     check(!roll.snapGrid&&roll.grid==mrs::ppq/4&&!d.app.midi_quantize_preferences().snap,"snap off keeps the nominal step in ticks");
     const auto settings=d.app.midi_quantize_preferences();
-    const auto persisted=mrs::persistence::decode_project(mrs::persistence::encode(d.app.snapshot())).project;
-    (void)persisted;
     check(settings.divisor==16&&settings.shape==0&&settings.swing==0&&!settings.snap,"note grid is stored on the active project");
     const auto document=mrs::persistence::decode_project(mrs::persistence::encode(d.app.snapshot()));
     check(std::any_of(document.extensions.begin(),document.extensions.end(),[](const auto& e){return e.tag=="MQTZ"&&e.bytes=="1 16 0 0 100 0 100 0";}),"project quantize settings survive archive round trip");
@@ -632,6 +630,24 @@ void noteGridSmoke(){
     check(roll.notes.size()==1&&roll.notes.front().start==swing.position(1),"swing double click snaps to the displaced eighth line");
     d.app.undo();roll.sync();
     editor.applyNoteGrid(NoteGridSpec{},true);
+    // Exercise the actual Q command with a disabled Snap switch and one Undo/Redo.
+    {
+        mrs::MidiNote a;a.id=mrs::new_id();a.start=mrs::ppq+30;a.length=100;a.velocity=72;a.channel=2;
+        mrs::MidiNote b=a;b.id=mrs::new_id();b.start=2*mrs::ppq+30;
+        d.app.set_midi_notes(clip,{a,b});roll.sync();roll.selected.clear();
+        editor.applyNoteGrid(NoteGridSpec{},false);
+        const auto rev=d.app.services().projects->state().revision;
+        check(roll.keyPressed(juce::KeyPress('Q'))&&d.app.services().projects->state().revision==rev,"Q with no selection creates no command");
+        roll.selected={a.id.value};
+        check(roll.keyPressed(juce::KeyPress('Q')),"Q is consumed by MIDI editor");
+        auto expected=a;expected.start=mrs::ppq;
+        check(roll.notes==std::vector<mrs::MidiNote>{expected,b},"Q quantizes only selected note, even with Snap off");
+        check(d.app.undo(),"undo quantize");roll.sync();
+        check(roll.notes==std::vector<mrs::MidiNote>{a,b},"one Undo restores the note group");
+        check(d.app.redo(),"redo quantize");roll.sync();
+        check(roll.notes==std::vector<mrs::MidiNote>{expected,b},"Redo restores quantized note IDs and values");
+        d.app.set_midi_notes(clip,{});roll.sync();editor.applyNoteGrid(NoteGridSpec{},true);
+    }
     // Exercise actual ruler mouse events and transport, not just grid arithmetic.
     struct RulerClock final:mrs::audio::IAudioDevice{
         std::vector<mrs::audio::DeviceInfo> enumerate()override{return {{0,"MIDI ruler fixture",{}, {"L","R"},16,8192,128,1}};}
