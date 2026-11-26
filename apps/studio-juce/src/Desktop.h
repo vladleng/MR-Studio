@@ -59,7 +59,7 @@ public:
     bool keyPressed(const juce::KeyPress&) override;
     bool workspaceShortcut(const juce::KeyPress&);
     bool keyStateChanged(bool) override;
-    void spaceKey(bool);
+    void spaceKey(bool down,bool pause=false,std::function<void()> before={});
     void focusLost(FocusChangeType) override;
     juce::StringArray getMenuBarNames() override;
     juce::PopupMenu getMenuForIndex(int,const juce::String&) override;
@@ -411,6 +411,7 @@ public:
     std::unique_ptr<juce::DocumentWindow> drumMapWindow;
     void openDrumMaps(std::optional<mrs::Id> track);
     std::optional<mrs::Id> activeMidiEditorTrack() const;
+    void syncMidiEditorModes();
     std::vector<mrs::Clip> recordingPreview;
     std::vector<mrs::desktop::AudioRecordingPreview> audioRecordingPreview;
     void updateRecordingPreview();

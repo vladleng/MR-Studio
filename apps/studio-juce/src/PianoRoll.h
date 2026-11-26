@@ -194,9 +194,18 @@ public:
     }
     void visibilityChanged() override{if(!isShowing())cancel();}
     void focusLost(FocusChangeType) override{cancel();}
+    bool keyStateChanged(bool) override{
+        const bool down=juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey);
+        if(!down){owner.spaceKey(false);return false;}
+        if(juce::Component::getCurrentlyModalComponent()||juce::ModifierKeys::getCurrentModifiersRealtime().isAnyModifierKeyDown())return false;
+        return keyPressed(juce::KeyPress(juce::KeyPress::spaceKey));
+    }
     bool keyPressed(const juce::KeyPress& key) override{
         const int code=key.getKeyCode();const auto mods=key.getModifiers();
-        if(code==juce::KeyPress::spaceKey&&!mods.isAnyModifierKeyDown()){owner.run([&]{transport(owner.app.engine()->state().playback==mrs::PlaybackState::playing?31:30);});return true;}
+        if(code==juce::KeyPress::spaceKey&&!mods.isAnyModifierKeyDown()){
+            if(juce::Component::getCurrentlyModalComponent())return false;
+            owner.spaceKey(true,true,[this]{cancel();repaint();});return true;
+        }
         if(code==juce::KeyPress::escapeKey){cancel();return true;}
         if(!mods.isAnyModifierKeyDown()&&(code=='1'||code=='3')){setSplitTool(code=='3');return true;}
         if(mods.isCtrlDown()&&!mods.isAltDown()){

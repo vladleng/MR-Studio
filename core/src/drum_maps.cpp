@@ -342,4 +342,9 @@ void SetTrackDrumMap::apply(Project& project) const {
     require(track != project.tracks.end() && track->kind == TrackKind::instrument, "drum map requires an instrument track");
     track->drum_map = binding_;
 }
+void SetTrackMidiDrumMode::apply(Project& project) const {
+    const auto track = std::find_if(project.tracks.begin(), project.tracks.end(), [this](const auto& t) { return t.id == track_; });
+    require(track != project.tracks.end() && track->kind == TrackKind::instrument, "MIDI editor presentation requires an instrument track");
+    track->midi_drum_mode = active_;
+}
 } // namespace mrs
