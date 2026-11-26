@@ -3,6 +3,7 @@ import io
 import json
 import os
 import subprocess
+import time
 import zipfile
 from urllib.request import Request, HTTPRedirectHandler, build_opener
 from urllib.parse import urlsplit
@@ -20,7 +21,7 @@ class SafeRedirect(HTTPRedirectHandler):
 
 WORKFLOWS = dict(core='core-contracts.yml', gui='windows-juce-gui-compile.yml',
                  contracts='transcription-contracts.yml', runtime='transcription-runtime.yml',
-                 separation='separation.yml')
+                 separation='separation.yml', mp3='windows-mp3-export.yml')
 
 
 def validate_evidence(data, sha, workflow, check):
@@ -31,44 +32,51 @@ def validate_evidence(data, sha, workflow, check):
         raise ValueError('source SHA, workflow definition or check profile does not match')
 
 
-def verify_existing(sha, scope, integration, runs, artifact_evidence, ref):
+class PendingCheck(ValueError):
+    pass
+
+
+class FailedCheck(ValueError):
+    pass
+
+
+def expected_check(name, scope, integration):
+    live = integration or scope in {'live', 'studio-live', 'profile'}
+    return 'gui-live' if name == 'gui' and live else name
+
+
+def existing_check(sha, name, scope, integration, runs, artifact_evidence):
+    workflow = WORKFLOWS[name]
+    check = expected_check(name, scope, integration)
+    candidates = [r for r in runs if r.get('head_sha') == sha
+                  and r.get('path') == f'.github/workflows/{workflow}'
+                  and r.get('event') in {'pull_request', 'push', 'workflow_dispatch'}]
+    for run in sorted(candidates, key=lambda r: (r['id'], r.get('run_attempt', 1)), reverse=True):
+        if run.get('status') != 'completed':
+            raise PendingCheck(f"{run.get('status')}/{run.get('conclusion')}")
+        if run.get('conclusion') != 'success':
+            raise FailedCheck(f"{run.get('status')}/{run.get('conclusion')}")
+        data = artifact_evidence(run['id'], name)
+        if check not in data.get('checks', []):
+            continue
+        validate_evidence(data, sha, workflow, check)
+        return f'{check}: PASS at {sha} (run {run["id"]})'
+    raise ValueError('missing check')
+
+
+def verify_existing(sha, scope, integration, runs, artifact_evidence, ref, checks=None):
     errors = []
     evidence = []
-    live = integration or scope in {'live', 'studio-live', 'profile'}
-    for name in sorted(required_checks(scope, integration)):
+    for name in sorted(required_checks(scope, integration) if checks is None else checks):
         workflow = WORKFLOWS[name]
-        check = 'gui-live' if name == 'gui' and live else name
+        check = expected_check(name, scope, integration)
         command = f'gh workflow run {workflow} --ref {ref}'
-        if name == 'gui' and live:
+        if check == 'gui-live':
             command += ' -f live=true'
         if name == 'core':
             command += ' -f checks=profile'
-        candidates = [r for r in runs if r.get('head_sha') == sha
-                      and r.get('path') == f'.github/workflows/{workflow}'
-                      and r.get('event') in {'pull_request', 'push', 'workflow_dispatch'}]
-        # A newer failure/pending run must not be hidden behind an older success.
-        run = None
-        for candidate in sorted(candidates, key=lambda r: (r['id'], r.get('run_attempt', 1)), reverse=True):
-            # Unknown/failed executions remain blockers; do not hide regressions.
-            if candidate.get('status') != 'completed' or candidate.get('conclusion') != 'success':
-                run = candidate
-                break
-            try:
-                data = artifact_evidence(candidate['id'], name)
-                if check not in data.get('checks', []):
-                    continue
-            except (ValueError, KeyError, OSError, zipfile.BadZipFile):
-                run = candidate
-                break
-            run = candidate
-            break
         try:
-            if not run:
-                raise ValueError('missing check')
-            if run.get('status') != 'completed' or run.get('conclusion') != 'success':
-                raise ValueError(f"{run.get('status')}/{run.get('conclusion')}")
-            validate_evidence(artifact_evidence(run['id'], name), sha, workflow, check)
-            evidence.append(f'{check}: PASS at {sha} (run {run["id"]})')
+            evidence.append(existing_check(sha, name, scope, integration, runs, artifact_evidence))
         except (ValueError, KeyError, OSError, zipfile.BadZipFile) as error:
             errors.append(f'{check}: {error}. Run: {command}')
     if errors:
@@ -76,8 +84,67 @@ def verify_existing(sha, scope, integration, runs, artifact_evidence, ref):
     return evidence
 
 
+def plan_missing(sha, scope, integration, runs, artifact_evidence):
+    missing, pending = set(), set()
+    for name in sorted(required_checks(scope, integration)):
+        try:
+            print(existing_check(sha, name, scope, integration, runs, artifact_evidence))
+        except PendingCheck:
+            pending.add(name)
+        except FailedCheck as error:
+            raise ValueError(f'{name}: {error}; fix or explicitly rerun the failed check') from error
+        except (ValueError, KeyError, OSError, zipfile.BadZipFile):
+            missing.add(name)
+    return missing, pending
+
+
+def verify_automatic(sha, scope, integration, runs, artifact_evidence, ref, needs, run_id):
+    plan = needs['plan']
+    if plan['result'] != 'success':
+        raise ValueError('Candidate plan did not pass')
+    reused = set()
+    executed = set()
+    for name in sorted(required_checks(scope, integration)):
+        decision = plan['outputs'].get(f'need_{name}')
+        if decision == 'false':
+            if needs[name]['result'] != 'skipped':
+                raise ValueError(f'{name}: unexpected reused-check result')
+            reused.add(name)
+        elif decision == 'true':
+            if needs[name]['result'] != 'success':
+                raise ValueError(f'{name}: required candidate job {needs[name]["result"]}')
+            # The enclosing run is still running, so validate the successful job's
+            # own evidence artifact, not the enclosing run's conclusion.
+            validate_evidence(artifact_evidence(run_id, name), sha, WORKFLOWS[name],
+                              expected_check(name, scope, integration))
+            print(f'{name}: PASS at {sha} (candidate run {run_id})')
+            executed.add(name)
+        else:
+            raise ValueError(f'{name}: missing or invalid plan decision')
+    # Check all required child job results first. Wait only for independently
+    # running checks at the final barrier, never before scheduling missing jobs.
+    lines, pending = [], []
+    for name in sorted(reused | executed):
+        try:
+            line = existing_check(sha, name, scope, integration, runs, artifact_evidence)
+            if name in reused:
+                lines.append(line)
+        except PendingCheck as error:
+            pending.append(f'{name}: {error}')
+        except FailedCheck:
+            raise
+        except (ValueError, KeyError, OSError, zipfile.BadZipFile):
+            if name in reused:
+                raise
+            # A successful child with valid own evidence can replace missing or
+            # expired standalone evidence, but never a later failure.
+    if pending:
+        raise PendingCheck('; '.join(pending))
+    return lines
+
+
 def main():
-    sha = os.environ['GITHUB_SHA']
+    sha = os.environ.get('CANDIDATE_SHA', os.environ['GITHUB_SHA'])
     if subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() != sha:
         raise ValueError('Candidate checkout SHA mismatch')
     root = os.environ['GITHUB_API_URL'] + '/repos/' + os.environ['GITHUB_REPOSITORY'] + '/'
@@ -106,9 +173,46 @@ def main():
             if info.file_size > 65536:
                 raise ValueError('invalid evidence size')
             return json.loads(archive.read(info))
-    runs = pages(f'actions/runs?head_sha={quote(sha)}', 'workflow_runs')
-    for line in verify_existing(sha, os.environ['RELEASE_CHECKS'], os.environ['INTEGRATION'] == 'true',
-                                runs, artifact, os.environ['GITHUB_REF_NAME']):
+    mode = os.environ.get('CI_GATE_MODE', 'verify')
+    scope = os.environ['RELEASE_CHECKS']
+    integration = os.environ['INTEGRATION'] == 'true'
+    ref = os.environ.get('CANDIDATE_REF', os.environ['GITHUB_REF_NAME'])
+
+    def list_runs():
+        return pages(f'actions/runs?head_sha={quote(sha)}', 'workflow_runs')
+
+    if mode in ('plan', 'manual-plan'):
+        missing = set()
+        if mode == 'plan':
+            # Allow synchronize-triggered PR checks to register before planning.
+            time.sleep(20)
+            missing, pending = plan_missing(sha, scope, integration, list_runs(), artifact)
+            print(f'Existing checks running in parallel: {sorted(pending)}', flush=True)
+        with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+            for name in WORKFLOWS:
+                output.write(f'need_{name}={"true" if name in missing else "false"}\n')
+        print(f'Checks to run: {sorted(missing)}')
+        return
+    runs = list_runs()
+    if mode == 'automatic':
+        needs = json.loads(os.environ['CI_NEEDS'])
+        run_id = int(os.environ['GITHUB_RUN_ID'])
+        deadline = time.monotonic() + 30 * 60
+        while True:
+            try:
+                lines = verify_automatic(sha, scope, integration, runs, artifact, ref, needs, run_id)
+                break
+            except PendingCheck as error:
+                if time.monotonic() >= deadline:
+                    raise ValueError(f'Pending candidate checks: {error}') from error
+                print(f'Awaiting existing checks at final gate: {error}', flush=True)
+                time.sleep(60)
+                runs = list_runs()
+    elif mode == 'verify':
+        lines = verify_existing(sha, scope, integration, runs, artifact, ref)
+    else:
+        raise ValueError(f'Unknown CI gate mode: {mode}')
+    for line in lines:
         print(line)
 
 

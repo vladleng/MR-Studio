@@ -19,6 +19,7 @@
 #include <set>
 #include <sstream>
 #include <tuple>
+#include <utility>
 #include <stdexcept>
 namespace mrs::desktop {
 namespace {
@@ -245,7 +246,7 @@ Application::~Application() {
     for (auto& capture : captures_) try { (void)capture.recorder->finish(); } catch (const std::exception&) {}
     for (auto& [key,value] : assets_) { (void)key; *value.cancel = true; }
 }
-void Application::workspace(Workspace w) { (void)workspace_name(w); workspace_ = w; }
+void Application::workspace(Workspace w) { require(!active_export_,"Audio export in progress");(void)workspace_name(w); workspace_ = w; }
 void Application::replace(persistence::ProjectDocument next) {
     cancel_wav_import();
     cancel_transcription();
@@ -659,6 +660,7 @@ void Application::rename_track(const Id& id, std::string name) {
     services_.projects->execute(RenameTrack{id,std::move(name)});
 }
 void Application::require_not_recording() const {
+    require(!active_export_,"Audio export in progress");
     require(!recording(),"End recording before changing project, files or device");
 }
 void Application::sync_arm() {
@@ -1588,12 +1590,12 @@ bool Application::edit_midi_velocities(const Project& before,const Project& afte
     transaction->finish();unsaved_=true;
     return true;
 }
-void Application::edit(const ICommand& command,std::optional<Id> authoritative,bool retain_inserts) {
+void Application::edit(const ICommand& command,std::optional<Id> authoritative,bool retain_inserts,bool force_graph_rebuild) {
     require_not_playing();
     auto candidate = *services_.projects->state().project;
     command.apply(candidate); candidate.validate();
-    if(edit_midi_velocities(*services_.projects->state().project,candidate,&command))return;
-    if(same_except_clips(*services_.projects->state().project,candidate)&&same_midi_clips(*services_.projects->state().project,candidate)&&
+    if(!force_graph_rebuild&&edit_midi_velocities(*services_.projects->state().project,candidate,&command))return;
+    if(!force_graph_rebuild&&same_except_clips(*services_.projects->state().project,candidate)&&same_midi_clips(*services_.projects->state().project,candidate)&&
        edit_clip_state(candidate,&command))return;
     {std::vector<Id> tracks;for(const auto& t:candidate.tracks)if(t.kind!=TrackKind::midi)tracks.push_back(t.id);(void)audio::compile_midi_clips(candidate,tracks);(void)audio::compile_midi_events(candidate,tracks);}
     const auto original=services_.projects->state().project;
@@ -2511,31 +2513,185 @@ void Application::commit_midi_project(Project candidate,std::string operation){
     }
     services_.projects->execute(Import{std::move(candidate),std::move(operation)});unsaved_=true;sync_arm();publish_midi_routes();
 }
-void Application::prepare_mixer(audio::RenderGraph& result) {
-    const auto project = preparing_project_?preparing_project_:services_.projects->state().project.get();
-    mixer_tracks_.clear();
+namespace {
+void project_mixer(const Project* project,audio::RenderGraph& result,std::vector<Id>& mixer_tracks,const std::shared_ptr<audio::ExternalMidiQueue>& external_midi) {
+    mixer_tracks.clear();
     for (const auto& t : project->tracks) if (t.kind != TrackKind::midi) {
-        require(mixer_tracks_.size() < audio::max_mixer_tracks,"mixer supports up to 128 audio tracks and buses");
-        mixer_tracks_.push_back(t.id); result.mixer.push_back(t.mix); result.input_monitoring.push_back(t.input_monitor); result.buses.push_back(t.kind == TrackKind::bus);result.live_midi.push_back(t.kind==TrackKind::instrument);result.midi_monitor.push_back(t.midi_monitor);
-        result.external_midi_tracks.push_back(!t.midi_output.empty());result.external_midi_channels.push_back(t.midi_output_channel);if(!t.midi_output.empty())result.external_midi=external_midi_;
+        require(mixer_tracks.size() < audio::max_mixer_tracks,"mixer supports up to 128 audio tracks and buses");
+        mixer_tracks.push_back(t.id); result.mixer.push_back(t.mix); result.input_monitoring.push_back(t.input_monitor); result.buses.push_back(t.kind == TrackKind::bus);result.live_midi.push_back(t.kind==TrackKind::instrument);result.midi_monitor.push_back(t.midi_monitor);
+        result.external_midi_tracks.push_back(!t.midi_output.empty());result.external_midi_channels.push_back(t.midi_output_channel);if(!t.midi_output.empty())result.external_midi=external_midi;
     }
     for (const auto& t : project->tracks) if (t.kind != TrackKind::midi) {
-        const auto destination = t.output ? std::find(mixer_tracks_.begin(),mixer_tracks_.end(),*t.output) : mixer_tracks_.end();
-        require(!t.output || destination != mixer_tracks_.end(),"missing output bus");
+        const auto destination = t.output ? std::find(mixer_tracks.begin(),mixer_tracks.end(),*t.output) : mixer_tracks.end();
+        require(!t.output || destination != mixer_tracks.end(),"missing output bus");
         result.sends.emplace_back();
         for (const auto& send : t.sends) {
-            const auto bus = std::find(mixer_tracks_.begin(),mixer_tracks_.end(),send.bus);
-            require(bus != mixer_tracks_.end(),"missing send bus");
-            result.sends.back().push_back({static_cast<std::size_t>(bus-mixer_tracks_.begin()),send.bypass?0.f:send.gain,send.pre_fader});
+            const auto bus = std::find(mixer_tracks.begin(),mixer_tracks.end(),send.bus);
+            require(bus != mixer_tracks.end(),"missing send bus");
+            result.sends.back().push_back({static_cast<std::size_t>(bus-mixer_tracks.begin()),send.bypass?0.f:send.gain,send.pre_fader});
         }
-        result.outputs.push_back(destination == mixer_tracks_.end() ? audio::no_mixer_track : static_cast<std::size_t>(destination-mixer_tracks_.begin()));
+        result.outputs.push_back(destination == mixer_tracks.end() ? audio::no_mixer_track : static_cast<std::size_t>(destination-mixer_tracks.begin()));
     }
     result.master_gain = project->master_gain;
-    applied_mix_revision_ = services_.projects->state().revision;
 }
-void Application::prepare_midi_clips(audio::RenderGraph& graph){
-    const auto p=preparing_project_?preparing_project_:services_.projects->state().project.get();const Timeline time(p->time,p->sample_rate);graph.click_time=p->time;graph.click=click_settings_;graph.midi_events=audio::compile_midi_events(*p,mixer_tracks_);graph.midi_notes=audio::compile_midi_clips(*p,mixer_tracks_);
+void project_midi(const Project* p,audio::RenderGraph& graph,const std::vector<Id>& mixer_tracks,const audio::ClickSettings& click){
+    const Timeline time(p->time,p->sample_rate);graph.click_time=p->time;graph.click=click;graph.midi_events=audio::compile_midi_events(*p,mixer_tracks);graph.midi_notes=audio::compile_midi_clips(*p,mixer_tracks);
     for(const auto& tempo:p->time.tempos)graph.tempos.push_back({time.to_samples(tempo.tick),tempo.bpm,static_cast<double>(tempo.tick)/ppq});
+}
+}
+void Application::prepare_mixer(audio::RenderGraph& result) {
+    const auto project=preparing_project_?preparing_project_:services_.projects->state().project.get();
+    project_mixer(project,result,mixer_tracks_,external_midi_);
+    applied_mix_revision_=services_.projects->state().revision;
+}
+void Application::prepare_midi_clips(audio::RenderGraph& result) {
+    const auto project=preparing_project_?preparing_project_:services_.projects->state().project.get();
+    project_midi(project,result,mixer_tracks_,click_settings_);
+}
+audio::WavExportResult Application::export_wav(const std::filesystem::path& destination,Sample begin,Sample end,
+                                               const audio::WavExportCallbacks& callbacks) {
+    require_not_playing();
+    require(workspace_!=Workspace::live&&!performance_plan_,"Audio export is Studio-only");
+    require(begin>=0&&end>begin&&end<=max_sample,"Invalid export range");
+    const auto rate=services_.projects->state().project->sample_rate;
+    return audio::export_wav24(destination,rate,end-begin,[&](const auto& sink){
+        return export_master(begin,end,sink);
+    },callbacks);
+}
+audio::Mp3ExportResult Application::export_mp3(const std::filesystem::path& destination,Sample begin,Sample end,
+                                               const audio::WavExportCallbacks& callbacks) {
+    require_not_playing();
+    require(workspace_!=Workspace::live&&!performance_plan_,"Audio export is Studio-only");
+    require(begin>=0&&end>begin&&end<=max_sample,"Invalid export range");
+    const auto rate=services_.projects->state().project->sample_rate;
+    return audio::export_mp3(destination,rate,end-begin,[&](const auto& sink){
+        return export_master(begin,end,sink);
+    },callbacks);
+}
+audio::OfflineRenderResult Application::PreparedMasterExport::render(const audio::OfflineRenderCallbacks& callbacks){
+    if(used_.exchange(true))throw std::logic_error("Export plan already rendered");
+    // A copy retains all processors on the control owner while the temporary
+    // engine and its workers are destroyed here.
+    return audio::render_master_range(config_,graph_,begin_,end_,callbacks);
+}
+void Application::finish_master_export(const std::shared_ptr<PreparedMasterExport>& plan){
+    require_ai_owner();
+    require(plan&&active_export_==plan,"Export plan is not active");
+    active_export_.reset();
+    const bool restart=std::exchange(export_restart_device_,false);
+    if(restart)device_->start();
+}
+audio::OfflineRenderResult Application::export_master(Sample begin,Sample end,const audio::OfflineRenderCallbacks& callbacks) {
+    require(static_cast<bool>(callbacks.write_stereo),"Invalid export sink");
+    auto plan=prepare_master_export(begin,end);
+    audio::OfflineRenderResult rendered;
+    try{rendered=plan->render(callbacks);}
+    catch(...){const auto error=std::current_exception();finish_master_export(plan);std::rethrow_exception(error);}
+    finish_master_export(plan);return rendered;
+}
+std::shared_ptr<Application::PreparedMasterExport> Application::prepare_master_export(Sample begin,Sample end) {
+    require_ai_owner();
+    require_not_playing();
+    require(workspace_!=Workspace::live&&!performance_plan_,"Audio export is Studio-only");
+    require(begin>=0&&end>begin&&end<=max_sample,"Invalid export range");
+    require(!preparing_project_&&!pending_live_insert_switch_.transition&&!staged_insert_target_&&staged_insert_graphs_.empty()&&retained_insert_keys_.empty(),"Wait for pending graph changes before export");
+    require(stretch_ready(true),"Wait for current time / pitch preparation before export");
+    const auto phase=device_?device_->status().phase:audio::DevicePhase::closed;
+    require(phase!=audio::DevicePhase::error,"Recover audio device before export");
+    const bool restart=phase==audio::DevicePhase::running;
+    if(restart)device_->stop();
+    if(device_)engine_->quiesce();
+    // Existing device and live DSP instances are retained; no graph swap, seek,
+    // persistent model update, undo entry or device reconfiguration is needed.
+    try {
+        auto project=*services_.projects->state().project;
+        require(engine_->state().playback!=PlaybackState::playing,"Stop playback before export");
+        for(const auto& t:project.tracks)require(t.midi_output.empty(),"External MIDI cannot be rendered offline");
+        // Reuse the existing stopped-state capture contract, writing only into
+        // a private project copy. Fail rather than omit an unavailable plugin.
+        for(const auto& [key,runtime]:insert_runtime_){
+            (void)key;
+            require(!runtime.settings_failed&&!runtime.pending&&(!runtime.graph||!runtime.graph->failed()),"Resolve pending or failed plugin state before export");
+        }
+        require(instrument_errors_.empty(),"Resolve unavailable instruments before export");
+        // Don't export an old persisted IR/preset while a newer selection is
+        // loading or awaiting the normal control-thread model acknowledgement.
+        for(const auto& runtime:reverb_runtime_){
+            const auto status=runtime.loader->snapshot();
+            require(!runtime.tone&&status->phase!=audio::ReverbLoadPhase::loading&&
+                (!status->active||status->active_revision==runtime.observed),
+                "Wait for IR selection to finish before export");
+        }
+        capture_insert_state(project,{},true);
+        auto graph_state=*graphs_->state().graph;
+        if(prepared_&&prepared_->snapshot().graph==graphs_->state().graph)graph_state=prepared_->capture();
+        audio::RenderGraph graph;
+        std::vector<Id> tracks;
+        project_mixer(&project,graph,tracks,{});
+        project_midi(&project,graph,tracks,{});
+        graph.monitoring=false;
+        graph.live_midi.assign(tracks.size(),false);
+        graph.midi_monitor.assign(tracks.size(),false);
+        graph.input_monitoring.assign(tracks.size(),false);
+        graph.master_outputs={0,1};
+        // Preserve Master bypass routing without requiring physical outputs.
+        for(const auto& t:project.tracks)if(t.kind!=TrackKind::midi)
+            graph.hardware_outputs.push_back(t.hardware_outputs.empty()?std::vector<std::size_t>{}:std::vector<std::size_t>{0,1});
+        graph.voices=prepare_clip_voices(project,tracks,2,true);
+#ifdef MRS_HAS_ARA
+        if(!project.ara_bindings.empty()){
+            if(ara_){
+                for(const auto& binding:project.ara_bindings)if(!binding.bypass)
+                    require(ara_->status(binding.source).starts_with("ready"),"Resolve pending or failed ARA source before export");
+                const auto saved=ara_->save_bindings();
+                for(auto& binding:project.ara_bindings){
+                    const auto current=std::find_if(saved.begin(),saved.end(),[&](const auto& b){return b.persistent_id==binding.persistent_id&&b.source==binding.source;});
+                    if(current!=saved.end()){const auto bypass=binding.bypass;binding=*current;binding.bypass=bypass;}
+                }
+            }
+            ara::Arrangement offline_ara;
+            offline_ara.restore_bindings(project.ara_bindings);
+            offline_ara.synchronize(project,[this](const auto& source){return asset(source);});
+            offline_ara.apply_offline(project,graph);
+        }
+#else
+        require(std::none_of(project.ara_bindings.begin(),project.ara_bindings.end(),[](const auto& b){return !b.bypass;}),"This build cannot export active ARA processing");
+#endif
+        constexpr std::uint32_t block=512;
+        const auto chain=[&](const std::vector<NativeInsert>& effects,bool instrument){
+            if(effects.empty())return std::shared_ptr<processing::PreparedGraph>{};
+            auto saved=std::make_shared<const processing::GraphState>(processing::insert_graph(effects));
+            auto prepared=std::make_shared<processing::PreparedGraph>(processing::GraphSnapshot{saved,0,false,false},
+                processing::ProcessConfig{project.sample_rate,2,block,block,instrument,true}
+#ifdef MRS_HAS_VST3
+                ,processing::hosted_factory
+#endif
+            );
+            for(const auto& fx:effects)if(!fx.bypass&&(fx.kind==InsertKind::reverb||wav_core(fx.kind))&&!fx.reverb.first.digest.empty()){
+                try{
+                    audio::restore_reverb_quiescent(*prepared,fx.id,fx.reverb,
+                        wav_core(fx.kind)?cab_root_:reverb_library_->snapshot()->root);
+                }catch(const std::exception& error){
+                    throw std::runtime_error("Offline IR "+fx.reverb.name+": "+error.what());
+                }
+            }
+            return prepared;
+        };
+        for(const auto& t:project.tracks)if(t.kind!=TrackKind::midi)graph.inserts.push_back(chain(t.inserts,t.kind==TrackKind::instrument));
+        graph.master_inserts=chain(project.master_inserts,false);
+        graph.processors=std::make_shared<processing::PreparedGraph>(
+            processing::GraphSnapshot{std::make_shared<const processing::GraphState>(std::move(graph_state)),0,false,false},
+            processing::ProcessConfig{project.sample_rate,2,block,block,false,true});
+        audio::RenderConfig config{project.sample_rate,0,2,block};
+        if(device_config_)config.processing_workers=device_config_->processing_workers;
+        auto plan=std::make_shared<PreparedMasterExport>();
+        plan->config_=config;plan->graph_=std::move(graph);plan->begin_=begin;plan->end_=end;
+        export_restart_device_=restart;active_export_=plan;return plan;
+    }catch(...){
+        const auto original=std::current_exception();
+        if(restart)device_->start();
+        std::rethrow_exception(original);
+    }
 }
 audio::RenderGraph Application::render(const audio::DeviceConfig& c,bool retain_inserts) {
     const auto project=preparing_project_?preparing_project_:services_.projects->state().project.get();
@@ -2721,6 +2877,7 @@ void Application::disconnect() {
     staged_playback_.reset();
 }
 void Application::poll() {
+    if(active_export_)return;
     poll_clip_updates();
     const auto processing=engine_->metrics();
     const bool timedOut=processing.processing_fault&&processing.worker_timeouts>0;
@@ -2781,15 +2938,15 @@ void Application::stop_library_preview() noexcept {engine_->stop_library_preview
 audio::AudioEngine::LibraryPreviewState Application::library_preview_state() const noexcept {
     return engine_->library_preview_state();
 }
-void Application::play() { require(audio_running(),"connect audio or choose Offline clock first");
+void Application::play() { require(!active_export_,"Audio export in progress");require(audio_running(),"connect audio or choose Offline clock first");
     require(stretch_ready(true),"Time / pitch is not ready. Wait for preparation, apply again after cancellation, or reopen a changed source.");
 #ifdef MRS_HAS_ARA
     if (ara_ && engine_->state().playback!=PlaybackState::playing && ara_->poll()) {unsaved_=true;refresh_ara(false);}
 #endif
     transport_->play(); }
 void Application::set_click_settings(audio::ClickSettings settings){settings.validate();require_not_recording();if(settings==click_settings_)return;const auto mapped = mapped_click(settings, active_outputs());require(engine_->enqueue({audio::ControlKind::click,mapped.control_flags(),settings.level}),"transport control queue full");click_settings_=settings;}
-void Application::pause() { if (recording()) (void)stop_recording(); else transport_->pause(); }
-void Application::stop() { if (recording()) (void)stop_recording(); transport_->stop(); }
+void Application::pause() { require(!active_export_,"Audio export in progress");if (recording()) (void)stop_recording(); else transport_->pause(); }
+void Application::stop() { require(!active_export_,"Audio export in progress");if (recording()) (void)stop_recording(); transport_->stop(); }
 void Application::seek(Sample sample) { require_not_recording(); transport_->seek(sample); }
 
 void Application::set_track_armed(const Id& id, bool enabled) {
@@ -2973,7 +3130,10 @@ bool Application::stop_recording() {
         }
         const auto project=services_.projects->state().project;const Timeline time(project->time,project->sample_rate);
         for(const auto& capture:midi_sessions){if(capture.recorder->end()<=recording_visible_start_)continue;auto data=capture.recorder->finish(time);if(capture.recorder->fault())recording_error_="MIDI recording interrupted (input/queue/capacity); captured prefix retained";if(data.notes.empty()&&data.events.empty())continue;const auto visible=time.to_ticks(recording_visible_start_);data.source_offset=visible-data.start;data.length=std::max(Tick{1},data.length-data.source_offset);data.start=visible;Clip clip;clip.id=new_id();clip.track=capture.track;clip.name="MIDI take";clip.midi=std::move(data);command.clips.push_back(std::move(clip));}
-        if (!command.clips.empty()) edit(command,{},true); else rebuild_audio(true);
+        // Capture sinks have been detached by preparing an empty render graph.
+        // A voice-only transition cannot restore that graph's mixer, inserts or MIDI.
+        // Rebuild the complete graph while retaining the existing insert runtimes.
+        if (!command.clips.empty()) edit(command,{},true,true); else rebuild_audio(true);
         if (!failure.empty()) throw std::runtime_error(failure);
         return !command.clips.empty();
     } catch (const std::exception& e) {

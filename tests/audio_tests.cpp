@@ -533,6 +533,136 @@ void hardware() {
     graph.voices.clear(); graph.master_gain=1; graph.monitor={{0,0,1},{0,1,1}}; graph.monitor_track=0;
     engine.prepare({48000,1,6,512},graph); std::array<float,512> input{}; input.fill(0.25f); engine.process(input.data(),out.data(),512); CHECK(out[3] == 0.25f && out[0] == 0);
 }
+void master_export() {
+    auto asset=std::make_shared<AudioData>();asset->channels=2;
+    for(int i=0;i<256;++i){asset->samples.push_back(.25f);asset->samples.push_back(.5f);}
+    RenderGraph graph;graph.mixer={{},{}};graph.hardware_outputs={{},{4,5}};graph.master_outputs={2,3};graph.master_gain=6.f;
+    graph.click.playback=false;graph.click.level=100;
+    graph.voices={{asset,0,0,256,{{0,0,1},{1,1,1}}},{asset,0,0,256,{{0,0,1},{1,1,1}}}};
+    graph.voices[0].mixer_track=0;graph.voices[1].mixer_track=1;
+    AudioEngine engine;engine.prepare({48000,0,6,128},graph);CHECK(engine.enqueue({ControlKind::play}));
+    std::array<float,768> scratch{};std::array<float,256> stereo{};
+    allocation_check::count=0;allocation_check::frees=0;allocation_check::enabled=true;
+    const auto ok=engine.render_master_block(scratch,stereo);
+    allocation_check::enabled=false;
+    CHECK(ok&&allocation_check::count==0&&allocation_check::frees==0);
+    CHECK(engine.state().sample==128);
+    for(std::size_t i=0;i<128;++i){
+        CHECK(stereo[i*2]==1.5f&&stereo[i*2+1]==3.f);
+        CHECK(scratch[i*6+2]==1.f&&scratch[i*6+3]==1.f);
+        CHECK(scratch[i*6+4]==.25f&&scratch[i*6+5]==.5f);
+    }
+    CHECK(!engine.render_master_block(scratch,std::span<float>(stereo).first(255)));
+    CHECK(engine.state().sample==128);
+    std::array<float,18> last_scratch{};std::array<float,6> last{};
+    CHECK(engine.render_master_block(last_scratch,last));
+    CHECK(engine.state().sample==131&&last[0]==1.5f&&last[5]==3.f);
+    // Test the metronome separately: an enabled click is intentionally mixed into
+    // device scratch after capture and can reduce or increase a clipped sample.
+    graph.master_gain=.5f;
+    engine.prepare({48000,0,6,128},graph);CHECK(engine.enqueue({ControlKind::play}));
+    std::array<float,768> no_click_scratch{};
+    std::array<float,256> no_click_master{};
+    CHECK(engine.render_master_block(no_click_scratch,no_click_master));
+    graph.click.playback=true;
+    engine.prepare({48000,0,6,128},graph);CHECK(engine.enqueue({ControlKind::play}));
+    CHECK(engine.render_master_block(scratch,stereo));
+    CHECK(stereo==no_click_master&&scratch!=no_click_scratch);
+    for(std::size_t i=0;i<128;++i)CHECK(stereo[i*2]==.125f&&stereo[i*2+1]==.25f);
+    // A real prepared master insert must be included before the fader.
+    {
+        using namespace mrs::processing;
+        RenderGraph fx_graph;fx_graph.voices={graph.voices.front()};fx_graph.mixer={{}};
+        fx_graph.master_gain=.5f;
+        NativeInsert insert;insert.id=new_id();insert.kind=InsertKind::gain;insert.gain=.5f;
+        const std::array<NativeInsert,1> fx{insert};
+        auto saved=std::make_shared<const GraphState>(insert_graph(fx));
+        fx_graph.master_inserts=std::make_shared<PreparedGraph>(GraphSnapshot{saved,0,false,false},ProcessConfig{48000,2,128});
+        engine.prepare({48000,0,2,128},fx_graph);CHECK(engine.enqueue({ControlKind::play}));
+        std::array<float,256> fx_scratch{};
+        CHECK(engine.render_master_block(fx_scratch,stereo));
+        for(std::size_t i=0;i<128;++i)CHECK(stereo[i*2]==.0625f&&stereo[i*2+1]==.125f);
+    }
+    engine.prepare({48000,0,6,128},graph,{PlaybackState::paused,0,LoopRange{0,128}});
+    CHECK(engine.enqueue({ControlKind::play}));CHECK(!engine.render_master_block(scratch,stereo));
+}
+void offline_range() {
+    using namespace mrs::processing;
+    auto asset=std::make_shared<AudioData>();asset->channels=2;
+    for(int i=0;i<32;++i){asset->samples.push_back(static_cast<float>(i+1)/64.f);asset->samples.push_back(static_cast<float>(i+1)/32.f);}
+    RenderGraph graph;graph.voices={{asset,0,0,32,{{0,0,1},{1,1,1}}}};
+    auto state=demo_graph();state.nodes.front().parameters.clear();
+    graph.master_inserts=std::make_shared<PreparedGraph>(GraphSnapshot{std::make_shared<const GraphState>(state),0,false,false},
+        ProcessConfig{48000,2,4},[](const auto&){return std::make_unique<LatencyFixture>(5);});
+    std::vector<float> output;
+    Sample previous=0;
+    const auto result=render_master_range({48000,0,2,4},std::move(graph),3,12,{
+        [&](std::span<const float> block){output.insert(output.end(),block.begin(),block.end());},
+        [&](const OfflineRenderProgress& p){
+            CHECK(p.processed>=previous&&p.processed<=p.total&&p.total==17&&p.requested==9);
+            CHECK(p.written==static_cast<Sample>(output.size()/2));
+            previous=p.processed;return true;
+        }
+    });
+    CHECK(result.completed&&result.frames_written==9&&output.size()==18&&previous==17);
+    for(std::size_t i=0;i<output.size();++i)CHECK(output[i]==asset->samples[6+i]);
+    CHECK(result.peak==12.f/32.f);
+    RenderGraph plain;plain.voices={{asset,0,0,32,{{0,0,1},{1,1,1}}}};
+    output.clear();
+    const auto cancelled=render_master_range({48000,0,2,4},plain,0,20,{
+        [&](std::span<const float> block){output.insert(output.end(),block.begin(),block.end());},
+        [](const OfflineRenderProgress& p){return p.written<4;}
+    });
+    CHECK(!cancelled.completed&&cancelled.frames_written==4&&output.size()==8);
+    const auto immediate=render_master_range({48000,0,2,4},plain,0,20,{
+        [](std::span<const float>){throw std::runtime_error("unexpected output");},
+        [](const OfflineRenderProgress&){return false;}
+    });
+    CHECK(!immediate.completed&&immediate.frames_written==0);
+    rejects([&]{render_master_range({48000,0,2,4},plain,5,5,{[](std::span<const float>){}});});
+    rejects([&]{render_master_range({48000,0,2,4},plain,0,20,{[](std::span<const float>){throw std::runtime_error("sink failure");}});});
+}
+void offline_streaming() {
+    TempFile file;std::string payload;
+    constexpr Sample total=30000;
+    for(Sample i=0;i<total;++i)put32(payload,std::bit_cast<std::uint32_t>(static_cast<float>(i%127)/256.f));
+    file.write(wav_bytes(3,32,payload));
+    const auto disk=std::make_shared<const AudioData>(open_wav(file.path,0));
+    const auto pcm=std::make_shared<const AudioData>(load_wav(file.path));
+    CHECK(disk->file&&disk->samples.empty());
+    const auto make_graph=[](const std::shared_ptr<const AudioData>& source){
+        RenderGraph graph;graph.mixer={{},{}};graph.voices={
+            {source,11,8188,17003,{{0,0,1},{0,1,.5f}}},
+            {source,510,17000,511,{{0,0,.5f},{0,1,1}}}};
+        graph.voices[0].mixer_track=0;graph.voices[0].fade_in=13;graph.voices[0].fade_out=21;
+        graph.voices[1].mixer_track=1;graph.voices[1].fade_in=7;
+        graph.master_gain=.5f;return graph;
+    };
+    RenderConfig config{48000,0,2,257};config.processing_block=113;
+    std::vector<float> expected,actual;
+    const auto reference=render_master_range(config,make_graph(pcm),7,18001,{
+        [&](std::span<const float> block){expected.insert(expected.end(),block.begin(),block.end());}});
+    const auto rendered=render_master_range(config,make_graph(disk),7,18001,{
+        [&](std::span<const float> block){actual.insert(actual.end(),block.begin(),block.end());}});
+    CHECK(reference.completed&&rendered.completed&&rendered.frames_written==17994);
+    CHECK(expected==actual&&reference.peak==rendered.peak&&actual.size()==35988);
+    CHECK(disk->samples.empty());
+    actual.clear();
+    const auto cancelled=render_master_range(config,make_graph(disk),0,18001,{
+        [&](std::span<const float> block){actual.insert(actual.end(),block.begin(),block.end());},
+        [](const OfflineRenderProgress& p){return p.written<257;}});
+    CHECK(!cancelled.completed&&cancelled.frames_written==257&&actual.size()==514);
+    // Retained immutable metadata, but file is truncated after inspection.
+    std::filesystem::resize_file(file.path,44+100*4);
+    const auto immediate=render_master_range(config,make_graph(disk),0,18001,{
+        [](std::span<const float>){throw std::runtime_error("unexpected output");},
+        [](const OfflineRenderProgress&){return false;}});
+    CHECK(!immediate.completed&&immediate.frames_written==0);
+    bool threw=false;std::size_t writes=0;
+    try{(void)render_master_range(config,make_graph(disk),0,18001,{
+        [&](std::span<const float>){++writes;}});}catch(const std::exception&){threw=true;}
+    CHECK(threw&&writes==0); // failed first read, never substitute silence
+}
 void sends() {
     auto asset = std::make_shared<AudioData>(); asset->channels = 1; asset->samples.assign(16384,0.25f);
     RenderGraph graph; graph.mixer = {{0.5f,0,false,false},{0.5f,0,false,false},{},{}};
@@ -922,7 +1052,7 @@ int main(int argc, char** argv) {
         if (argc != 2) throw std::invalid_argument("expected suite");
         const std::string suite = argv[1];
         if(suite=="state_snapshot"){state_snapshot();std::cout<<"PASS state_snapshot: "<<assertions<<" checks\n";return 0;}
-        if(suite=="performance")performance();else if(suite=="metronome")metronome();else if(suite=="callback_blocks")callback_blocks();else if (suite=="pdc") pdc(); else if (suite=="inserts") inserts(); else if(suite=="insert_switch")insert_switch(); else if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
+        if(suite=="performance")performance();else if(suite=="metronome")metronome();else if(suite=="callback_blocks")callback_blocks();else if (suite=="pdc") pdc(); else if (suite=="inserts") inserts(); else if(suite=="insert_switch")insert_switch(); else if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="master_export") { master_export(); offline_range(); offline_streaming(); } else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
         else if (suite=="queue") queue(); else if (suite=="wav") wav();
         else if (suite=="device") device(); else if (suite=="metrics") metrics();
         else if (suite=="streaming") streaming(); else if (suite=="recording") recording();

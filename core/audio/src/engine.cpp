@@ -1156,7 +1156,156 @@ void AudioEngine::resolve_performance() noexcept {
     }
     performance_stalled_=true;performance_action_=PerformanceAction::stop;++performance_end_serial_;rt_.playback=PlaybackState::stopped;
 }
-void AudioEngine::process_block(const float* input, float* output, std::uint32_t frames, std::uint32_t input_flags) noexcept {
+namespace {
+// Offline-only adapter. prime() performs bounded disk IO before DSP entry.
+// render()/sample() merely select already decoded memory, including when the
+// engine splits a block at tempo/processing boundaries.
+class OfflineWavVoice final : public VoiceRenderer {
+    std::shared_ptr<const WavFile> file_;
+    Sample start_, offset_, length_;
+    std::vector<float> cache_;
+    Sample cache_first_{}, cache_end_{}, prepared_first_{}, prepared_end_{}, chunk_{};
+    bool failed_{};
+public:
+    static constexpr Sample cache_frames=8192;
+    explicit OfflineWavVoice(const Voice& voice)
+        :file_(voice.asset->file),start_(voice.start),offset_(voice.source_offset),length_(voice.length),
+         cache_(static_cast<std::size_t>(cache_frames)*file_->channels) {}
+    void prime(Sample position, Sample frames) {
+        prepared_first_=position;
+        prepared_end_=position+frames;
+        const auto first=std::max(position,start_);
+        const auto last=std::min(prepared_end_,start_+length_);
+        if(first>=last)return;
+        const auto source=offset_+(first-start_);
+        const auto end=offset_+(last-start_);
+        if(source>=cache_first_&&end<=cache_end_)return;
+        const auto count=std::min(cache_frames,offset_+length_-source);
+        file_->read(source,std::span<float>(cache_).first(static_cast<std::size_t>(count)*file_->channels));
+        cache_first_=source;
+        cache_end_=source+count;
+    }
+    bool render(Sample position,std::uint32_t frames,double,double,processing::MeterContext,
+                std::optional<LoopRange> loop) noexcept override {
+        chunk_=position;
+        const auto first=std::max(position,start_);
+        const auto last=std::min(position+frames,start_+length_);
+        failed_=loop.has_value()||position<prepared_first_||position+frames>prepared_end_||
+            (first<last&&(offset_+(first-start_)<cache_first_||offset_+(last-start_)>cache_end_));
+        return !failed_;
+    }
+    float sample(std::uint32_t frame,std::uint32_t channel) const noexcept override {
+        const auto position=chunk_+frame;
+        if(failed_||position<start_||position>=start_+length_||channel>=file_->channels)return 0.f;
+        const auto source=offset_+(position-start_);
+        if(source<cache_first_||source>=cache_end_)return 0.f;
+        return cache_[static_cast<std::size_t>(source-cache_first_)*file_->channels+channel];
+    }
+    std::uint32_t channels() const noexcept override{return file_->channels;}
+    bool failed() const noexcept override{return failed_;}
+};
+}
+OfflineRenderResult render_master_range(RenderConfig config, RenderGraph graph, Sample begin, Sample end,
+                                        const OfflineRenderCallbacks& callbacks) {
+    if (begin<0 || end<=begin || end>max_sample || config.output_channels<2 || !callbacks.write_stereo)
+        throw std::invalid_argument("invalid offline render range or sink");
+    if (graph.performance || graph.external_midi || graph.recording || !graph.recordings.empty() ||
+        !graph.midi_recordings.empty() || std::any_of(graph.voices.begin(),graph.voices.end(),[](const auto& voice){
+            return voice.renderer || (voice.stream && (!voice.asset || !voice.asset->file));
+        }))
+        throw std::invalid_argument("offline graph contains an unsupported capture, renderer or external route");
+    // Hosted VST3 chains must have been prepared in the requested mode.
+    // Never reconfigure or silently borrow a running device's processors.
+    const auto require_offline=[](const std::shared_ptr<processing::PreparedGraph>& chain){
+        if(chain&&!chain->config().offline&&std::any_of(chain->snapshot().graph->nodes.begin(),
+            chain->snapshot().graph->nodes.end(),[](const auto& node){return node.format==processing::ProcessorFormat::vst3;}))
+            throw std::invalid_argument("offline render requires independently prepared offline VST3 processors");
+    };
+    require_offline(graph.processors);require_offline(graph.master_inserts);
+    for(const auto& chain:graph.inserts)require_offline(chain);
+    // Keep references for non-RT fault inspection before publishing a block.
+    auto chains=graph.inserts;
+    chains.push_back(graph.processors);chains.push_back(graph.master_inserts);
+    // No ReadAhead worker or full-file preload for disk-backed voices. Reuse
+    // immutable WAV metadata, but never reuse the live stream cursor.
+    std::vector<std::shared_ptr<OfflineWavVoice>> disk_voices;
+    std::size_t cache_bytes{};
+    for(auto& voice:graph.voices)if(voice.asset&&voice.asset->file){
+        voice.asset->validate();
+        if(config.max_block>static_cast<std::uint32_t>(OfflineWavVoice::cache_frames))
+            throw std::invalid_argument("offline disk blocks must be at most 8192 frames");
+        cache_bytes+=static_cast<std::size_t>(OfflineWavVoice::cache_frames)*voice.asset->channels*sizeof(float);
+        if(cache_bytes>256ULL*1024*1024||disk_voices.size()>=max_voices)
+            throw std::invalid_argument("offline disk cache budget exceeded");
+        auto reader=std::make_shared<OfflineWavVoice>(voice);
+        voice.stream.reset();
+        voice.renderer=reader;
+        disk_voices.push_back(std::move(reader));
+    }
+    // Never read live input, emit count-in or touch an editor audition renderer.
+    graph.monitoring=false;
+    graph.monitor.clear();
+    graph.editor_renderers.clear();
+    graph.click.playback=graph.click.recording=false;
+    graph.count_frames=0;
+    config.worker_mmcss=false;
+    auto engine=std::make_unique<AudioEngine>();
+    engine->prepare(config,std::move(graph));
+    const auto latency=static_cast<Sample>(engine->compensation().output);
+    if (end>max_sample-latency) throw std::invalid_argument("offline render range plus latency exceeds timeline");
+    // Start at project origin for deterministic preroll, including preceding
+    // notes/FX. Skip compensated leading frames; emit exactly [begin,end).
+    const Sample first=begin+latency, last=end+latency;
+    OfflineRenderProgress progress{0,last,0,end-begin};
+    OfflineRenderResult result{};
+    const auto keep_going=[&]{return !callbacks.continue_render || callbacks.continue_render(progress);};
+    if (!keep_going()) return result;
+    std::vector<float> scratch(static_cast<std::size_t>(config.max_block)*config.output_channels);
+    std::vector<float> stereo(static_cast<std::size_t>(config.max_block)*2);
+    if (!engine->enqueue({ControlKind::play})) throw std::runtime_error("offline transport start failed");
+    while (progress.processed<last) {
+        const auto count=static_cast<std::size_t>(std::min<Sample>(config.max_block,last-progress.processed));
+        // A read failure propagates before any DSP or sink write for this block.
+        for(const auto& reader:disk_voices)reader->prime(progress.processed,static_cast<Sample>(count));
+        auto output=std::span<float>(stereo).first(count*2);
+        if (!engine->render_master_block(std::span<float>(scratch).first(count*config.output_channels),output))
+            throw std::runtime_error("offline Master processing failed");
+        if(std::any_of(chains.begin(),chains.end(),[](const auto& chain){return chain&&chain->failed();}))
+            throw std::runtime_error("offline plugin processing failed");
+        const Sample next=progress.processed+static_cast<Sample>(count);
+        const auto from=std::max(first,progress.processed);
+        if (next>from) {
+            const auto data=std::span<const float>(output).subspan(static_cast<std::size_t>(from-progress.processed)*2,
+                                      static_cast<std::size_t>(next-from)*2);
+            for (const float sample:data) result.peak=std::max(result.peak,std::abs(sample));
+            callbacks.write_stereo(data);
+            progress.written+=next-from;
+            result.frames_written=progress.written;
+        }
+        progress.processed=next;
+        if (!keep_going()) return result;
+    }
+    result.completed=true;
+    return result;
+}
+bool AudioEngine::render_master_block(std::span<float> device_scratch, std::span<float> stereo) noexcept {
+    const auto frames = stereo.size()/2;
+    if (!frames || stereo.size()%2 || frames>config_.max_block || config_.output_channels<2 ||
+        device_scratch.size()!=frames*config_.output_channels || speculative_ || ahead_owner_ || mixed_owner_ ||
+        graph_.performance || graph_.external_midi || !graph_.recordings.empty() || !graph_.midi_recordings.empty() ||
+        graph_.count_frames || rt_.count_remaining || processing_fault_.load(std::memory_order_relaxed) ||
+        pending_transition_.load(std::memory_order_acquire) || pending_insert_switch_.load(std::memory_order_acquire) ||
+        std::any_of(graph_.voices.begin(),graph_.voices.end(),[](const auto& voice){return static_cast<bool>(voice.stream);}))
+        return false;
+    consume_controls();
+    if (rt_.playback!=PlaybackState::playing || rt_.loop || pending_seek_ || rt_.count_remaining ||
+        rt_.sample>max_sample-static_cast<Sample>(frames)) return false;
+    const auto end=rt_.sample+static_cast<Sample>(frames);
+    std::fill(stereo.begin(),stereo.end(),0.f);
+    process_block(nullptr,device_scratch.data(),static_cast<std::uint32_t>(frames),0,stereo.data());
+    return !processing_fault_.load(std::memory_order_relaxed) && rt_.sample==end;
+}
+void AudioEngine::process_block(const float* input, float* output, std::uint32_t frames, std::uint32_t input_flags, float* master_capture) noexcept {
     // The device callback owns adoption. A same-engine ahead producer never
     // consumes a live channel switch.
     if(!speculative_)adopt_insert_switch();
@@ -1411,13 +1560,20 @@ void AudioEngine::process_block(const float* input, float* output, std::uint32_t
             const auto propagate=[&](std::size_t to){if(to!=no_mixer_track)profile_path_[to]=std::max(profile_path_[to],path);};propagate(graph_.outputs[t]);for(const auto& send:graph_.sends[t])propagate(send.destination);}
             critical_ns+=longest;}
         auto* master_audio=output+static_cast<std::size_t>(base)*config_.output_channels;
-        if(!speculative_)for(const auto& editor:graph_.editor_renderers)
+        if(!speculative_&&!master_capture)for(const auto& editor:graph_.editor_renderers)
             (void)editor->mix(master_audio,count,config_.output_channels,position,playing,tempo.bpm,tempo.quarter,meter,rt_.loop,graph_.recordings.empty()&&graph_.midi_recordings.empty()); // audition faults are isolated from clip playback
         for(std::size_t i=0;i<static_cast<std::size_t>(count)*config_.output_channels;++i)if(!std::isfinite(master_audio[i]))master_audio[i]=0;
         const auto master_start=profile_block_?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
         if(graph_.processors)graph_.processors->process(master_audio,count,position,playing,tempo.bpm,tempo.quarter,{},meter);
         if(graph_.master_inserts)graph_.master_inserts->process(master_audio,count,position,playing,tempo.bpm,tempo.quarter,{},meter);
         if(profile_block_)master_ns+=elapsed_ns(master_start);
+        if(master_capture)for(std::uint32_t local=0;local<count;++local){
+            const auto frame=base+local;
+            for(std::uint32_t c=0;c<2;++c){
+                const auto sample=master_audio[static_cast<std::size_t>(local)*config_.output_channels+c]*master_envelope_[frame];
+                master_capture[static_cast<std::size_t>(frame)*2+c]=std::isfinite(sample)?sample:0.f;
+            }
+        }
         // Click follows the exact per-chunk transport/graph, including a mid-block handoff.
         const bool capturing=!graph_.recordings.empty()||!graph_.midi_recordings.empty();
         for(std::uint32_t local=0;local<count;++local){const auto frame=base+local;const auto offset=static_cast<std::size_t>(frame)*config_.output_channels;
@@ -1455,7 +1611,7 @@ void AudioEngine::process_block(const float* input, float* output, std::uint32_t
             if (sample > 1 || sample < -1) { clipped_.fetch_add(1,std::memory_order_relaxed); sample = std::clamp(sample,-1.0f,1.0f); }
         }
     }
-    if(!speculative_)mix_library_preview(output,frames,master_envelope_.data());
+    if(!speculative_&&!master_capture)mix_library_preview(output,frames,master_envelope_.data());
     last_render_meters_={};for(std::size_t t=0;t<max_mixer_tracks;++t)last_render_meters_.tracks[t]={block_peaks[t][0],block_peaks[t][1]};last_render_meters_.master={block_peaks[max_mixer_tracks][0],block_peaks[max_mixer_tracks][1]};
     if(!speculative_)for (std::size_t t=0; t<=max_mixer_tracks; ++t) for (std::size_t c=0; c<2; ++c)
         meter_peaks_[t][c].store(std::max(block_peaks[t][c],meter_peaks_[t][c].load(std::memory_order_relaxed)),std::memory_order_relaxed);

@@ -1,9 +1,11 @@
 name: Windows Studio Release
 # Product versions are validated against the source header before building.
-run-name: ${{ inputs.checks == 'live' && !inputs.integration && 'MR Live 0.9.3-Upd9 — Windows Release' || ((inputs.checks == 'studio' || inputs.checks == 'separation' || inputs.checks == 'separation-ui') && !inputs.integration && 'MR Studio 0.10.3-fix3 — Windows Release' || 'MR Studio 0.10.3-fix3 / MR Live 0.9.3-Upd9 — Windows Release') }}
-# Heavy Windows acceptance packages are opt-in. Fast Core contracts and
-# component-specific CI continue running automatically on relevant changes.
+run-name: ${{ startsWith(github.event.pull_request.title, '[candidate:studio]') && 'MR Studio 0.11.0 — Windows candidate' || startsWith(github.event.pull_request.title, '[candidate:live]') && 'MR Live 0.9.3-Upd9 — Windows candidate' || startsWith(github.event.pull_request.title, '[candidate:studio-live]') && 'MR Studio 0.11.0 / MR Live 0.9.3-Upd9 — Windows candidate' || (inputs.checks == 'live' && !inputs.integration && 'MR Live 0.9.3-Upd9 — Windows Release' || ((inputs.checks == 'studio' || inputs.checks == 'separation' || inputs.checks == 'separation-ui') && !inputs.integration && 'MR Studio 0.11.0 — Windows Release' || 'MR Studio 0.11.0 / MR Live 0.9.3-Upd9 — Windows Release')) }}
+# Heavy acceptance packages are explicit: manual dispatch OR one PR title request.
+# An ordinary commit, body edit or title edit never launches a Windows build.
 on:
+  pull_request:
+    types: [edited]
   workflow_dispatch:
     inputs:
       integration:
@@ -23,55 +25,138 @@ permissions:
   contents: read
   actions: read
 env:
-  RELEASE_BANNER: 'MR Studio 0.10.3-fix3 / MR Live 0.9.3-Upd9 — Windows Release'
+  RELEASE_BANNER: 'MR Studio 0.11.0 / MR Live 0.9.3-Upd9 — Windows Release'
 concurrency:
-  group: windows-${{ github.ref }}-${{ inputs.checks }}-${{ inputs.integration }}-${{ inputs.ara }}
+  group: windows-${{ (github.event_name == 'pull_request' && github.event.action == 'edited' && github.event.changes.title.from != null && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.ref == 'main' && !startsWith(github.event.changes.title.from, '[candidate:') && (startsWith(github.event.pull_request.title, '[candidate:studio]') || startsWith(github.event.pull_request.title, '[candidate:live]') || startsWith(github.event.pull_request.title, '[candidate:studio-live]'))) && format('candidate-{0}', github.event.pull_request.number) || github.event_name == 'workflow_dispatch' && format('{0}-{1}-{2}-{3}', github.ref, inputs.checks, inputs.integration, inputs.ara) || github.run_id }}
   cancel-in-progress: true
 jobs:
-  preflight:
+  plan:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.action == 'edited' && github.event.changes.title.from != null && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.ref == 'main' && !startsWith(github.event.changes.title.from, '[candidate:') && (startsWith(github.event.pull_request.title, '[candidate:studio]') || startsWith(github.event.pull_request.title, '[candidate:live]') || startsWith(github.event.pull_request.title, '[candidate:studio-live]'))) }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
+    outputs:
+      scope: ${{ steps.request.outputs.scope }}
+      integration: ${{ steps.request.outputs.integration }}
+      ara: ${{ steps.request.outputs.ara }}
+      sha: ${{ steps.request.outputs.sha }}
+      ref: ${{ steps.request.outputs.ref }}
+      automatic: ${{ steps.request.outputs.automatic }}
+      need_core: ${{ steps.evidence.outputs.need_core }}
+      need_gui: ${{ steps.evidence.outputs.need_gui }}
+      need_contracts: ${{ steps.evidence.outputs.need_contracts }}
+      need_runtime: ${{ steps.evidence.outputs.need_runtime }}
+      need_separation: ${{ steps.evidence.outputs.need_separation }}
+      need_mp3: ${{ steps.evidence.outputs.need_mp3 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Resolve explicit candidate
+        id: request
+        env:
+          REQUEST_CHECKS: ${{ inputs.checks }}
+          REQUEST_INTEGRATION: ${{ inputs.integration }}
+          REQUEST_ARA: ${{ inputs.ara }}
+        run: python3 tools/ci/candidate_request.py
+      - name: Reuse completed evidence and schedule only missing checks
+        id: evidence
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ steps.request.outputs.sha }}
+          CANDIDATE_REF: ${{ steps.request.outputs.ref }}
+          RELEASE_CHECKS: ${{ steps.request.outputs.scope }}
+          INTEGRATION: ${{ steps.request.outputs.integration }}
+          CI_GATE_MODE: ${{ steps.request.outputs.automatic == 'true' && 'plan' || 'manual-plan' }}
+        run: python3 tools/ci/verify_ci_evidence.py
+
+  core:
+    needs: plan
+    if: ${{ needs.plan.outputs.automatic == 'true' && needs.plan.outputs.need_core == 'true' }}
+    uses: ./.github/workflows/core-contracts.yml
+    with:
+      checks: profile
+
+  gui:
+    needs: plan
+    if: ${{ needs.plan.outputs.automatic == 'true' && needs.plan.outputs.need_gui == 'true' }}
+    uses: ./.github/workflows/windows-juce-gui-compile.yml
+    with:
+      live: ${{ needs.plan.outputs.scope != 'studio' }}
+
+  contracts:
+    needs: plan
+    if: ${{ needs.plan.outputs.automatic == 'true' && needs.plan.outputs.need_contracts == 'true' }}
+    uses: ./.github/workflows/transcription-contracts.yml
+
+  runtime:
+    needs: plan
+    if: ${{ needs.plan.outputs.automatic == 'true' && needs.plan.outputs.need_runtime == 'true' }}
+    uses: ./.github/workflows/transcription-runtime.yml
+
+  separation:
+    needs: plan
+    if: ${{ needs.plan.outputs.automatic == 'true' && needs.plan.outputs.need_separation == 'true' }}
+    uses: ./.github/workflows/separation.yml
+
+  mp3:
+    needs: plan
+    if: ${{ needs.plan.outputs.automatic == 'true' && needs.plan.outputs.need_mp3 == 'true' }}
+    uses: ./.github/workflows/windows-mp3-export.yml
+
+  preflight:
+    needs: [plan, core, gui, contracts, runtime, separation, mp3]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    timeout-minutes: 35
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-          ref: ${{ github.sha }}
+          ref: ${{ needs.plan.outputs.sha }}
       - name: Require completed candidate checks
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          RELEASE_CHECKS: ${{ inputs.checks }}
-          INTEGRATION: ${{ inputs.integration }}
+          CANDIDATE_SHA: ${{ needs.plan.outputs.sha }}
+          CANDIDATE_REF: ${{ needs.plan.outputs.ref }}
+          RELEASE_CHECKS: ${{ needs.plan.outputs.scope }}
+          INTEGRATION: ${{ needs.plan.outputs.integration }}
+          CI_GATE_MODE: ${{ needs.plan.outputs.automatic == 'true' && 'automatic' || 'verify' }}
+          CI_NEEDS: ${{ toJSON(needs) }}
         run: python3 tools/ci/verify_ci_evidence.py
 
   studio:
-    needs: preflight
+    needs: [plan, preflight]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.preflight.result == 'success' }}
     runs-on: windows-2022
     timeout-minutes: 60
     env:
       # Studio PR/push profiles retain ARA2 ON by default. The targeted Live
       # scope forces ARA2 OFF before SDK acquisition, configure and packaging.
       # Manual Studio ARA-OFF builds remain diagnostic only.
-      ARA: ${{ inputs.ara }}
-      CHECK_SCOPE: ${{ inputs.checks || 'profile' }}
-      INTEGRATION: ${{ inputs.integration }}
+      ARA: ${{ needs.plan.outputs.ara }}
+      CHECK_SCOPE: ${{ needs.plan.outputs.scope }}
+      INTEGRATION: ${{ needs.plan.outputs.integration }}
+      SOURCE_SHA: ${{ needs.plan.outputs.sha }}
+      SOURCE_REF: ${{ needs.plan.outputs.ref }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-          ref: ${{ github.sha }}
+          ref: ${{ needs.plan.outputs.sha }}
           fetch-depth: 2
       - name: Reject superseded candidate
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $current=gh api "repos/$env:GITHUB_REPOSITORY/commits/$env:GITHUB_REF_NAME" --jq .sha
-          if($LASTEXITCODE -or $current -ne $env:GITHUB_SHA){throw 'Candidate ref advanced; select the current SHA'}
+          $current=gh api "repos/$env:GITHUB_REPOSITORY/commits/$env:SOURCE_REF" --jq .sha
+          if($LASTEXITCODE -or $current -ne $env:SOURCE_SHA){throw 'Candidate ref advanced; select the current SHA'}
+          $checked=git rev-parse HEAD
+          if($LASTEXITCODE -or $checked -ne $env:SOURCE_SHA){throw 'Candidate checkout SHA mismatch'}
       - name: Select explicitly requested check scope
         id: live_scope
         shell: pwsh
-        env:
-          SOURCE_SHA: ${{ github.sha }}
         run: |
           $scope=$env:CHECK_SCOPE
           if($env:INTEGRATION -eq 'true'){$scope='integration'}
@@ -156,7 +241,7 @@ jobs:
             $args+=@('mrs_separation_check','mrs_separation_assets_tests','mrs_persistence_tests')
           }
           if($env:CHECK_SCOPE -in @('studio','studio-live','profile')){
-            $args+=@('mrs_vst3_tests','mrs_midi_live_tests','mrs_midi_record_tests','mrs_midi_clip_tests')
+            $args+=@('mrs_vst3_tests','mrs_midi_live_tests','mrs_midi_record_tests','mrs_midi_clip_tests','mrs_reverb_library_tests','mrs_reverb_tests','mrs_mp3_export_tests')
             if($env:BUILD_ARA -eq 'true'){$args+=@('mrs_ara_tests','mrs_ara_clip_tests','mrs_ai_ara_tests')}
           }
           & cmake @args
@@ -174,7 +259,8 @@ jobs:
           elseif($env:INTEGRATION -ne 'true'){$args+=@('-R','^(midi_import|core_(ace_midi_protocol|audio_to_midi|stretch_contract|model|transport|commands|serialization|track_folders|remove_tracks)|stretch_.*|clip_stretch_.*|track_stretch_mode|drums_sdk_.*|ai_.*|ara_.*|juce_(transcription|separation_(models|project)|live_application|live_entry_smoke|clip_stretch|library_browser|j1_smoke|track_header_layout|track_folders|ai_assistant|ai_permissions|ara_editor)|audio_(transport|streaming|recording|mixer|buses|sends|pdc|ahead_.*|mixed_.*|sample_library)|desktop_(python_transcription|transcription_controller|audio_to_midi_worker|separation_assets|wav_import|track_folders|remove_tracks|clip_response)|persistence_(roundtrip|migrations|compatibility|atomic|recovery))$')}
           if($env:CHECK_SCOPE -eq 'profile'){$args+=@('-E','^(ara_.*|ai_ara|juce_ara_editor)$')}
           & ctest @args
-          if($LASTEXITCODE){
+          $profileExit=$LASTEXITCODE
+          if($profileExit){
             if(Test-Path 'build/windows/separation-project-failure.txt'){Get-Content 'build/windows/separation-project-failure.txt'}
             if(Test-Path 'build/windows/separation-models-failure.txt'){Get-Content 'build/windows/separation-models-failure.txt'}
             if(Test-Path 'build/windows/wav-drop-failure.txt'){Get-Content 'build/windows/wav-drop-failure.txt'}
@@ -182,22 +268,34 @@ jobs:
             if(Test-Path 'build/windows/live-application-failure.txt'){Get-Content 'build/windows/live-application-failure.txt'}
             if(Test-Path 'build/windows/live-entry-failure.txt'){Get-Content 'build/windows/live-entry-failure.txt'}
             if(Test-Path 'build/windows/library261-failure.txt'){Get-Content 'build/windows/library261-failure.txt'}
-            throw "CTest failed ($env:CHECK_SCOPE)"
           }
+          $separationExit=0
           if($env:CHECK_SCOPE -notin @('live','separation','separation-ui','studio','studio-live')){
             & ctest --test-dir build/windows -C Release --output-on-failure --no-tests=error -R '^separation_(host|models)$'
-            if($LASTEXITCODE){throw 'Separation host contract failed'}
+            $separationExit=$LASTEXITCODE
           }
+          if($profileExit -or $separationExit){throw "CTest failed ($env:CHECK_SCOPE); profile=$profileExit separation=$separationExit"}
       - name: VST3 and ARA host contracts
         id: host
-        if: success() && (env.CHECK_SCOPE == 'studio' || env.CHECK_SCOPE == 'studio-live' || env.CHECK_SCOPE == 'profile')
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && (env.CHECK_SCOPE == 'studio' || env.CHECK_SCOPE == 'studio-live' || env.CHECK_SCOPE == 'profile') }}
         shell: pwsh
         run: |
           $pattern=if($env:BUILD_ARA -eq 'true'){'^(vst3_.*|midi_(live|recording|clips)|ara_.*|ai_ara|juce_ara_editor)$'}else{'^(vst3_.*|midi_(live|recording|clips))$'}
           ctest --test-dir build/windows -C Release --output-on-failure --no-tests=error -R $pattern
           if($LASTEXITCODE){throw 'Host contracts failed'}
+      - name: Offline audio export contracts
+        id: export
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && (env.CHECK_SCOPE == 'studio' || env.CHECK_SCOPE == 'studio-live' || env.CHECK_SCOPE == 'profile') }}
+        shell: pwsh
+        run: |
+          ctest --test-dir build/windows -C Release --output-on-failure --no-tests=error -R '^(desktop_(offline_export|reverb|cab_collection|cab_combo)|audio_(reverb_library|mp3_export)|processing_(reverb|rig)|juce_export_audio)$'
+          if($LASTEXITCODE){
+            if(Test-Path 'build/windows/export-audio-failure.txt'){Get-Content 'build/windows/export-audio-failure.txt'}
+            throw 'Offline export contracts failed'
+          }
       - name: Stretch foundation evidence (synthetic, not ASIO)
-        if: success() && env.CHECK_SCOPE != 'live' && env.CHECK_SCOPE != 'separation' && env.CHECK_SCOPE != 'separation-ui' && env.CHECK_SCOPE != 'studio' && env.CHECK_SCOPE != 'studio-live'
+        id: stretch
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && env.CHECK_SCOPE != 'live' && env.CHECK_SCOPE != 'separation' && env.CHECK_SCOPE != 'separation-ui' && env.CHECK_SCOPE != 'studio' && env.CHECK_SCOPE != 'studio-live' }}
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force build/stretch-evidence | Out-Null
@@ -215,10 +313,10 @@ jobs:
           @("MR Studio $env:MR_STUDIO_VERSION stretch foundation. Synthetic evidence, not ASIO or user listening acceptance.", 'mrs_stretch_bench.exe --seconds 300 --warmup 30 --repeats 3 --voices 8 --ratio 1.25', 'Experimental manual clip controls/cache playback are integrated; final realtime/quality acceptance remains in #59/#62.') | Set-Content build/stretch-evidence/README.txt
           Get-ChildItem build/stretch-evidence -File | Get-FileHash -Algorithm SHA256 | Format-Table -AutoSize | Out-String -Width 240 | Set-Content build/stretch-evidence/SHA256.txt
       - name: Upload stretch evidence
-        if: success() && env.CHECK_SCOPE != 'live' && env.CHECK_SCOPE != 'separation' && env.CHECK_SCOPE != 'separation-ui' && env.CHECK_SCOPE != 'studio' && env.CHECK_SCOPE != 'studio-live'
+        if: ${{ !cancelled() && steps.stretch.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ${{ env.RELEASE_ARTIFACT_VERSION }}-Stretch-Evidence-${{ github.sha }}
+          name: ${{ env.RELEASE_ARTIFACT_VERSION }}-Stretch-Evidence-${{ needs.plan.outputs.sha }}
           path: build/stretch-evidence/
           if-no-files-found: error
           retention-days: 14
@@ -229,21 +327,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $current=gh api "repos/$env:GITHUB_REPOSITORY/commits/$env:GITHUB_REF_NAME" --jq .sha
-          if($LASTEXITCODE -or $current -ne $env:GITHUB_SHA){throw 'Candidate ref advanced; select the current SHA'}
+          $current=gh api "repos/$env:GITHUB_REPOSITORY/commits/$env:SOURCE_REF" --jq .sha
+          if($LASTEXITCODE -or $current -ne $env:SOURCE_SHA){throw 'Candidate ref advanced; select the current SHA'}
+          $checked=git rev-parse HEAD
+          if($LASTEXITCODE -or $checked -ne $env:SOURCE_SHA){throw 'Candidate checkout SHA mismatch'}
       - name: Package development acceptance candidate
         id: package
-        if: always() && steps.build.outcome == 'success' && steps.current.outcome == 'success' && env.CHECK_SCOPE != 'separation'
+        if: success() && steps.build.outcome == 'success' && steps.current.outcome == 'success' && env.CHECK_SCOPE != 'separation'
         shell: pwsh
         env:
-          CI_TEST_RESULT: ${{ steps.test.outcome == 'success' && (steps.host.outcome == 'success' || steps.host.outcome == 'skipped') && 'success' || 'failure' }}
+          CI_TEST_RESULT: ${{ steps.test.outcome == 'success' && (steps.host.outcome == 'success' || steps.host.outcome == 'skipped') && (steps.export.outcome == 'success' || steps.export.outcome == 'skipped') && 'success' || 'failure' }}
           CI_CHECK_SCOPE: ${{ env.CHECK_SCOPE }}
         run: ./tools/ci/Package-Windows.ps1 -Ara:($env:BUILD_ARA -eq 'true') -StudioOnly:($env:STUDIO_ONLY -eq 'true') -LiveOnly:($env:CHECK_SCOPE -eq 'live')
       - name: Upload Windows runtime
         if: always() && steps.package.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ${{ env.RELEASE_ARTIFACT_VERSION }}-Windows-${{ github.sha }}-ara-${{ steps.live_scope.outputs.ara }}
+          name: ${{ env.RELEASE_ARTIFACT_VERSION }}-Windows-${{ needs.plan.outputs.sha }}-ara-${{ steps.live_scope.outputs.ara }}
           path: build/package/
           if-no-files-found: error
           retention-days: 14
@@ -251,7 +351,7 @@ jobs:
         if: always() && steps.build.outcome == 'success' && steps.current.outcome == 'success' && env.CHECK_SCOPE != 'separation'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ${{ env.RELEASE_ARTIFACT_VERSION }}-Windows-symbols-${{ github.sha }}-ara-${{ steps.live_scope.outputs.ara }}
+          name: ${{ env.RELEASE_ARTIFACT_VERSION }}-Windows-symbols-${{ needs.plan.outputs.sha }}-ara-${{ steps.live_scope.outputs.ara }}
           path: |
             build/windows/MoonRiverStudioJuce_artefacts/Release/*.pdb
             build/windows/MRLiveJuce_artefacts/Release/*.pdb
@@ -261,7 +361,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ${{ env.RELEASE_ARTIFACT_VERSION }}-Windows-test-results-${{ github.sha }}-ara-${{ steps.live_scope.outputs.ara }}
+          name: ${{ env.RELEASE_ARTIFACT_VERSION }}-Windows-test-results-${{ needs.plan.outputs.sha }}-ara-${{ steps.live_scope.outputs.ara }}
           path: |
             build/windows/transcription-*.png
             build/windows/separation-models-*.png

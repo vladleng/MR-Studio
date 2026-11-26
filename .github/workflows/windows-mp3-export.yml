@@ -1,0 +1,58 @@
+name: Windows MP3 export contract
+on:
+  workflow_call:
+  pull_request:
+    paths:
+      - 'core/audio/src/mp3_windows.cpp'
+      - 'core/audio/src/wav_resample.cpp'
+      - 'core/audio/include/mrs/wav_resample.hpp'
+      - 'tests/mp3_export_tests.cpp'
+      - '.github/workflows/windows-mp3-export.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'core/audio/src/mp3_windows.cpp'
+      - 'core/audio/src/wav_resample.cpp'
+      - 'core/audio/include/mrs/wav_resample.hpp'
+      - 'tests/mp3_export_tests.cpp'
+      - '.github/workflows/windows-mp3-export.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-mp3-${{ github.event.pull_request.number || github.ref }}-${{ github.workflow == 'Windows Studio Release' && github.run_id || '' }}
+  cancel-in-progress: true
+jobs:
+  mp3:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Configure native audio without vendor SDKs
+        shell: pwsh
+        run: |
+          cmake -S . -B build/mp3 -G 'Visual Studio 17 2022' -A x64 -DBUILD_TESTING=ON -DMRS_BUILD_ASIO=OFF -DMRS_BUILD_VST3=OFF -DMRS_BUILD_ARA=OFF -DMRS_BUILD_JUCE_UI=OFF -DMRS_BUILD_DESKTOP=OFF -DMRS_BUILD_LIVE=OFF
+          if($LASTEXITCODE){throw 'MP3 configure failed'}
+      - name: Build native encoder contract
+        shell: pwsh
+        run: |
+          cmake --build build/mp3 --config Release --parallel 2 --target mrs_mp3_export_tests
+          if($LASTEXITCODE){throw 'MP3 build failed'}
+      - name: Verify actual Windows MP3 stream
+        shell: pwsh
+        run: |
+          ctest --test-dir build/mp3 -C Release --output-on-failure --no-tests=error -R '^audio_mp3_export$'
+          if($LASTEXITCODE){throw 'MP3 encoding contract failed'}
+      - name: Record successful source and profile evidence
+        run: python tools/ci/ci_evidence.py windows-mp3-export.yml mp3
+      - name: Upload check evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ci-evidence-mp3-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ci-evidence.json
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 14

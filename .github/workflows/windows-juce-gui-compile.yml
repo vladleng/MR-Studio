@@ -1,6 +1,6 @@
 name: Windows JUCE GUI compile
-# Compile JUCE GUI translation units with the real MSVC project flags before
-# the heavyweight, manually dispatched Windows Release. No app link or package.
+# Compile GUI translation units and run isolated native MIDI host contracts in
+# parallel before the heavyweight Windows Release. No app link or package.
 # PR/push checks cover both Studio and Live; manual dispatch can target Studio alone.
 on:
   workflow_call:
@@ -19,6 +19,10 @@ on:
       - 'tools/transcription/**'
       - 'tools/separation/**'
       - 'apps/studio-desktop/include/**'
+      - 'apps/studio-desktop/src/**'
+      - 'tests/midi_*_tests.cpp'
+      - 'tests/vst3_fixture.cpp'
+      - 'tests/legacy_midi_snapshot.hpp'
       - 'cmake/**'
       - 'CMakeLists.txt'
       - 'tools/ci/Prepare-Sdks.ps1'
@@ -36,6 +40,10 @@ on:
       - 'tools/transcription/**'
       - 'tools/separation/**'
       - 'apps/studio-desktop/include/**'
+      - 'apps/studio-desktop/src/**'
+      - 'tests/midi_*_tests.cpp'
+      - 'tests/vst3_fixture.cpp'
+      - 'tests/legacy_midi_snapshot.hpp'
       - 'cmake/**'
       - 'CMakeLists.txt'
       - 'tools/ci/Prepare-Sdks.ps1'
@@ -57,6 +65,33 @@ concurrency:
   group: ${{ github.workflow }}-windows-juce-gui-compile-${{ github.event.pull_request.number || github.ref }}-${{ github.workflow == 'Windows Studio Release' && github.run_id || '' }}
   cancel-in-progress: true
 jobs:
+  midi-host:
+    name: Native MIDI recording, clips and live contracts (no app package)
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify pinned public VST3 SDK (no ASIO)
+        shell: pwsh
+        run: ./tools/ci/Prepare-Sdks.ps1 -Root build/sdk -PublicGuiOnly
+      - name: Configure isolated native host contracts (ARA OFF)
+        shell: pwsh
+        run: |
+          cmake -S . -B build/midi-host -G 'Visual Studio 17 2022' -A x64 -DBUILD_TESTING=ON -DMRS_BUILD_DESKTOP=OFF -DMRS_BUILD_LIVE=OFF -DMRS_BUILD_ASIO=OFF -DMRS_BUILD_ARA=OFF -DMRS_BUILD_JUCE_UI=OFF -DMRS_BUILD_VST3=ON "-DMRS_VST3_SDK_ROOT=$pwd/build/sdk/vst3"
+          if($LASTEXITCODE){throw 'MIDI host configure failed'}
+      - name: Build MIDI host fixtures only
+        shell: pwsh
+        run: |
+          cmake --build build/midi-host --config Release --parallel 2 --target mrs_vst3_fixture mrs_midi_live_tests mrs_midi_record_tests mrs_midi_clip_tests
+          if($LASTEXITCODE){throw 'MIDI host contract build failed'}
+      - name: Reproduce native MIDI host regression tests
+        shell: pwsh
+        run: |
+          ctest --test-dir build/midi-host -C Release --output-on-failure --no-tests=error -R '^midi_(live|recording|clips)$'
+          if($LASTEXITCODE){throw 'Native MIDI host contracts failed'}
   live-runtime:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.live_runtime }}
     name: Live runtime regression (ARA OFF, no package)

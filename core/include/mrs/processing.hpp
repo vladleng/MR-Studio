@@ -134,6 +134,7 @@ private:
 struct ProcessConfig {
     std::uint32_t sample_rate{48000}, channels{2}, max_block{8192}, live_latency_budget{128};
     bool instrument{}; // first node receives device-owned live MIDI
+    bool offline{}; // independently prepared offline instance; never change an active live processor
     bool operator==(const ProcessConfig&) const = default;
 };
 struct MeterContext {int numerator{4},denominator{4};double bar_quarter{};bool valid{};};

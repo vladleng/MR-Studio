@@ -15,6 +15,7 @@
 #include <mrs/stretch_cache.hpp>
 #include <future>
 #include <mrs/recording.hpp>
+#include <mrs/wav_resample.hpp>
 #ifdef MRS_HAS_ARA
 #include <mrs/ara.hpp>
 #endif
@@ -86,6 +87,33 @@ public:
     void poll();
     void demo();
     void new_project(std::uint32_t rate = 48000, std::string title = "Untitled");
+    // Synchronous control-owner entry point for an exclusive export session.
+    // No event-loop pumping/reentrant Application edits from callbacks. The
+    // future GUI owns scheduling/cancellation and stages the output file.
+    audio::OfflineRenderResult export_master(Sample begin,Sample end,const audio::OfflineRenderCallbacks&);
+    // Control owner prepares and retains this plan; worker only renders it.
+    // Join the worker before finish_master_export (processor destruction and
+    // device restart must remain on the control owner).
+    class PreparedMasterExport {
+    public:
+        Sample begin()const noexcept{return begin_;}
+        Sample end()const noexcept{return end_;}
+        std::uint32_t rate()const noexcept{return config_.sample_rate;}
+        audio::OfflineRenderResult render(const audio::OfflineRenderCallbacks&);
+    private:
+        friend class Application;
+        audio::RenderConfig config_{};
+        audio::RenderGraph graph_;
+        Sample begin_{},end_{};
+        std::atomic<bool> used_{};
+    };
+    std::shared_ptr<PreparedMasterExport> prepare_master_export(Sample begin,Sample end);
+    void finish_master_export(const std::shared_ptr<PreparedMasterExport>&);
+    bool export_active()const noexcept{return static_cast<bool>(active_export_);}
+    audio::WavExportResult export_wav(const std::filesystem::path&,Sample begin,Sample end,
+                                     const audio::WavExportCallbacks& = {});
+    audio::Mp3ExportResult export_mp3(const std::filesystem::path&,Sample begin,Sample end,
+                                     const audio::WavExportCallbacks& = {});
     Id add_audio_track(std::string name);
     Id add_instrument_track(std::string name);
     Id add_instrument_track(std::string name, NativeInsert instrument);
@@ -547,13 +575,16 @@ private:
     std::vector<int> selected_inputs(const Project&, const std::vector<int>&) const;
     std::shared_ptr<const audio::AudioData> asset(const std::string&);
     void cache_asset(std::string, std::shared_ptr<const audio::AudioData>);
-    void edit(const ICommand&,std::optional<Id> authoritative={},bool retain_inserts=false);
+    void edit(const ICommand&,std::optional<Id> authoritative={},bool retain_inserts=false,bool force_graph_rebuild=false);
     bool edit_clip_state(const Project&,const ICommand*,std::optional<bool> history={});
     bool edit_midi_velocities(const Project&,const Project&,const ICommand*,std::optional<bool> history={});
     bool refresh_clip_audio(const Project&);
     std::vector<audio::Voice> prepare_clip_voices(const Project&);
+    std::vector<audio::Voice> prepare_clip_voices(const Project&,std::span<const Id>,std::uint32_t outputs,bool strict);
     void poll_clip_updates();
     std::vector<std::shared_ptr<audio::AudioEngine::PreparedTransition>> clip_updates_;
+    std::shared_ptr<PreparedMasterExport> active_export_;
+    bool export_restart_device_{};
     void require_not_playing() const;
     void rebuild_audio(bool retain_inserts=false);
     void replace(persistence::ProjectDocument);

@@ -43,6 +43,28 @@ void processing_test(const NodeState& node){PreparedGraph graph{snapshot(node),{
     auto bypass=node;bypass.bypass=true;PreparedGraph dry{snapshot(bypass),{48000,2,64},hosted_factory};audio.fill(0.75f);dry.process(audio.data(),64);CHECK(dry.latency().output==7);for(std::size_t i=0;i<audio.size();++i)CHECK(audio[i]==(i<14?0.f:0.75f));
     rejects([&]{auto bad=node;bad.plugin.class_id="00000000000000000000000000000000";PreparedGraph fail{snapshot(bad),{48000,2,64},hosted_factory};});
 }
+void offline_test(const std::filesystem::path& module,const NodeState& node){
+    Directory dir;const auto copy=dir.path/L"offline-only.vst3";
+    std::filesystem::copy_file(module,copy,std::filesystem::copy_options::overwrite_existing);
+    auto selected=node;selected.processor_id=utf8(copy);
+    rejects([&]{PreparedGraph wrong{snapshot(selected),{48000,2,64},hosted_factory};});
+    ProcessConfig config{48000,2,64};config.offline=true;
+    auto prepared=std::make_shared<PreparedGraph>(snapshot(selected),config,hosted_factory);
+    CHECK(prepared->config().offline);
+    std::array<float,128> pcm;pcm.fill(1.f);
+    prepared->process(pcm.data(),64);CHECK(!prepared->failed());
+    for(float value:pcm)CHECK(value==.5f);
+    // A realtime chain must not be borrowed by the offline range runner.
+    audio::RenderGraph graph;graph.master_inserts=std::make_shared<PreparedGraph>(snapshot(node),ProcessConfig{48000,2,64},hosted_factory);
+    rejects([&]{audio::render_master_range({48000,0,2,64},graph,0,64,{[](std::span<const float>){}});});
+    graph.master_inserts=std::make_shared<PreparedGraph>(snapshot(selected),config,hosted_factory);
+    const auto asset=std::make_shared<const audio::AudioData>(audio::AudioData{48000,2,std::vector<float>(256,.5f)});
+    graph.voices={{asset,0,0,128,{{0,0,1},{1,1,1}}}};
+    std::size_t count{};
+    const auto result=audio::render_master_range({48000,0,2,64},std::move(graph),0,32,{
+        [&](std::span<const float> block){for(float value:block)CHECK(value==.25f);count+=block.size();}});
+    CHECK(result.completed&&result.frames_written==32&&count==64);
+}
 void realtime_test(const NodeState& node){PreparedGraph graph{snapshot(node),{48000,2,128},hosted_factory};std::array<float,256> audio;CHECK(graph.enqueue_parameter(node.id,{0,100,0.25f}));allocations=0;probing=true;for(int n=0;n<128;++n){audio.fill(0.1f);graph.process(audio.data(),128);}probing=false;CHECK(allocations==0 && !graph.failed());}
 void large_state_test(const std::filesystem::path& module,const NodeState& node){
     Directory directory;const auto large=directory.path/L"large-state.vst3";
@@ -155,4 +177,4 @@ int wmain(int argc,wchar_t** argv){CoInitializeEx(nullptr,COINIT_APARTMENTTHREAD
     auto saved=graph.capture();PreparedGraph restored{{std::make_shared<const GraphState>(saved),0,false,false},{48000,2,128},hosted_factory};for(int i=0;i<128;++i){audio.fill(0.01f);restored.process(audio.data(),128);}CHECK(std::abs(audio[0]-edited)<0.00001f);
     auto parent=CreateWindowW(L"STATIC",L"external-test",WS_OVERLAPPED,0,0,1200,800,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);int w{},h{};const auto view=graph.open_editor(node.id,parent,w,h);if(view){CHECK(w>0&&h>0);graph.close_editors();}DestroyWindow(parent);
     std::cout<<plugins.front().name<<": processing / gain automation / state roundtrip / editor="<<view<<" latency="<<graph.latency().output<<"\n";
-}else if(suite==L"probe"){CHECK(plugins.front().name=="MRS Test Gain");rejects([&]{probe_vst3(utf8(module)+".missing");});}else if(suite==L"processing")processing_test(node);else if(suite==L"realtime")realtime_test(node);else if(suite==L"state"){state(node);large_state_test(module,node);}else if(suite==L"editor")editor(node);else if(suite==L"scan")scan(module,argv[3]);else if(suite==L"desktop")desktop_test(node);else throw std::runtime_error("unknown suite");std::cout<<"VST3 passed\n";CoUninitialize();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';CoUninitialize();return 1;}}
+}else if(suite==L"probe"){CHECK(plugins.front().name=="MRS Test Gain");rejects([&]{probe_vst3(utf8(module)+".missing");});}else if(suite==L"processing"){processing_test(node);offline_test(module,node);}else if(suite==L"realtime")realtime_test(node);else if(suite==L"state"){state(node);large_state_test(module,node);}else if(suite==L"editor")editor(node);else if(suite==L"scan")scan(module,argv[3]);else if(suite==L"desktop")desktop_test(node);else throw std::runtime_error("unknown suite");std::cout<<"VST3 passed\n";CoUninitialize();return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';CoUninitialize();return 1;}}

@@ -8,8 +8,19 @@
 #include <numbers>
 #include <stdexcept>
 #include <vector>
+#ifdef _WIN32
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 
 namespace mrs::audio {
+#ifdef _WIN32
+namespace detail {
+Mp3ExportResult encode_mp3_windows(const WavFile&,const std::filesystem::path&,
+                                  const std::function<void(float)>&);
+}
+#endif
 void resample_wav_file(const std::filesystem::path& source,
     const std::filesystem::path& destination,std::uint32_t rate,
     std::stop_token stop,std::function<void(float)> progress){
@@ -96,5 +107,183 @@ void resample_wav_file(const std::filesystem::path& source,
         }
         cancel();out.close();if(!out)throw std::runtime_error("Cannot finish converted WAV");
     }catch(...){if(created){std::error_code ignored;std::filesystem::remove(destination,ignored);}throw;}
+}
+namespace {
+namespace fs=std::filesystem;
+constexpr std::uint32_t export_rate=48000;
+constexpr std::uint64_t riff_payload=0xffffffffULL-36;
+struct ExportCancelled {};
+struct ExportStage {
+    fs::path directory;
+    explicit ExportStage(const fs::path& destination){
+        directory=destination.parent_path()/(".mrs-export-"+new_id().value);
+        if(!fs::create_directory(directory))throw std::runtime_error("Cannot create private export staging directory");
+    }
+    ~ExportStage(){std::error_code ignored;fs::remove_all(directory,ignored);}
+    ExportStage(const ExportStage&)=delete;
+    ExportStage& operator=(const ExportStage&)=delete;
+};
+bool occupied(const fs::path& path){
+    std::error_code ec;const auto status=fs::symlink_status(path,ec);
+    if(ec&&ec!=std::errc::no_such_file_or_directory)throw fs::filesystem_error("Cannot inspect export destination",path,ec);
+    return status.type()!=fs::file_type::not_found&&status.type()!=fs::file_type::none;
+}
+class ExportWavWriter {
+    std::ofstream out_;
+    Sample expected_,written_{};
+    bool pcm24_;
+    WavExportResult stats_{};
+    std::vector<unsigned char> bytes_;
+public:
+    ExportWavWriter(const fs::path& path,std::uint32_t rate,Sample frames,bool pcm24)
+        :out_(path,std::ios::binary|std::ios::trunc),expected_(frames),pcm24_(pcm24) {
+        if(!out_)throw std::runtime_error("Cannot create staged WAV");
+        const auto width=pcm24?3u:4u;
+        const auto bytes=static_cast<std::uint64_t>(frames)*2*width;
+        if(!frames||bytes>riff_payload)throw std::invalid_argument("WAV exceeds RIFF size limit");
+        const auto put=[&](std::uint32_t n,unsigned count){for(unsigned i=0;i<count;++i)out_.put(static_cast<char>((n>>(8*i))&255));};
+        out_.write("RIFF",4);put(static_cast<std::uint32_t>(bytes+36),4);out_.write("WAVEfmt ",8);
+        put(16,4);put(pcm24?1u:3u,2);put(2,2);put(rate,4);put(rate*2*width,4);
+        put(2*width,2);put(width*8,2);out_.write("data",4);put(static_cast<std::uint32_t>(bytes),4);
+        if(!out_)throw std::runtime_error("Cannot write staged WAV header");
+    }
+    void write(std::span<const float> stereo){
+        if(stereo.size()%2||stereo.size()/2>static_cast<std::uint64_t>(expected_-written_))
+            throw std::runtime_error("Export sink received unexpected frame count");
+        const auto width=pcm24_?3u:4u;
+        // Bound temporary encoding storage independently of render block size.
+        for(std::size_t first=0;first<stereo.size();){
+            const auto count=std::min<std::size_t>(8192,stereo.size()-first);
+            bytes_.resize(count*width);
+            for(std::size_t i=0;i<count;++i){
+                const float sample=stereo[first+i];
+                if(!std::isfinite(sample))throw std::runtime_error("Non-finite export sample");
+                stats_.peak=std::max(stats_.peak,std::abs(sample));
+                std::uint32_t word{};
+                if(pcm24_){
+                    if(sample>1.f||sample< -1.f)++stats_.clipped_samples;
+                    const auto scaled=std::clamp(static_cast<double>(sample),-1.,1.)*8388608.;
+                    const auto quantized=std::clamp(std::llround(scaled),-8388608LL,8388607LL);
+                    word=static_cast<std::uint32_t>(quantized);
+                }else word=std::bit_cast<std::uint32_t>(sample);
+                for(unsigned b=0;b<width;++b)bytes_[i*width+b]=static_cast<unsigned char>((word>>(8*b))&255);
+            }
+            out_.write(reinterpret_cast<const char*>(bytes_.data()),static_cast<std::streamsize>(bytes_.size()));
+            if(!out_)throw std::runtime_error("Cannot write export WAV (disk full?)");
+            first+=count;
+        }
+        written_+=static_cast<Sample>(stereo.size()/2);
+    }
+    WavExportResult finish(){
+        if(written_!=expected_)throw std::runtime_error("Incomplete WAV render");
+        out_.flush();out_.close();if(!out_)throw std::runtime_error("Cannot finalize export WAV");
+        stats_.completed=true;stats_.frames=written_;return stats_;
+    }
+};
+}
+namespace {
+WavExportResult export_file(const std::filesystem::path& requested,std::uint32_t source_rate,
+        Sample source_frames,const MasterRenderSource& render,const WavExportCallbacks& callbacks,bool mp3){
+    if(source_rate<8000||source_rate>768000||source_frames<=0||!render)
+        throw std::invalid_argument("Invalid WAV export source");
+    // Check multiplication before computing output geometry, including the
+    // existing resampler's intermediate float32 RIFF size limit.
+    const bool convert=source_rate!=export_rate;
+    const bool stage_float=convert||mp3;
+    if(static_cast<std::uint64_t>(source_frames)>riff_payload/(stage_float?8u:6u))
+        throw std::invalid_argument("Export exceeds RIFF size limit");
+    const auto frames=(static_cast<std::uint64_t>(source_frames)*export_rate+source_rate-1)/source_rate;
+    if(!frames||frames>riff_payload/(stage_float?8u:6u))throw std::invalid_argument("Export exceeds RIFF size limit");
+    if(callbacks.stop.stop_requested())return {};
+    const auto destination=fs::absolute(requested).lexically_normal();
+    if(destination.filename().empty()||occupied(destination))throw std::invalid_argument("Export destination already exists; choose a new filename");
+    ExportStage staging(destination);
+    const auto output=staging.directory/(mp3?"output.mp3":"output.wav");
+    const auto input=stage_float?staging.directory/"source.wav":output;
+    auto pcm=input;
+    const auto check_cancel=[&]{if(callbacks.stop.stop_requested())throw ExportCancelled{};};
+    const auto conversion_progress=[&](float p){
+        check_cancel();
+        if(callbacks.continue_conversion&&!callbacks.continue_conversion(p))throw ExportCancelled{};
+    };
+    try{
+        WavExportResult result;
+        {
+            ExportWavWriter writer(input,source_rate,source_frames,!stage_float);
+            const auto rendered=render({
+                [&](std::span<const float> block){check_cancel();writer.write(block);},
+                [&](const OfflineRenderProgress& p){
+                    return !callbacks.stop.stop_requested()&&(!callbacks.continue_render||callbacks.continue_render(p));
+                }
+            });
+            if(!rendered.completed)return {};
+            check_cancel();
+            if(rendered.frames_written!=source_frames)throw std::runtime_error("Unexpected rendered WAV duration");
+            result=writer.finish();
+        }
+        if(convert){
+            const auto resampled=staging.directory/"resampled.wav";
+            conversion_progress(0.f);
+            // Use the existing bounded windowed-sinc import SRC; no separate
+            // resampling algorithm and no integer quantization before SRC.
+            try{
+                resample_wav_file(input,resampled,export_rate,callbacks.stop,[&](float p){conversion_progress(p*.5f);});
+            }catch(const std::runtime_error& error){
+                if(callbacks.stop.stop_requested()&&std::string_view(error.what())=="WAV import cancelled")throw ExportCancelled{};
+                throw;
+            }
+            check_cancel();
+            pcm=resampled;
+        }
+        if(mp3){
+#ifdef _WIN32
+            conversion_progress(convert?.5f:0.f);
+            const auto wav=inspect_wav(pcm);
+            if(wav.sample_rate!=export_rate||wav.channels!=2||wav.frame_count!=static_cast<Sample>(frames))
+                throw std::runtime_error("Unexpected MP3 input geometry");
+            result=detail::encode_mp3_windows(wav,output,[&](float p){conversion_progress(convert?.5f+.5f*p:p);});
+#else
+            throw std::runtime_error("MP3 encoder requires Windows Media Foundation");
+#endif
+        }else if(convert){
+            const auto wav=inspect_wav(pcm);
+            if(wav.sample_rate!=export_rate||wav.channels!=2||wav.frame_count!=static_cast<Sample>(frames))
+                throw std::runtime_error("Unexpected export SRC geometry");
+            ExportWavWriter writer(output,export_rate,wav.frame_count,true);
+            std::vector<float> block(8192*2);
+            for(Sample first=0;first<wav.frame_count;){
+                check_cancel();
+                const auto count=std::min<Sample>(8192,wav.frame_count-first);
+                auto data=std::span<float>(block).first(static_cast<std::size_t>(count)*2);
+                wav.read(first,data);writer.write(data);first+=count;
+                conversion_progress(.5f+.5f*static_cast<float>(static_cast<double>(first)/wav.frame_count));
+            }
+            result=writer.finish();
+        }
+        check_cancel();
+        // No-replace publication even if another writer creates the destination
+        // during rendering. Staging is on the same filesystem.
+#ifdef _WIN32
+        if(!MoveFileExW(output.c_str(),destination.c_str(),MOVEFILE_WRITE_THROUGH))
+            throw std::runtime_error("Cannot publish WAV; destination may already exist");
+#else
+        fs::create_hard_link(output,destination);
+#endif
+        return result;
+    }catch(const ExportCancelled&){return {};}
+}
+}
+WavExportResult export_wav24(const std::filesystem::path& destination,std::uint32_t source_rate,
+        Sample source_frames,const MasterRenderSource& render,const WavExportCallbacks& callbacks){
+    return export_file(destination,source_rate,source_frames,render,callbacks,false);
+}
+Mp3ExportResult export_mp3(const std::filesystem::path& destination,std::uint32_t source_rate,
+        Sample source_frames,const MasterRenderSource& render,const WavExportCallbacks& callbacks){
+#ifdef _WIN32
+    return export_file(destination,source_rate,source_frames,render,callbacks,true);
+#else
+    (void)destination;(void)source_rate;(void)source_frames;(void)render;(void)callbacks;
+    throw std::runtime_error("MP3 encoder requires Windows Media Foundation");
+#endif
 }
 }

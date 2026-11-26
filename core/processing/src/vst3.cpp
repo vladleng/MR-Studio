@@ -139,11 +139,12 @@ public:
         for(auto& ch:midi_mapping_)ch.fill(kNoParamId);
         FUnknownPtr<IMidiMapping> mapping(controller_);
         if(mapping&&c.instrument)for(int16 ch=0;ch<16;++ch)for(int16 cc=0;cc<131;++cc){ParamID id=kNoParamId;if(mapping->getMidiControllerAssignment(0,ch,cc,id)==kResultOk)midi_mapping_[ch][cc]=id;}
-        ProcessSetup setup{kRealtime,kSample32,static_cast<int32>(c.max_block),static_cast<double>(c.sample_rate)};ok(processor_->canProcessSampleSize(kSample32),"32-bit processing unsupported");ok(processor_->setupProcessing(setup),"setup processing failed");
+        const auto mode=c.offline?kOffline:kRealtime;
+        ProcessSetup setup{mode,kSample32,static_cast<int32>(c.max_block),static_cast<double>(c.sample_rate)};ok(processor_->canProcessSampleSize(kSample32),"32-bit processing unsupported");ok(processor_->setupProcessing(setup),"setup processing failed");
         if(!data_.prepare(*component_,static_cast<int32>(c.max_block),kSample32))throw std::runtime_error("VST3 audio buffer preparation failed");
         const int32 channels=c.channels==1?1:2;if((data_.numInputs&&data_.inputs[0].numChannels!=channels)||data_.outputs[0].numChannels!=channels)throw std::runtime_error("VST3 bus layout mismatch");
         data_.inputEvents=&events_in_;data_.outputEvents=&events_out_;
-        context_.sampleRate=c.sample_rate;data_.processContext=&context_;data_.processMode=kRealtime;data_.inputParameterChanges=&input_;data_.outputParameterChanges=&output_;
+        context_.sampleRate=c.sample_rate;data_.processContext=&context_;data_.processMode=mode;data_.inputParameterChanges=&input_;data_.outputParameterChanges=&output_;
         // Restore into an activated component, as desktop hosts do. TH-U resets
         // DSP internals on activation even while getState/UI retains the preset.
         // Activating after setState therefore loses the audible state.
