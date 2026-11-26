@@ -71,6 +71,17 @@ public:
         sideBody.addAndMakeVisible(hint);sideBody.addAndMakeVisible(controllerLane.controlsContent());
         details.setButtonText("Notes");details.setTitle("Show note details");
         const std::array<juce::String,5> compactNames{"Pitch","Start beat","Length","Velocity","Channel"};for(std::size_t i=0;i<labels.size();++i)labels[i].setText(compactNames[i],juce::dontSendNotification);
+        for(auto* b:{&gridSnap,&playheadMode}){addAndMakeVisible(b);b->setWantsKeyboardFocus(false);}
+        gridSnap.setComponentID("midi-grid-snap");gridSnap.setTitle("Snap grid");
+        gridSnap.getProperties().set("mrHostIcon","action_snap");gridSnap.getProperties().set("mrSmallToolbarIcon",true);
+        gridSnap.onClick=[this]{applyNoteGrid(noteGrid.spec(),!noteGrid.snapEnabled());};
+        playheadMode.setComponentID("midi-playhead-mode");playheadMode.setTitle("Playback stop mode");
+        playheadMode.onClick=[this]{
+            owner.view.midiResumePlayback=!owner.view.midiResumePlayback;
+            syncToolbarPreferences();owner.syncMidiEditorTools();owner.saveSettings();
+            if(roll.isShowing())roll.grabKeyboardFocus();
+        };
+        syncToolbarPreferences();
         addAndMakeVisible(follow);follow.setComponentID("midi-follow-playhead");follow.setClickingTogglesState(true);
         follow.setToggleState(owner.view.midiFollowPlayhead,juce::dontSendNotification);
         follow.onClick=[this]{
@@ -120,11 +131,16 @@ public:
         sideBody.setSize(width,juce::jmax(getHeight(),y+(form.isVisible()?form.getHeight():0)));
         pointer.setBounds(sideWidth+4,2,32,28);split.setBounds(sideWidth+38,2,32,28);
         const int toolbarLeft=sideWidth+74;
-        const int gridWidth=juce::jlimit(72,104,getWidth()-toolbarLeft-190);
-        noteGrid.setBounds(toolbarLeft,2,gridWidth,28);
-        const int colorsX=toolbarLeft+gridWidth+6;
-        const int colorWidth=juce::jlimit(60,156,getWidth()-colorsX-130);
-        noteColors.setBounds(colorsX,4,colorWidth,24);follow.setBounds(colorsX+colorWidth+6,4,118,24);
+        auto toolbarArea=juce::Rectangle<int>{toolbarLeft,2,std::max(0,getWidth()-toolbarLeft-8),28};
+        const int available=toolbarArea.getWidth();
+        const auto take=[&](int requested){auto cell=toolbarArea.removeFromLeft(std::min(requested,toolbarArea.getWidth()));toolbarArea.removeFromLeft(std::min(4,toolbarArea.getWidth()));return cell;};
+        gridSnap.setBounds(take(32));
+        noteGrid.setBounds(take(juce::jlimit(72,104,available-300)));
+        playheadMode.setBounds(take(juce::jlimit(70,94,available-270)));
+        const int followWidth=juce::jlimit(62,118,available-320);
+        noteColors.setBounds(take(std::max(0,std::min(156,toolbarArea.getWidth()-followWidth-4))).reduced(0,2));
+        follow.setBounds(toolbarArea.removeFromLeft(std::min(followWidth,toolbarArea.getWidth())).reduced(0,2));
+        follow.setButtonText(follow.getWidth()<100?"Follow":"Follow playhead");
         layoutEditorPanes(sideWidth+4,juce::jmax(90,getWidth()-sideWidth-12));alignControllers();
         if(firstLayout){firstLayout=false;viewport.setViewPosition(static_cast<int>(static_cast<double>(roll.clip.start)/mrs::ppq*roll.beatWidth),PianoRoll::ruler+(127-78)*static_cast<int>(roll.rowHeight));}
     }
@@ -193,12 +209,25 @@ private:
         });
     }
     // The grid is a view preference for both the piano roll and the drum grid.
+    void syncToolbarPreferences(){
+        const auto spec=noteGridFromView();const bool enabled=owner.view.midiGridSnap;
+        if(roll.gridSpec!=spec||roll.snapGrid!=enabled){
+            controllerLane.cancelGesture();velocity.cancel();roll.setNoteGrid(spec,enabled);
+        }
+        noteGrid.setState(spec,enabled);
+        gridSnap.setToggleState(enabled,juce::dontSendNotification);
+        gridSnap.setTooltip(enabled?"Snap enabled":"Snap disabled");
+        const bool resume=owner.view.midiResumePlayback;
+        playheadMode.setToggleState(resume,juce::dontSendNotification);
+        playheadMode.setButtonText(resume?"Resume":"Return");
+        playheadMode.setTooltip(resume?"Resume from the last stop position (click to return to start)":"Return to the last playback start (click to resume)");
+    }
     void applyNoteGrid(const NoteGridSpec& spec,bool snap){
         const auto canonical=canonicalNoteGrid(spec);
         owner.view.midiGridDivisor=canonical.divisor;owner.view.midiGridShape=static_cast<int>(canonical.shape);
         owner.view.midiGridSwing=canonical.swing;owner.view.midiGridSnap=snap;
-        noteGrid.setState(canonical,snap);roll.setNoteGrid(canonical,snap);
-        owner.saveSettings();roll.grabKeyboardFocus();
+        syncToolbarPreferences();owner.syncMidiEditorTools();
+        owner.saveSettings();if(roll.isShowing())roll.grabKeyboardFocus();
     }
 #if defined(MRS_DRUM_MAP_UI)
     void chooseMap(){try{
@@ -315,7 +344,7 @@ private:
     struct RollViewport : juce::Viewport {std::function<void()> changed;void visibleAreaChanged(const juce::Rectangle<int>&) override{if(changed)changed();}};
     PianoRoll roll;ControllerPanel controllerLane;RollViewport viewport;bool showDetails{};bool firstLayout{true};
     bool fullScreenActive{},returnAttached{};
-    juce::TextButton pointer{""},split{""},follow{"Follow playhead"};juce::ComboBox noteColors;NoteGridButton noteGrid;
+    juce::TextButton pointer{""},split{""},follow{"Follow playhead"},gridSnap{""},playheadMode{"Resume"};juce::ComboBox noteColors;NoteGridButton noteGrid;
     juce::Component sideBody;juce::Viewport sideViewport;
     static constexpr std::array<int,3> ccNumbers{1,11,64};
     std::array<juce::TextButton,3> quickCC;
@@ -460,6 +489,18 @@ void noteGridChecks(MidiClipPanel& editor,Desktop& d){
     check(settings.midiGridDivisor==16&&settings.midiGridShape==0&&settings.midiGridSwing==0&&!settings.midiGridSnap,"note grid preference survives a settings round trip");
     editor.applyNoteGrid(defaultGrid,true);
     check(roll.snapGrid&&d.view.midiGridSnap,"snap stays on after the grid checks");
+    editor.gridSnap.onClick();
+    check(!roll.snapGrid&&!d.view.midiGridSnap&&!editor.gridSnap.getToggleState()&&editor.noteGrid.spec()==defaultGrid,"direct Snap button disables the existing grid without changing resolution");
+    editor.gridSnap.onClick();
+    check(roll.snapGrid&&editor.gridSnap.getToggleState(),"direct Snap button restores snapping");
+    const auto previousResume=d.view.midiResumePlayback;
+    editor.playheadMode.onClick();
+    check(d.view.midiResumePlayback!=previousResume&&editor.playheadMode.getToggleState()==d.view.midiResumePlayback&&ViewSettings::decode(d.view.encode()).midiResumePlayback==d.view.midiResumePlayback,"playback mode toggle and persisted setting");
+    editor.playheadMode.onClick();
+    const auto originalSize=editor.getBounds();
+    editor.setSize(720,300);
+    check(editor.gridSnap.getWidth()>0&&editor.playheadMode.getWidth()>0&&editor.follow.getRight()<=editor.getWidth()&&!editor.gridSnap.getBounds().intersects(editor.noteGrid.getBounds())&&!editor.playheadMode.getBounds().intersects(editor.noteColors.getBounds()),"MIDI toolbar controls fit the small editor");
+    editor.setSize(originalSize.getWidth(),originalSize.getHeight());
 }
 void noteGridSmoke(){
     const auto check=[](bool ok,const char* text){if(!ok)throw std::runtime_error(text);};
@@ -880,6 +921,12 @@ private:
     void reload(){const auto p=owner.project();const auto it=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});if(it==p->clips.end()||it->midi){setEnabled(false);return;}clip=*it;start.setText(juce::String(static_cast<double>(clip.start)/p->sample_rate,6));end.setText(juce::String(static_cast<double>(clip.start+clip.length)/p->sample_rate,6));hint.setText("Start / end in project seconds. Apply trim: one Undo. Ctrl+Z/Y in main window.",juce::dontSendNotification);wave.repaint();}
     void timerCallback() override{const auto p=owner.project();const auto it=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});if(it==p->clips.end()){setEnabled(false);return;}if(it->start!=clip.start||it->length!=clip.length||it->source_offset!=clip.source_offset)reload();wave.repaint();}
 };
+void Desktop::syncMidiEditorTools(){
+    if(standaloneLive)return;
+    if(auto* midiEditor=dynamic_cast<MidiClipPanel*>(dockedEditor.get()))midiEditor->syncToolbarPreferences();
+    for(const auto& window:windows)
+        if(auto* midiEditor=dynamic_cast<MidiClipPanel*>(window->getContentComponent()))midiEditor->syncToolbarPreferences();
+}
 void Desktop::syncMidiEditorModes(){
     if(standaloneLive)return;
     if(dockedEditor&&dockedEditor->isVisible())

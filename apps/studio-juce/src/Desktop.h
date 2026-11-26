@@ -412,6 +412,7 @@ public:
     void openDrumMaps(std::optional<mrs::Id> track);
     std::optional<mrs::Id> activeMidiEditorTrack() const;
     void syncMidiEditorModes();
+    void syncMidiEditorTools();
     std::vector<mrs::Clip> recordingPreview;
     std::vector<mrs::desktop::AudioRecordingPreview> audioRecordingPreview;
     void updateRecordingPreview();

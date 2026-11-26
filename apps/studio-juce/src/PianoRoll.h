@@ -204,7 +204,7 @@ public:
         const int code=key.getKeyCode();const auto mods=key.getModifiers();
         if(code==juce::KeyPress::spaceKey&&!mods.isAnyModifierKeyDown()){
             if(juce::Component::getCurrentlyModalComponent())return false;
-            owner.spaceKey(true,true,[this]{cancel();repaint();});return true;
+            owner.spaceKey(true,owner.view.midiResumePlayback,[this]{cancel();repaint();});return true;
         }
         if(code==juce::KeyPress::escapeKey){cancel();return true;}
         if(!mods.isAnyModifierKeyDown()&&(code=='1'||code=='3')){setSplitTool(code=='3');return true;}
