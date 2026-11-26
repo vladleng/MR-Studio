@@ -2332,6 +2332,30 @@ void Application::edit_midi_notes(const Id& id,std::vector<Id> selected,const No
 }
 void Application::set_midi_events(const Id& id,std::vector<MidiChannelEvent> events){require_not_recording();require_not_playing();const auto p=services_.projects->state().project;const auto at=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& c){return c.id==id;});require(at!=p->clips.end()&&at->midi.has_value(),"select a MIDI clip");if(events==at->midi->events)return;edit(SetMidiEvents{id,std::move(events)});}
 void Application::set_midi_notes(const Id& id,std::vector<MidiNote> notes){edit(SetMidiNotes{id,std::move(notes)},{},true);}
+namespace {
+bool valid_quantize_preferences(const MidiQuantizePreferences& p){
+    const auto percent=[](int v){return v>=0&&v<=100;};
+    return p.divisor>=1&&p.divisor<=64&&(p.divisor&(p.divisor-1))==0&&p.shape>=0&&p.shape<=4
+        &&percent(p.swing)&&percent(p.start)&&percent(p.end)&&percent(p.range);
+}
+}
+MidiQuantizePreferences Application::midi_quantize_preferences() const {
+    const auto found=std::find_if(document_.extensions.begin(),document_.extensions.end(),[](const auto& e){return e.tag=="MQTZ";});
+    if(found==document_.extensions.end())return {};
+    MidiQuantizePreferences p;int revision{},snap{};
+    std::istringstream in(found->bytes);
+    if(!(in>>revision>>p.divisor>>p.shape>>p.swing>>p.start>>p.end>>p.range>>snap)||revision!=1||snap<0||snap>1||!valid_quantize_preferences(p))return {};
+    in>>std::ws;if(!in.eof())return {};
+    p.snap=snap!=0;return p;
+}
+void Application::set_midi_quantize_preferences(MidiQuantizePreferences p){
+    require(valid_quantize_preferences(p),"invalid MIDI quantize preferences");
+    if(p==midi_quantize_preferences())return;
+    const auto bytes=std::string("1 ")+std::to_string(p.divisor)+" "+std::to_string(p.shape)+" "+std::to_string(p.swing)+" "+std::to_string(p.start)+" "+std::to_string(p.end)+" "+std::to_string(p.range)+" "+std::to_string(p.snap?1:0);
+    std::erase_if(document_.extensions,[](const auto& e){return e.tag=="MQTZ";});
+    document_.extensions.push_back({"MQTZ",bytes});
+    unsaved_=true;
+}
 Id Application::duplicate_clip(const Id& id){const auto duplicate=new_id();const auto p=services_.projects->state().project;const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==id;});const DuplicateClip command{id,duplicate};if(c!=p->clips.end()&&c->midi){auto candidate=*p;command.apply(candidate);edit_timing(std::move(candidate),&command,{},true,true);}else edit(command,{},true);return duplicate;}
 Id Application::merge_midi_clips(std::vector<Id> ids){const auto merged=new_id();const MergeMidiClips command{std::move(ids),merged};auto candidate=*services_.projects->state().project;command.apply(candidate);edit_timing(std::move(candidate),&command,{},true,true);return merged;}
 std::vector<Id> Application::copy_clips(std::vector<Id> ids,Sample delta,int track_delta){

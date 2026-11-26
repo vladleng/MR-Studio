@@ -7,6 +7,8 @@
 #include <cstdlib>
 #include <functional>
 #include <memory>
+#include <set>
+#include <string>
 #include <utility>
 #include <vector>
 namespace ui {
@@ -29,7 +31,7 @@ struct NoteGridSpec {
             case Shape::triplet:return unit()*2./3.;
             case Shape::quintuplet:return unit()*4./5.;
             case Shape::septuplet:return unit()*8./7.;
-            case Shape::swing:return unit()+swingOffset()*.5;
+            case Shape::swing:return unit();
             default:return unit();
         }
     }
@@ -87,10 +89,52 @@ inline const std::vector<NoteGridSpec>& noteGridChoices(){
     }();
     return choices;
 }
-// Settings may hold any stored value; anything outside the ladder becomes 1/16.
+// The menu offers presets; the advanced panel can use every note value and an exact swing percentage.
 inline NoteGridSpec canonicalNoteGrid(const NoteGridSpec& value){
-    for(const auto& choice:noteGridChoices())if(choice==value)return choice;
-    return NoteGridSpec{};
+    if(value.divisor<1||value.divisor>64||(value.divisor&(value.divisor-1))!=0)return {};
+    if(value.shape<NoteGridSpec::Shape::straight||value.shape>NoteGridSpec::Shape::swing)return {};
+    auto spec=value;
+    spec.swing=spec.shape==NoteGridSpec::Shape::swing?std::clamp(spec.swing,0,100):0;
+    return spec;
+}
+
+struct NoteQuantizeSettings {
+    int start{100},end{0},range{100};
+};
+// Range is measured against half the actual adjacent interval on the side of
+// the target line. This keeps 100% inclusive even for asymmetric swing.
+inline mrs::Tick quantizedTick(mrs::Tick tick,const NoteGridSpec& grid,int strength,int range){
+    const auto target=grid.snap(tick);
+    const auto delta=target-tick;
+    if(delta==0||strength<=0||range<=0)return tick;
+    const auto index=grid.indexAt(target);
+    auto adjacent=target;
+    for(auto i=index-3;i<=index+3;++i){
+        const auto line=grid.position(i);
+        if(delta>0&&line<target&&(adjacent==target||line>adjacent))adjacent=line;
+        if(delta<0&&line>target&&(adjacent==target||line<adjacent))adjacent=line;
+    }
+    const auto interval=std::llabs(target-adjacent);
+    if(range<100&&2.*std::llabs(delta)>static_cast<double>(interval)*std::clamp(range,0,100)/100.)return tick;
+    return tick+static_cast<mrs::Tick>(std::llround(static_cast<double>(delta)*std::clamp(strength,0,100)/100.));
+}
+// Work in project ticks (the same origin as the visible grid), then translate
+// back into the clip's source coordinates. Do not edit hidden source events.
+// Moving the start preserves duration; End subsequently adjusts the moved end.
+inline std::vector<mrs::MidiNote> quantizeSelectedNotes(const mrs::MidiClip& clip,
+        const std::set<std::string>& selected,const NoteGridSpec& grid,const NoteQuantizeSettings& settings){
+    auto notes=clip.notes;
+    const auto first=clip.source_offset,last=first+clip.length;
+    for(auto& note:notes){
+        if(!selected.contains(note.id.value)||note.start<first||note.length<1||note.start>=last||note.length>last-note.start)continue;
+        const auto origin=clip.start+note.start-first;
+        const auto moved=quantizedTick(origin,grid,settings.start,settings.range);
+        note.start=std::clamp(first+moved-clip.start,first,last-note.length);
+        const auto end=clip.start+note.start-first+note.length;
+        const auto targetEnd=quantizedTick(end,grid,settings.end,settings.range);
+        note.length=std::clamp(first+targetEnd-clip.start-note.start,mrs::Tick{1},last-note.start);
+    }
+    return notes;
 }
 // Toolbar control: snap icon, current grid and a menu chevron in one button.
 class NoteGridButton final:public juce::Button {

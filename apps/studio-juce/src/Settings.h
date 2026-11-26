@@ -39,7 +39,7 @@ struct ViewSettings {
     int separationCpuThreads{}; // 0 Auto; user intent, not an affinity-capped count
     juce::String separationModel; // Stable catalogue ID; app preference, never project state
     bool noteClipColors{}, noteInstrumentColors{}; // Piano roll view preference; no project mutation.
-    bool midiFollowPlayhead{},midiResumePlayback{true};
+    bool midiFollowPlayhead{},midiResumePlayback{true},midiQuantizeOpen{};
     int midiVelocityHeight{62}, midiControllerHeight{180};
     // Piano roll / drum grid snap grid: note value divisor, shape and swing
     // percentage. A view preference only; it never enters the project.
@@ -75,6 +75,7 @@ struct ViewSettings {
         object->setProperty("noteClipColors",noteClipColors); object->setProperty("noteInstrumentColors",noteInstrumentColors);
         object->setProperty("midiFollowPlayhead",midiFollowPlayhead);
         object->setProperty("midiResumePlayback",midiResumePlayback);
+        object->setProperty("midiQuantizeOpen",midiQuantizeOpen);
         object->setProperty("midiVelocityHeight",midiVelocityHeight); object->setProperty("midiControllerHeight",midiControllerHeight);
         object->setProperty("midiGridDivisor",midiGridDivisor); object->setProperty("midiGridShape",midiGridShape);
         object->setProperty("midiGridSwing",midiGridSwing); object->setProperty("midiGridSnap",midiGridSnap);
@@ -126,6 +127,7 @@ struct ViewSettings {
         if(value["noteInstrumentColors"].isBool())result.noteInstrumentColors=static_cast<bool>(value["noteInstrumentColors"]);
         if(value["midiFollowPlayhead"].isBool())result.midiFollowPlayhead=static_cast<bool>(value["midiFollowPlayhead"]);
         if(value["midiResumePlayback"].isBool())result.midiResumePlayback=static_cast<bool>(value["midiResumePlayback"]);
+        if(value["midiQuantizeOpen"].isBool())result.midiQuantizeOpen=static_cast<bool>(value["midiQuantizeOpen"]);
         if(value["midiVelocityHeight"].isInt())result.midiVelocityHeight=juce::jlimit(24,8192,static_cast<int>(value["midiVelocityHeight"]));
         if(value["midiControllerHeight"].isInt())result.midiControllerHeight=juce::jlimit(1,8192,static_cast<int>(value["midiControllerHeight"]));
         if(value["midiGridDivisor"].isInt())result.midiGridDivisor=juce::jlimit(1,64,static_cast<int>(value["midiGridDivisor"]));
