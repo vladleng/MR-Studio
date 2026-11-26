@@ -59,7 +59,7 @@ public:
     bool keyPressed(const juce::KeyPress&) override;
     bool workspaceShortcut(const juce::KeyPress&);
     bool keyStateChanged(bool) override;
-    void spaceKey(bool down,bool pause=false,std::function<void()> before={});
+    void spaceKey(bool down,bool pausePlayback=false,std::function<void()> before={});
     void focusLost(FocusChangeType) override;
     juce::StringArray getMenuBarNames() override;
     juce::PopupMenu getMenuForIndex(int,const juce::String&) override;

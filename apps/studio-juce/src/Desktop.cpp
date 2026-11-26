@@ -1225,12 +1225,12 @@ bool Desktop::keyStateChanged(bool){
     if(homeVisible||!shortcutAllowed()||juce::ModifierKeys::getCurrentModifiersRealtime().isAnyModifierKeyDown())return false;
     spaceKey(true);return true;
 }
-void Desktop::spaceKey(bool down,bool pause,std::function<void()> before){
+void Desktop::spaceKey(bool down,bool pausePlayback,std::function<void()> before){
     if(!down){spaceHeld=false;return;}
     if(spaceHeld)return;
     // Latch before invoking transport: nested UI messages must not retrigger it.
     spaceHeld=true;
-    run([&]{if(before)before();action(app.engine()->state().playback==mrs::PlaybackState::playing?(pause?31:32):30);});
+    run([&]{if(before)before();action(app.engine()->state().playback==mrs::PlaybackState::playing?(pausePlayback?31:32):30);});
 }
 void Desktop::updateRecordingPreview(){
     recordingPreview=app.midi_recording_preview();auto nextWaveforms=app.audio_recording_preview();

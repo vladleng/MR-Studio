@@ -883,9 +883,9 @@ private:
 void Desktop::syncMidiEditorModes(){
     if(standaloneLive)return;
     if(dockedEditor&&dockedEditor->isVisible())
-        if(auto* panel=dynamic_cast<MidiClipPanel*>(dockedEditor.get()))panel->restoreDrumMode();
+        if(auto* midiEditor=dynamic_cast<MidiClipPanel*>(dockedEditor.get()))midiEditor->restoreDrumMode();
     for(const auto& window:windows)if(window->isVisible())
-        if(auto* panel=dynamic_cast<MidiClipPanel*>(window->getContentComponent()))panel->restoreDrumMode();
+        if(auto* midiEditor=dynamic_cast<MidiClipPanel*>(window->getContentComponent()))midiEditor->restoreDrumMode();
 }
 std::optional<mrs::Id> Desktop::activeMidiEditorTrack() const {
     if (dockedEditor && dockedEditor->isShowing())
