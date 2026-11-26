@@ -11,6 +11,16 @@ class CandidateGateTests(unittest.TestCase):
                         results=dict.fromkeys(('core','gui','contracts','runtime','separation','mp3'),'success')
                         results[check]=result
                         with self.assertRaises(ValueError):verify_candidate(scope,False,results)
+    def test_studio_ui_gate(self):
+        verify_candidate('studio-ui',False,dict(core='success'))
+        for result in ('failure','cancelled','skipped',None):
+            with self.subTest(result=result):
+                with self.assertRaises(ValueError):
+                    verify_candidate('studio-ui',False,dict(core=result))
+        with self.assertRaises(ValueError):
+            verify_candidate('studio-ui',True,dict(core='success'))
+        verify_candidate('studio-ui',True,dict.fromkeys(('core','gui','contracts','runtime','mp3'),'success'))
+
     def test_live_still_requires_core_and_gui(self):
         verify_candidate('live',False,dict(core='success',gui='success'))
         for check in ('core','gui'):

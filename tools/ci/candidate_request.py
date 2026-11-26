@@ -6,7 +6,7 @@ import subprocess
 
 from verify_candidate_gate import SCOPES
 
-PREFIX = re.compile(r'^\[candidate:(studio|live|studio-live)\](?:\s|$)')
+PREFIX = re.compile(r'^\[candidate:(studio-ui|studio|live|studio-live)\](?:\s|$)')
 
 
 def resolve(event_name, event, environ):

@@ -21,6 +21,15 @@ class CandidateRequestTests(unittest.TestCase):
         self.assertEqual(result['ara'], 'true')
         self.assertEqual(result['automatic'], 'true')
 
+    def test_studio_ui_request(self):
+        self.event['pull_request']['title'] = '[candidate:studio-ui] Title'
+        result = resolve('pull_request', self.event, self.env)
+        self.assertEqual(result['scope'], 'studio-ui')
+        self.assertEqual(result['sha'], SHA)
+        self.assertEqual(result['ara'], 'true')
+        self.env['REQUEST_CHECKS'] = 'studio-ui'
+        self.assertEqual(resolve('workflow_dispatch', {}, self.env)['scope'], 'studio-ui')
+
     def test_live_ara_off(self):
         self.event['pull_request']['title'] = '[candidate:live] Title'
         self.assertEqual(resolve('pull_request', self.event, self.env)['ara'], 'false')
