@@ -2611,8 +2611,15 @@ audio::OfflineRenderResult Application::PreparedMasterExport::render(const audio
 }
 audio::OfflineRenderResult Application::PreparedMasterExport::render_stems(const audio::OfflineStemRenderCallbacks& callbacks){
     if(stem_ids_.empty())throw std::logic_error("Not a stem export plan");
+    if(!callbacks.write_stem)throw std::invalid_argument("Invalid stem export sink");
     if(used_.exchange(true))throw std::logic_error("Export plan already rendered");
-    return audio::render_stem_range(config_,graph_,begin_,end_,stem_indices_,callbacks);
+    return audio::render_stem_range(config_,graph_,begin_,end_,stem_indices_,{
+        [&](std::size_t mixer_index,std::span<const float> data){
+            const auto index=std::find(stem_indices_.begin(),stem_indices_.end(),mixer_index);
+            if(index==stem_indices_.end())throw std::logic_error("Unexpected stem mixer index");
+            callbacks.write_stem(static_cast<std::size_t>(index-stem_indices_.begin()),data);
+        },callbacks.continue_render
+    });
 }
 void Application::finish_master_export(const std::shared_ptr<PreparedMasterExport>& plan){
     require_ai_owner();
