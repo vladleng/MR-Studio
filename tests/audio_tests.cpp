@@ -650,6 +650,56 @@ void offline_range() {
     rejects([&]{render_master_range({48000,0,2,4},plain,5,5,{[](std::span<const float>){}});});
     rejects([&]{render_master_range({48000,0,2,4},plain,0,20,{[](std::span<const float>){throw std::runtime_error("sink failure");}});});
 }
+void offline_stems() {
+    using namespace mrs::processing;
+    auto asset=std::make_shared<AudioData>();asset->channels=2;
+    for(int i=0;i<32;++i){asset->samples.push_back(.25f);asset->samples.push_back(.5f);}
+    const auto latency=[](std::uint32_t frames){
+        auto state=demo_graph();state.nodes.front().parameters.clear();
+        return std::make_shared<PreparedGraph>(GraphSnapshot{std::make_shared<const GraphState>(state),0,false,false},
+            ProcessConfig{48000,2,4},[frames](const auto&){return std::make_unique<LatencyFixture>(frames);});
+    };
+    const auto make_graph=[&]{
+        RenderGraph graph;
+        graph.mixer={{},{.5f,0,false,false},{}};
+        graph.voices={{asset,0,0,32,{{0,0,1},{1,1,1}}},
+                      {asset,5,0,20,{{0,0,1},{1,1,1}}},
+                      {asset,0,0,32,{{0,0,1},{1,1,1}}}};
+        for(std::size_t i=0;i<3;++i)graph.voices[i].mixer_track=i;
+        graph.inserts={latency(5),{},{}};
+        graph.master_inserts=latency(9);graph.master_gain=0.f;
+        return graph;
+    };
+    const std::array<std::size_t,2> tracks{1,0};
+    std::array<std::vector<float>,3> output;
+    std::size_t calls{};
+    const auto result=render_stem_range({48000,0,2,4},make_graph(),3,12,tracks,{
+        [&](std::size_t track,std::span<const float> block){
+            CHECK(track==tracks[calls++%tracks.size()]);
+            output[track].insert(output[track].end(),block.begin(),block.end());
+        },
+        [&](const OfflineRenderProgress& p){CHECK(p.total==17&&p.requested==9);return true;}
+    });
+    CHECK(result.completed&&result.frames_written==9&&result.peak==.5f);
+    CHECK(output[0].size()==18&&output[1].size()==18&&output[2].empty());
+    for(std::size_t i=0;i<9;++i){
+        CHECK(output[0][2*i]==.25f&&output[0][2*i+1]==.5f);
+        CHECK(output[1][2*i]==(i<2?0.f:.125f)&&output[1][2*i+1]==(i<2?0.f:.25f));
+    }
+    const auto cancel=render_stem_range({48000,0,2,4},make_graph(),0,20,tracks,{
+        [](std::size_t,std::span<const float>){},[](const OfflineRenderProgress& p){return p.written==0;}
+    });
+    CHECK(!cancel.completed&&cancel.frames_written>0);
+    const auto sink=[](std::size_t,std::span<const float>){throw std::runtime_error("unexpected stem write");};
+    const std::array<std::size_t,2> duplicate{0,0};
+    rejects([&]{render_stem_range({48000,0,2,4},make_graph(),0,20,duplicate,{sink});});
+    const std::array<std::size_t,1> invalid{3};
+    rejects([&]{render_stem_range({48000,0,2,4},make_graph(),0,20,invalid,{sink});});
+    auto routed=make_graph();routed.buses={false,false,true};routed.outputs={2,no_mixer_track,no_mixer_track};
+    rejects([&]{render_stem_range({48000,0,2,4},routed,0,20,tracks,{sink});});
+    auto direct=make_graph();direct.hardware_outputs={{0,1},{},{}};
+    rejects([&]{render_stem_range({48000,0,2,4},direct,0,20,tracks,{sink});});
+}
 void offline_streaming() {
     TempFile file;std::string payload;
     constexpr Sample total=30000;
@@ -1085,7 +1135,7 @@ int main(int argc, char** argv) {
         if (argc != 2) throw std::invalid_argument("expected suite");
         const std::string suite = argv[1];
         if(suite=="state_snapshot"){state_snapshot();std::cout<<"PASS state_snapshot: "<<assertions<<" checks\n";return 0;}
-        if(suite=="performance")performance();else if(suite=="metronome")metronome();else if(suite=="callback_blocks")callback_blocks();else if (suite=="pdc") pdc(); else if (suite=="inserts") inserts(); else if(suite=="insert_switch")insert_switch(); else if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="master_export") { master_export(); offline_range(); offline_streaming(); } else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
+        if(suite=="performance")performance();else if(suite=="metronome")metronome();else if(suite=="callback_blocks")callback_blocks();else if (suite=="pdc") pdc(); else if (suite=="inserts") inserts(); else if(suite=="insert_switch")insert_switch(); else if (suite=="multi_input") multi_input(); else if (suite=="stop_anchor") stop_anchor(); else if (suite=="hardware") hardware(); else if (suite=="master_export") { master_export(); offline_range(); offline_stems(); offline_streaming(); } else if (suite=="sends") sends(); else if (suite=="buses") buses(); else if (suite=="mixer") mixer(); else if (suite=="render") render(); else if (suite=="transport") transport();
         else if (suite=="queue") queue(); else if (suite=="wav") wav();
         else if (suite=="device") device(); else if (suite=="metrics") metrics();
         else if (suite=="streaming") streaming(); else if (suite=="recording") recording();
