@@ -366,6 +366,8 @@ StemWavExportResult export_stem_wavs24(const std::filesystem::path& requested,
             }
         }
         check_cancel();
+        if(callbacks.finalize_stems)callbacks.finalize_stems(payload);
+        check_cancel();
         // An atomic, no-replace directory move is required; a sequence of file
         // publications could expose a partial set or overwrite another export.
 #ifdef _WIN32
