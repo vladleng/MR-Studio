@@ -37,6 +37,7 @@ struct ViewSettings {
     bool transcriptionCompatibility{},transcriptionQuantize{};
     int transcriptionGrid{3},transcriptionStrength{100},transcriptionVelocity{100};
     int separationCpuThreads{}; // 0 Auto; user intent, not an affinity-capped count
+    int timePitchWorkers{}; // 0 Auto; independent of device processing workers
     juce::String separationModel; // Stable catalogue ID; app preference, never project state
     bool noteClipColors{}, noteInstrumentColors{}; // Legacy/global standalone Live preference; Studio stores its mode per track.
     bool midiFollowPlayhead{},midiResumePlayback{true},midiQuantizeOpen{};
@@ -81,6 +82,7 @@ struct ViewSettings {
         object->setProperty("midiGridSwing",midiGridSwing); object->setProperty("midiGridSnap",midiGridSnap);
         object->setProperty("transcriptionCpuThreads",transcriptionCpuThreads);object->setProperty("transcriptionBackend",1);object->setProperty("transcriptionCompatibility",transcriptionCompatibility);
         object->setProperty("transcriptionQuantize",transcriptionQuantize);object->setProperty("transcriptionGrid",transcriptionGrid);object->setProperty("transcriptionStrength",transcriptionStrength);object->setProperty("transcriptionVelocity",transcriptionVelocity);
+        object->setProperty("timePitchWorkers",timePitchWorkers);
         object->setProperty("separationCpuThreads",separationCpuThreads);object->setProperty("separationModel",separationModel);
         object->setProperty("trackHeight",trackHeight);object->setProperty("pixelsPerSecond",pixelsPerSecond);
         object->setProperty("channelInspector",channelInspector);object->setProperty("channelInspectorWidth",channelInspectorWidth);
@@ -104,6 +106,7 @@ struct ViewSettings {
         if(value["transcriptionCompatibility"].isBool())result.transcriptionCompatibility=static_cast<bool>(value["transcriptionCompatibility"]);
         if(value["transcriptionQuantize"].isBool())result.transcriptionQuantize=static_cast<bool>(value["transcriptionQuantize"]);
         for(const auto& key:{"transcriptionGrid","transcriptionStrength","transcriptionVelocity"})if(value[key].isInt()){const int n=static_cast<int>(value[key]);if(juce::String(key)=="transcriptionGrid"&&n>=1&&n<=6)result.transcriptionGrid=n;else if(juce::String(key)=="transcriptionStrength"&&n>=0&&n<=100)result.transcriptionStrength=n;else if(juce::String(key)=="transcriptionVelocity"&&n>=1&&n<=127)result.transcriptionVelocity=n;}
+        if(value["timePitchWorkers"].isInt()){const auto n=static_cast<int>(value["timePitchWorkers"]);if(n>=0&&n<=16)result.timePitchWorkers=n;}
         if(value["separationCpuThreads"].isInt()){
             const auto n=static_cast<int>(value["separationCpuThreads"]);
             if(n==0||n==1||n==2||n==4||n==8||n==16||n==32)result.separationCpuThreads=n;

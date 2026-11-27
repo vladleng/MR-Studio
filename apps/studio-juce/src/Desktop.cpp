@@ -1,3 +1,4 @@
+#include <thread>
 #include "MusicalGrid.h"
 #include "MeterTrack.h"
 #include "Desktop.h"
@@ -406,6 +407,7 @@ Desktop::Desktop(bool test,bool startAtHome,bool liveApplication):standaloneLive
     if(view.cabRoot.isNotEmpty())app.set_cab_root(path(juce::File(view.cabRoot)),view.cabManifest.toStdString());
     if(view.reverbRoot.isNotEmpty())app.set_reverb_root(path(juce::File(view.reverbRoot)));
     projectSessionStarted=testing&&!startAtHome&&!standaloneLive;if(projectSessionStarted)app.demo();else app.new_project();resetDevice();
+    app.set_stretch_workers(static_cast<unsigned>(view.timePitchWorkers));
     app.set_click_settings(prefs.click);
     app.set_ai_permissions(prefs.ai);
     arrangement=std::make_unique<Arrangement>(*this);browser=std::make_unique<Browser>(*this);
@@ -767,9 +769,19 @@ juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupM
         m.addSeparator();m.addItem(715,"Separation models...",!standaloneLive);
         m.addItem(716,"Separation results...",!standaloneLive);
 #endif
+        if(!standaloneLive){
+            juce::PopupMenu preferences,timePitch;
 #if defined(MRS_TRANSCRIPTION_UI)
-        juce::PopupMenu preferences;preferences.addItem(717,"Audio-to-MIDI",!standaloneLive);m.addSubMenu("Preferences",preferences);
+            preferences.addItem(717,"Audio-to-MIDI");
 #endif
+            const auto hardware=std::thread::hardware_concurrency();
+            const auto automatic=mrs::desktop::Application::stretch_worker_limit(0,hardware);
+            timePitch.addItem(730,"Auto ("+juce::String(static_cast<int>(automatic))+" workers)",true,view.timePitchWorkers==0);
+            for(int n=1;n<=16;++n)
+                timePitch.addItem(730+n,juce::String(n)+(n==1?" worker":" workers"),true,view.timePitchWorkers==n);
+            preferences.addSubMenu("Time / Pitch",timePitch);
+            m.addSubMenu("Preferences",preferences);
+        }
         return m;
     }
     // Existing menus retain their action IDs after inserting Options next to File.
@@ -947,6 +959,10 @@ void Desktop::action(int n){
 #if defined(MRS_TRANSCRIPTION_UI)
     if(n==717){showTranscriptionPreferences(*this);return;}
 #endif
+    if(n>=730&&n<=746&&!standaloneLive){
+        view.timePitchWorkers=n-730;app.set_stretch_workers(static_cast<unsigned>(view.timePitchWorkers));saveSettings();
+        message="Time / Pitch worker setting saved (next preparation)";return;
+    }
     if(n==9)return;
     if(n==702){confirmDiscard([this]{choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& file){importLiveShow(file);},"*.json");});return;}
     if(n==701){if(standaloneLive){confirmDiscard([this]{run([this]{newLiveShow();});});return;}auto createShow=[this]{choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[this](const auto& file){createLive(file);},"*.mrlive");};createShow();return;}

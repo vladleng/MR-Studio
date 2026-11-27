@@ -2,6 +2,9 @@
 #include <algorithm>
 #include <chrono>
 #include <stdexcept>
+#include <mutex>
+#include <thread>
+#include <utility>
 
 namespace mrs::desktop {
 namespace {
@@ -11,6 +14,7 @@ struct Application::StretchJob {
     std::stop_source stop;
     std::atomic<float> progress{};
     std::atomic<bool> checkingCache{};
+    unsigned workers{1};
     std::shared_ptr<IProjectStore> projects;
     std::uint64_t revision{};
     using Entries=std::map<std::string,std::shared_ptr<const audio::StretchCache>>;
@@ -51,12 +55,21 @@ std::shared_ptr<const audio::AudioData> Application::clip_audio(const Clip& c,st
     return entry==stretch_cache_.end()?nullptr:entry->second->data;
 }
 Application::StretchStatus Application::stretch_status() const {
-    auto result=stretch_status_;if(stretch_job_){result.progress=stretch_job_->progress.load();result.message=stretch_job_->checkingCache.load()?"Checking Time / Pitch cache":"Preparing Time / Pitch";}return result;
+    auto result=stretch_status_;if(stretch_job_){result.progress=stretch_job_->progress.load();result.message=stretch_job_->checkingCache.load()?"Checking Time / Pitch cache":"Preparing Time / Pitch ("+std::to_string(stretch_job_->workers)+" workers max)";}return result;
 }
 void Application::cancel_stretch(){
     if(stretch_job_){stretch_job_->stop.request_stop();retired_stretch_.push_back(std::move(stretch_job_));}
     stretch_checked_revision_=services_.projects->state().revision;
     stretch_status_.busy=false;stretch_status_.message="Time / pitch cancelled. Apply again to prepare.";++stretch_status_.revision;
+}
+unsigned Application::stretch_worker_limit(unsigned requested,unsigned hardware) noexcept {
+    hardware=std::max(1u,hardware);
+    return std::min({requested?requested:std::min(4u,std::max(1u,hardware/2)),hardware,16u});
+}
+void Application::set_stretch_workers(unsigned workers){
+    if(workers>16)throw std::invalid_argument("Time / Pitch workers must be Auto or 1–16");
+    // A running batch keeps its captured policy; subsequent batches use this.
+    stretch_workers_=workers;
 }
 void Application::retry_stretch(){
     require_not_playing();stretch_checked_revision_=~std::uint64_t{};poll_stretch();
@@ -149,25 +162,86 @@ void Application::poll_stretch(){
         }
         const auto cacheRoot=path_.extension()==".mrsproject"?path_.parent_path():std::filesystem::path{};
         auto job=std::make_shared<StretchJob>();job->projects=services_.projects;job->revision=state.revision;
-        const auto token=job->stop.get_token();auto* progress=&job->progress;auto* checking=&job->checkingCache;
+        const auto stop=job->stop;auto* progress=&job->progress;auto* checking=&job->checkingCache;
+        const auto workers=std::min<unsigned>(stretch_worker_limit(stretch_workers_,std::thread::hardware_concurrency()),static_cast<unsigned>(requests.size()));
+        job->workers=workers;
         checking->store(!cacheRoot.empty());
-        job->result=std::async(std::launch::async,[requests=std::move(requests),cacheRoot,token,progress,checking]{
+        job->result=std::async(std::launch::async,[requests=std::move(requests),cacheRoot,stop,progress,checking,workers]() mutable {
+            const auto token=stop.get_token();
             StretchJob::Entries entries;
+            // Fingerprints are immutable before workers start. Identical
+            // content with different source instances may address one disk
+            // cache file; serialize that rare group to avoid competing writes.
             std::map<const audio::AudioData*,audio::StretchSourceFingerprint> fingerprints;
-            for(std::size_t i=0;i<requests.size();++i){
+            std::map<std::string,unsigned> digestCounts;
+            if(!cacheRoot.empty())for(const auto& r:requests){
+                if(fingerprints.contains(r.source.get()))continue;
+                auto fp=audio::fingerprint_stretch_source(*r.source,token);
+                ++digestCounts[fp.digest];fingerprints.emplace(r.source.get(),std::move(fp));
+            }
+            std::map<std::string,std::mutex> duplicateLocks;
+            for(const auto& [digest,count]:digestCounts)if(count>1)duplicateLocks.try_emplace(digest);
+            std::vector<std::size_t> parallel,drums;
+            for(std::size_t i=0;i<requests.size();++i)
+                (requests[i].backend==stretch::Backend::drums?drums:parallel).push_back(i);
+            std::stable_sort(parallel.begin(),parallel.end(),[&](auto a,auto b){
+                return audio_output_extent(requests[a].clip)>audio_output_extent(requests[b].clip);
+            });
+            std::vector<std::shared_ptr<const audio::StretchCache>> results(requests.size());
+            std::vector<float> fractions(requests.size());
+            std::mutex reportMutex,errorMutex;
+            std::exception_ptr error;
+            bool rendering=cacheRoot.empty();
+            auto execute=[&](std::size_t i){
+                if(token.stop_requested())return;
                 const auto& r=requests[i];
-                checking->store(!cacheRoot.empty());
-                const audio::StretchSourceFingerprint* fingerprint=nullptr;
+                const audio::StretchSourceFingerprint* fp=nullptr;
+                std::unique_lock<std::mutex> sameContent;
                 if(!cacheRoot.empty()){
-                    const auto [at,inserted]=fingerprints.try_emplace(r.source.get());
-                    if(inserted)at->second=audio::fingerprint_stretch_source(*r.source,token);
-                    fingerprint=&at->second;
+                    fp=&std::as_const(fingerprints).at(r.source.get());
+                    if(auto lock=duplicateLocks.find(fp->digest);lock!=duplicateLocks.end())
+                        sameContent=std::unique_lock<std::mutex>(lock->second);
                 }
-                auto entry=audio::prepare_stretch_cache(r.source,r.clip,token,[&,i](float value){
-                    if(value<1)checking->store(false);
-                    progress->store((static_cast<float>(i)+value)/static_cast<float>(requests.size()));
-                },r.backend,cacheRoot,fingerprint);
-                entries.emplace(r.key,std::move(entry));
+                if(token.stop_requested())return;
+                results[i]=audio::prepare_stretch_cache(r.source,r.clip,token,[&,i](float value){
+                    std::lock_guard guard(reportMutex);
+                    if(value<1)rendering=true;
+                    checking->store(!rendering);
+                    fractions[i]=std::max(fractions[i],value);
+                    double total{};for(float fraction:fractions)total+=fraction;
+                    progress->store(static_cast<float>(total/fractions.size()));
+                },r.backend,cacheRoot,fp);
+            };
+            auto fail=[&]{
+                {std::lock_guard guard(errorMutex);if(!error)error=std::current_exception();}
+                stop.request_stop();
+            };
+            std::atomic<std::size_t> next{};
+            auto run=[&]{
+                try{
+                    while(!token.stop_requested()){
+                        const auto at=next.fetch_add(1);
+                        if(at>=parallel.size())return;
+                        execute(parallel[at]);
+                    }
+                }catch(...){fail();}
+            };
+            {
+                // The coordinator participates; jthread scope joins every
+                // child before result publication or exception propagation.
+                std::vector<std::jthread> pool;
+                const auto count=std::min<std::size_t>(workers,parallel.size());
+                try{for(std::size_t i=1;i<count;++i)pool.emplace_back(run);if(count)run();}
+                catch(...){fail();}
+            }
+            if(error)std::rethrow_exception(error);
+            // Drums uses large whole-source arrays: keep its existing
+            // sequential memory footprint, after all Signalsmith work joins.
+            for(auto i:drums){if(token.stop_requested())break;execute(i);}
+            if(token.stop_requested())throw std::runtime_error("Time / pitch preparation cancelled");
+            for(std::size_t i=0;i<requests.size();++i){
+                if(!results[i])throw std::runtime_error("Missing Time / pitch worker result");
+                entries.emplace(requests[i].key,std::move(results[i]));
             }
             return entries;
         });

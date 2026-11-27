@@ -149,6 +149,11 @@ void finish(desktop::Application& app){
     throw std::runtime_error("Cache preparation timed out");
 }
 void desktop_test(){
+    CHECK(desktop::Application::stretch_worker_limit(0,16)==4);
+    CHECK(desktop::Application::stretch_worker_limit(0,4)==2);
+    CHECK(desktop::Application::stretch_worker_limit(0,0)==1);
+    CHECK(desktop::Application::stretch_worker_limit(16,8)==8);
+    CHECK(desktop::Application::stretch_worker_limit(1,16)==1);
     Directory dir;auto source=signal();auto p=fixture();stretch::Parameters params;params.duration_ratio=1.25;
     SetAudioStretch{p.clips[0].id,params}.apply(p);auto seed=audio::prepare_stretch_cache(source,p.clips[0]);
     const auto wav=dir.path/"source.wav";fs::copy_file(seed->data->file->path,wav);
@@ -228,6 +233,30 @@ void desktop_test(){
     rejects([&]{app.play();});
     app.retry_stretch();CHECK(app.stretch_status().message.find("Time / pitch failed:") == 0);
     rejects([&]{app.play();});
+
+    // Multiple distinct source windows/parameters (no shared cache keys).
+    // Render once per policy in separate roots and compare PCM bit-for-bit.
+    auto batch=many;batch.project.clips.clear();
+    for(int i=0;i<4;++i){
+        auto c=baseClip;c.id=new_id();c.start=static_cast<Sample>(i)*baseClip.length;
+        c.stretch->parameters.semitones+=i;
+        batch.project.clips.push_back(std::move(c));
+    }
+    const auto runBatch=[&](unsigned workers){
+        auto root=dir.path/("workers-"+std::to_string(workers));fs::create_directory(root);
+        fs::copy(path.parent_path()/"Media",root/"Media",fs::copy_options::recursive);
+        const auto file=root/"batch.mrsproject";
+        persistence::save_project(file,batch);
+        app.set_stretch_workers(workers);app.open_project(file);
+        app.connect(std::make_unique<Device>(),{0,48000,128,{}, {0,1}});
+        finish(app);CHECK(app.stretch_status().message=="Time / pitch ready");
+        const auto graph=app.engine()->stopped_graph();CHECK(graph.voices.size()==4);
+        std::vector<std::vector<float>> pcm;
+        for(const auto& voice:graph.voices)pcm.push_back(audio::load_wav(voice.asset->file->path).samples);
+        return pcm;
+    };
+    CHECK(runBatch(1)==runBatch(4));
+    rejects([&]{app.set_stretch_workers(17);});
 }
 }
 int main(int argc,char** argv){try{CHECK(argc==2);const std::string suite=argv[1];if(suite=="model")model();else if(suite=="cache")cache();else if(suite=="desktop")desktop_test();else throw std::runtime_error("Unknown suite");std::cout<<"PASS "<<suite<<'\n';return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}
