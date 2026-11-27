@@ -279,6 +279,9 @@ public:
     void set_clip_stretch(const Id&,stretch::Parameters,bool reset=false,StretchAnchor anchor=StretchAnchor::start);
     struct StretchStatus {bool busy{};float progress{};std::string message;std::uint64_t revision{};};
     StretchStatus stretch_status() const;
+    // 0 = Auto; independent of real-time audio processing workers.
+    void set_stretch_workers(unsigned workers);
+    static unsigned stretch_worker_limit(unsigned requested,unsigned hardware) noexcept;
     void retry_stretch();
     void cancel_stretch();
     void open_project(const std::filesystem::path&);
@@ -569,7 +572,9 @@ private:
     std::map<std::string,std::shared_ptr<const audio::StretchCache>> stretch_cache_;
     std::map<std::string,std::uint64_t> stretch_cache_used_;
     std::uint64_t stretch_cache_clock_{};
+    unsigned stretch_workers_{};
     StretchStatus stretch_status_;
+    bool stretch_publication_failed_{};
     std::uint64_t stretch_checked_revision_{~std::uint64_t{}};
     void poll_stretch();
     void stop_stretch();

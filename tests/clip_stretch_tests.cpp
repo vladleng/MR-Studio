@@ -79,6 +79,13 @@ std::shared_ptr<audio::AudioData> signal(){
     return source;
 }
 void cache(){
+    constexpr std::uintmax_t MiB=1024ull*1024;
+    // Repro: a valid imported project's active PCM exceeds the former
+    // 512 MiB aggregate cap, but is disk-backed and fits available space.
+    audio::validate_stretch_disk_space(753*MiB,1024*MiB);
+    rejects([&]{audio::validate_stretch_disk_space(753*MiB,800*MiB);});
+    audio::validate_stretch_disk_space(0,0);
+    audio::validate_stretch_disk_space(960*MiB,1024*MiB);
     auto source=signal();auto p=fixture();auto params=stretch::Parameters{};params.duration_ratio=1.25;params.semitones=7;
     const auto id=p.clips[0].id;SetAudioStretch{id,params}.apply(p);
     auto prepared=audio::prepare_stretch_cache(source,p.clips[0]);
@@ -99,6 +106,28 @@ void cache(){
     auto streamed=std::make_shared<audio::AudioData>();streamed->channels=2;streamed->file=std::make_shared<audio::WavFile>(audio::inspect_wav(original));
     auto fromFile=audio::prepare_stretch_cache(streamed,p.clips[0]);CHECK(fromFile->source_current());
     fs::last_write_time(original,fs::last_write_time(original)+std::chrono::seconds(2));CHECK(!fromFile->source_current());
+    // RED on old session-only cache: reopening the same saved source must
+    // reuse the same disk file, not invoke the render progress callback.
+    const auto project=dir.path/"Persistent";fs::create_directory(project);
+    const auto first=audio::prepare_stretch_cache(source,p.clips[0],{},{},stretch::Backend::signalsmith,project);
+    const auto persistent=first->data->file->path;
+    CHECK(persistent.parent_path()==project/"Cache"/"TimePitch");
+    const auto written=fs::last_write_time(persistent);
+    auto reopened=std::make_shared<audio::AudioData>(*source);
+    bool rendered=false;
+    const auto hit=audio::prepare_stretch_cache(reopened,p.clips[1],{},[&](float value){if(value<1)rendered=true;},stretch::Backend::signalsmith,project);
+    CHECK(!rendered&&hit->data->file->path==persistent&&fs::last_write_time(persistent)==written);
+    CHECK(audio::load_wav(persistent).samples==pcm.samples);
+    auto edited=p.clips[0];edited.stretch->parameters.cents+=1;
+    const auto changed=audio::prepare_stretch_cache(reopened,edited,{},{},stretch::Backend::signalsmith,project);
+    CHECK(changed->data->file->path!=persistent);
+    reopened->samples[0]+=0.1f;
+    const auto newSource=audio::prepare_stretch_cache(reopened,p.clips[0],{},{},stretch::Backend::signalsmith,project);
+    CHECK(newSource->data->file->path!=persistent);
+    fs::resize_file(persistent,12);rendered=false;
+    const auto repaired=audio::prepare_stretch_cache(source,p.clips[0],{},[&](float value){if(value<1)rendered=true;},stretch::Backend::signalsmith,project);
+    CHECK(rendered&&repaired->data->file->path==persistent&&audio::load_wav(persistent).samples==pcm.samples);
+    CHECK(fs::is_regular_file(persistent));
 }
 class Device final:public audio::IAudioDevice{
     audio::DevicePhase phase{audio::DevicePhase::closed};
@@ -120,6 +149,11 @@ void finish(desktop::Application& app){
     throw std::runtime_error("Cache preparation timed out");
 }
 void desktop_test(){
+    CHECK(desktop::Application::stretch_worker_limit(0,16)==4);
+    CHECK(desktop::Application::stretch_worker_limit(0,4)==2);
+    CHECK(desktop::Application::stretch_worker_limit(0,0)==1);
+    CHECK(desktop::Application::stretch_worker_limit(16,8)==8);
+    CHECK(desktop::Application::stretch_worker_limit(1,16)==1);
     Directory dir;auto source=signal();auto p=fixture();stretch::Parameters params;params.duration_ratio=1.25;
     SetAudioStretch{p.clips[0].id,params}.apply(p);auto seed=audio::prepare_stretch_cache(source,p.clips[0]);
     const auto wav=dir.path/"source.wav";fs::copy_file(seed->data->file->path,wav);
@@ -146,11 +180,83 @@ void desktop_test(){
     // A stale worker must not install its PCM in a replacement document.
     params.semitones=7;app.set_clip_stretch(id,params);app.new_project();finish(app);CHECK(app.services().projects->state().project->clips.empty());
     app.import_wav(wav);const auto savedId=app.services().projects->state().project->clips[0].id;
-    app.set_clip_stretch(savedId,params);finish(app);app.save_project(dir.path/"Saved"/"project.mrsproject");
-    const auto saved=app.snapshot().project;const auto path=app.path();app.open_project(path);finish(app);
+    app.save_project(dir.path/"Saved"/"project.mrsproject");
+    app.set_clip_stretch(savedId,params);finish(app);app.save_project(app.path());
+    const auto saved=app.snapshot().project;const auto path=app.path();
+    const auto cacheDir=path.parent_path()/"Cache"/"TimePitch";
+    std::map<fs::path,fs::file_time_type> entries;
+    for(const auto& entry:fs::directory_iterator(cacheDir))if(entry.path().extension()==".wav")entries.emplace(entry.path(),fs::last_write_time(entry.path()));
+    CHECK(entries.size()==1);
+    app.open_project(path);finish(app);
     CHECK(app.snapshot().project==saved);CHECK(app.clip_waveform(app.services().projects->state().project->clips[0]));
-    for(const auto& entry:fs::recursive_directory_iterator(path.parent_path()))CHECK(entry.path().filename()!="audio.wav");
+    for(const auto& [file,time]:entries)CHECK(fs::is_regular_file(file)&&fs::last_write_time(file)==time);
     app.set_clip_stretch(savedId,params,true);CHECK(!app.services().projects->state().project->clips[0].stretch);
+
+    // Repeat the real failure shape with 58 stretched / 19 neutral clips.
+    // Shared source/parameters intentionally reuse one DSP cache; the graph
+    // still needs one audible voice and reader per timeline clip.
+    auto many=app.snapshot();many.project.clips.clear();
+    const auto baseClip=saved.clips.front();
+    for(int i=0;i<77;++i){
+        auto c=baseClip;c.id=new_id();c.start=static_cast<Sample>(i)*baseClip.length;
+        if(i<19){c.stretch.reset();c.length=1024;c.source_offset=0;}
+        many.project.clips.push_back(std::move(c));
+    }
+    const auto manyPath=path.parent_path()/"many.mrsproject";
+    persistence::save_project(manyPath,many);app.open_project(manyPath);
+    app.connect(std::make_unique<Device>(),{0,48000,128,{}, {0,1}});
+    finish(app);
+    CHECK(app.stretch_status().message=="Time / pitch ready");
+    CHECK(app.engine()->stopped_graph().voices.size()==77);
+    for(const int i:{0,19,40,76}){
+        const auto pos=many.project.clips[static_cast<std::size_t>(i)].start+256;
+        app.seek(pos);app.engine()->process(nullptr,out.data(),128);
+        app.play();double audible{};
+        for(int block=0;block<4;++block){app.engine()->process(nullptr,out.data(),128);for(float x:out)audible+=x*x;}
+        CHECK(audible>0.001);
+        app.pause();app.engine()->process(nullptr,out.data(),128);app.poll();
+    }
+    // Reproduce publication failure without breaking a source/cache: 129
+    // processed clips exceed the existing overall voice bound. Cache readiness
+    // must not allow Play to silently run the partial graph.
+    auto excessive=many;excessive.project.clips.clear();
+    for(std::size_t i=0;i<=audio::max_voices;++i){
+        auto c=baseClip;c.id=new_id();c.start=static_cast<Sample>(i)*baseClip.length;
+        excessive.project.clips.push_back(std::move(c));
+    }
+    const auto excessivePath=path.parent_path()/"excessive.mrsproject";
+    persistence::save_project(excessivePath,excessive);app.open_project(excessivePath);
+    app.connect(std::make_unique<Device>(),{0,48000,128,{}, {0,1}});
+    finish(app);
+    CHECK(app.stretch_status().message.find("Time / pitch failed:") == 0);
+    CHECK(app.clip_waveform(app.services().projects->state().project->clips.front()));
+    rejects([&]{app.play();});
+    app.retry_stretch();CHECK(app.stretch_status().message.find("Time / pitch failed:") == 0);
+    rejects([&]{app.play();});
+
+    // Multiple distinct source windows/parameters (no shared cache keys).
+    // Render once per policy in separate roots and compare PCM bit-for-bit.
+    auto batch=many;batch.project.clips.clear();
+    for(int i=0;i<4;++i){
+        auto c=baseClip;c.id=new_id();c.start=static_cast<Sample>(i)*baseClip.length;
+        c.stretch->parameters.semitones+=i;
+        batch.project.clips.push_back(std::move(c));
+    }
+    const auto runBatch=[&](unsigned workers){
+        auto root=dir.path/("workers-"+std::to_string(workers));fs::create_directory(root);
+        fs::copy(path.parent_path()/"Media",root/"Media",fs::copy_options::recursive);
+        const auto file=root/"batch.mrsproject";
+        persistence::save_project(file,batch);
+        app.set_stretch_workers(workers);app.open_project(file);
+        app.connect(std::make_unique<Device>(),{0,48000,128,{}, {0,1}});
+        finish(app);CHECK(app.stretch_status().message=="Time / pitch ready");
+        const auto graph=app.engine()->stopped_graph();CHECK(graph.voices.size()==4);
+        std::vector<std::vector<float>> pcm;
+        for(const auto& voice:graph.voices)pcm.push_back(audio::load_wav(voice.asset->file->path).samples);
+        return pcm;
+    };
+    CHECK(runBatch(1)==runBatch(4));
+    rejects([&]{app.set_stretch_workers(17);});
 }
 }
 int main(int argc,char** argv){try{CHECK(argc==2);const std::string suite=argv[1];if(suite=="model")model();else if(suite=="cache")cache();else if(suite=="desktop")desktop_test();else throw std::runtime_error("Unknown suite");std::cout<<"PASS "<<suite<<'\n';return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

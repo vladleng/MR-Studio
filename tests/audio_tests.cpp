@@ -249,6 +249,34 @@ void streaming() {
     CHECK(peak.minimum == 0 && peak.maximum == 126.0F/256.0F);
     auto cancel = std::make_shared<std::atomic<bool>>(true);
     rejects([&] { (void)Waveform(*asset,cancel); });
+    // Repro for Song audio: 19 existing voices plus 58 prepared stretch
+    // voices. All 77 file-backed clips must be published and audible.
+    {
+        RenderGraph large;large.mixer={{}};
+        for(Sample i=0;i<77;++i){
+            Voice voice{asset,i*128,i*128+1,128,{{0,0,1}}};voice.mixer_track=0;
+            large.voices.push_back(std::move(voice));
+        }
+        AudioEngine many;
+        auto initial=large;initial.voices.resize(19);
+        many.prepare({48000,0,1,128},std::move(initial));
+        auto plan=many.prepare_voice_transition(large.voices);
+        many.quiesce();many.swap_voice_transition_stopped(plan);CHECK(many.acknowledge_transition(plan));plan.reset();
+        auto hearEveryClip=[&]{
+            CHECK(many.stopped_graph().voices.size()==77);
+            CHECK(many.enqueue({ControlKind::play}));
+            std::array<float,128> block{};
+            const auto allocations=allocation_check::count.load(),frees=allocation_check::frees.load();
+            for(int i=0;i<77;++i){
+                allocation_check::enabled=true;many.process(nullptr,block.data(),128);allocation_check::enabled=false;
+                CHECK(std::any_of(block.begin(),block.end(),[](float sample){return sample>.01f;}));
+            }
+            CHECK(many.metrics().disk_underruns==0&&many.metrics().disk_errors==0);
+            CHECK(allocation_check::count.load()==allocations&&allocation_check::frees.load()==frees);
+        };
+        hearEveryClip();
+        many.quiesce();many.prepare({48000,0,1,128},large);hearEveryClip();
+    }
     auto engine = std::make_shared<AudioEngine>();
     {RenderGraph performanceGraph;performanceGraph.voices={{asset,0,0,total,{{0,0,1}}}};
         PerformancePlan policy;policy.end=total;policy.sections={{5,120000,PerformanceMode::skip}};

@@ -137,7 +137,7 @@ public:
         importProject.onClick=[this]{
             juce::Component::SafePointer<Desktop> safe(&owner);
             owner.projectImportMenu().showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&importProject),[safe](int selected){
-                if(safe&&selected==Desktop::previewDawprojectAction)safe->action(selected);
+                if(safe&&(selected==Desktop::previewDawprojectAction||selected==Desktop::previewSongAction))safe->action(selected);
             });
         };
 #endif

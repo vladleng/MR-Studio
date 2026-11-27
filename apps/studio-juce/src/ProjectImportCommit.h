@@ -6,10 +6,15 @@ namespace mrs::project_import {
 struct RelinkRequest {
     std::string reference, reason;
 };
+struct PluginLocation {
+    std::string classId,path;
+    std::optional<bool> instrument;
+};
 struct CreateRequest {
     std::filesystem::path source, projectsDirectory;
     std::map<std::string,std::filesystem::path> relinks;
     bool skipMissing{};
+    std::vector<PluginLocation> pluginCatalog{}; // immutable local scanner snapshot
 };
 struct CreateResult {
     std::filesystem::path projectFile;

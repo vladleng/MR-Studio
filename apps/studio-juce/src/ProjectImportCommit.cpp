@@ -101,7 +101,7 @@ struct Projection {
     explicit Projection(const ImportSessionDTO& s,CreateResult& r,std::stop_token token):session(s),result(r),stop(token),children(s.objects.size()),audioTracks(s.objects.size()),midiTracks(s.objects.size()),folders(s.objects.size()),assets(s.objects.size()){
         doc.project.id=new_id();doc.project.title=s.title.empty()?"Imported DAWproject":s.title;
         doc.graph=processing::insert_graph({}); // Valid empty native graph; no imported processors.
-        provenance<<"DAWPROJECT 1\n"<<std::quoted(s.sourceVersion)<<' '<<std::quoted(s.application)<<' '<<std::quoted(s.applicationVersion)<<'\n';
+        provenance<<(s.sourceFormat=="StudioOneSong"?"STUDIOONESONG 1\n":"DAWPROJECT 1\n")<<std::quoted(s.sourceVersion)<<' '<<std::quoted(s.application)<<' '<<std::quoted(s.applicationVersion)<<'\n';
         for(std::size_t i=0;i<objects.size();++i){const auto& o=objects[i];if(o.parent)children[*o.parent].push_back(i);if(!o.id.empty())sourceIds.emplace(o.id,i);}
         for(std::size_t i=0;i<s.assets.size();++i)if(!s.assets[i].pluginState)assets[s.assets[i].owner]=i;
     }
@@ -111,6 +111,242 @@ struct Projection {
     std::optional<std::size_t> sourceTrack(std::size_t i) const {
         const auto at=objects[i].trackScope;if(!at)return {};
         const auto f=sourceIds.find(objects[*at].trackId); if(f==sourceIds.end()||objects[f->second].kind!=Kind::track)return {};return f->second;
+    }
+    bool isSong() const {return session.sourceFormat=="StudioOneSong";}
+    std::optional<std::uint32_t> songColor(const Object& o) const {
+        auto s=get(o,"color");
+        if(s.size()!=8)return {};
+        std::uint32_t argb{};
+        const auto end=s.data()+s.size();
+        const auto v=std::from_chars(s.data(),end,argb,16);
+        if(v.ec!=std::errc{}||v.ptr!=end)return {};
+        return argb&0xffffffu;
+    }
+    void songTimeMap(){
+        auto& project=doc.project;
+        bool tempo=false,meter=false;
+        for(const auto& o:objects){
+            if(o.type=="Attributes"&&o.kind==Kind::transport){
+                if(auto rate=integer(o,"sampleRate",8000,768000))project.sample_rate=static_cast<std::uint32_t>(*rate);
+                else warning("Song sample rate missing or invalid; using native default.");
+            }
+            if(o.type=="TempoMapSegment"||o.type=="TimeSignatureMapSegment"){
+                if(!o.time||*o.time!=0||o.timeUnit!=TimeUnit::beats)
+                    throw std::runtime_error("Song map has a nonzero or unverified segment; import stopped to avoid incorrect musical timing");
+                if(o.type=="TempoMapSegment"){
+                    if(tempo)throw std::runtime_error("Duplicate Song initial tempo");
+                    const auto period=numeric(o,"tempo");
+                    if(!period||*period<=0||60.0 / *period<1||60.0 / *period>1000||get(o,"curveType")!="0")
+                        throw std::runtime_error("Unsupported Song tempo or tempo curve");
+                    project.time.tempos[0].bpm=60.0 / *period;tempo=true;
+                }else{
+                    if(meter)throw std::runtime_error("Duplicate Song initial meter");
+                    auto n=integer(o,"numerator",1,64),d=integer(o,"denominator",1,64);
+                    if(!n||!d||(*d&(*d-1)))throw std::runtime_error("Invalid Song initial meter");
+                    project.time.meters[0]={1,*n,*d};meter=true;
+                }
+            }
+        }
+        if(!tempo||!meter)throw std::runtime_error("Song initial tempo or meter missing");
+    }
+    void songArrangement(){
+        auto& project=doc.project;
+        for(std::size_t i=0;i<objects.size();++i){
+            checkStop(stop);
+            const auto& o=objects[i];
+            // Preserve raw values and offsets in a dedicated provenance extension,
+            // including unsupported chords and source-only transport metadata.
+            provenance<<"RAW "<<i+1<<' '<<std::quoted(o.type)<<' '<<o.properties.size();
+            for(const auto& [key,value]:o.properties)provenance<<' '<<std::quoted(key)<<' '<<std::quoted(value);
+            provenance<<'\n';
+            if(o.kind!=Kind::section&&o.kind!=Kind::chord&&o.kind!=Kind::marker)continue;
+            if(!o.time||o.timeUnit!=TimeUnit::beats){
+                warning("Song event omitted: unverified time unit ("+o.type+").");continue;
+            }
+            const auto start=ticks(*o.time);
+            if(o.kind==Kind::marker){
+                auto id=entity(i,"song-marker");
+                project.markers.push_back({id,o.name,start,MarkerKind::generic,songColor(o)});map(i,id);
+                continue;
+            }
+            if(!o.duration||o.durationUnit!=TimeUnit::beats||*o.duration<=0){
+                warning("Song event omitted: invalid duration ("+o.type+").");continue;
+            }
+            const auto end=ticks(*o.time+*o.duration);
+            if(end<=start){warning("Song event omitted: span below tick resolution.");continue;}
+            if(o.kind==Kind::section){
+                if(o.name.empty()){warning("Unnamed Song section omitted.");continue;}
+                auto id=entity(i,"song-section");
+                project.sections.push_back({id,o.name,start,end,songColor(o).value_or(0x4056D6u)});map(i,id);
+            }else{
+                if(o.name.empty()||o.name.size()>256){warning("Undecoded Song chord omitted; raw encoding retained.");continue;}
+                auto id=entity(i,"song-chord");
+                project.chords.push_back({id,o.name,start,end,songColor(o)});map(i,id);
+            }
+        }
+        auto sortLane=[](auto& events){
+            std::stable_sort(events.begin(),events.end(),[](const auto& a,const auto& b){return a.start<b.start;});
+            Tick last=0;
+            for(const auto& e:events){
+                if(e.start<last)throw std::runtime_error("Overlapping Song musical events cannot be represented without data loss");
+                last=e.end;
+            }
+        };
+        sortLane(project.sections);sortLane(project.chords);
+        std::stable_sort(project.markers.begin(),project.markers.end(),[](const auto& a,const auto& b){return a.tick<b.tick;});
+    }
+    void songAudio(){
+        const auto bpm=doc.project.time.tempos.front().bpm;
+        const double secondsPerBeat=60.0/bpm;
+        // The reader currently accepts only the verified constant-tempo schema.
+        for(std::size_t i=0;i<objects.size();++i){
+            checkStop(stop);
+            const auto& o=objects[i];
+            if(o.kind!=Kind::track||o.type!="MediaTrack")continue;
+            const bool music=get(o,"mediaType")=="Music";
+            Track t;t.id=entity(i,music?"song-midi-track":"song-audio-track");
+            t.name=name(o,music?"Imported instrument":"Imported audio");
+            t.kind=music?TrackKind::instrument:TrackKind::audio;
+            t.color=songColor(o);if(!music)t.input=-1;
+            else{t.midi_drum_mode=get(o,"drumMode")=="1";t.midi_monitor=false;}
+            if(auto v=numeric(o,"mix.gain");v&&*v>=0&&*v<=Track::Mix::maximum_gain)t.mix.gain=static_cast<float>(*v);
+            else if(!get(o,"mix.gain").empty())warning("Unverified Song channel gain: "+t.name);
+            if(auto v=numeric(o,"mix.pan");v&&*v>=0&&*v<=1)t.mix.pan=static_cast<float>(*v*2-1);
+            else if(!get(o,"mix.pan").empty())warning("Unverified Song channel pan: "+t.name);
+            t.mix.mute=get(o,"mix.mute")=="1"||get(o,"mute")=="1"||get(o,"midi.mute")=="1";
+            t.mix.solo=get(o,"mix.solo")=="1"||get(o,"midi.solo")=="1";
+            (music?midiTracks:audioTracks)[i]=doc.project.tracks.size();map(i,t.id);
+            doc.project.tracks.push_back(std::move(t));
+        }
+        for(std::size_t i=0;i<objects.size();++i){
+            checkStop(stop);
+            const auto& o=objects[i];
+            if(o.kind!=Kind::clip||o.type!="AudioEvent")continue;
+            if(!o.parent||!audioTracks[*o.parent]||!assets[i]||!o.time||!o.duration)
+                throw std::runtime_error("Incomplete Song audio placement");
+            const auto track=*audioTracks[*o.parent];
+            const auto unit=o.durationUnit==TimeUnit::beats?secondsPerBeat:1.0;
+            const auto offset=numeric(o,"offset").value_or(0.)*unit;
+            const auto length=*o.duration*unit;
+            if(offset<0||length<=0)throw std::runtime_error("Invalid Song audio source window");
+            const auto speed=numeric(o,"speed").value_or(1.);
+            stretch::Parameters parameters;
+            if(speed<=0)throw std::runtime_error("Invalid Song clip speed");
+            parameters.duration_ratio=1./speed;
+            parameters.semitones=numeric(o,"transpose").value_or(0.);
+            parameters.cents=numeric(o,"tune").value_or(0.);
+            if(stretch::validate(parameters)!=stretch::Status::ok)
+                throw std::runtime_error("Song clip stretch parameters outside native range");
+            Clip clip;clip.id=entity(i,"song-audio");clip.track=doc.project.tracks[track].id;clip.name=name(o,"Imported audio");
+            clip.color=songColor(o);
+            if(!clip.color)clip.color=doc.project.tracks[track].color;
+            if(get(o,"normalize")=="1"||(!get(o,"modification").empty()&&get(o,"modification")!="0"))
+                warning("Song normalization or clip modification not applied: "+clip.name);
+            // Song offset is in the stretched/output domain; the native Clip
+            // source_offset is in original WAV frames. Scale both offset and
+            // visible source span by speed, never the timeline start/duration.
+            audio.push_back({*assets[i],i,*o.time*secondsPerBeat,length,offset*speed,0.,0.,std::move(clip)});
+        }
+    }
+    void songMidi(){
+        for(std::size_t i=0;i<objects.size();++i){
+            checkStop(stop);
+            const auto& o=objects[i];
+            if(o.kind!=Kind::clip||o.type!="MusicPart")continue;
+            if(!o.parent||!midiTracks[*o.parent]||!o.time||!o.duration)
+                throw std::runtime_error("Incomplete Song MIDI placement");
+            const auto track=*midiTracks[*o.parent];
+            const auto offset=numeric(o,"offset").value_or(0.);
+            if(offset<0||*o.time<0||*o.duration<=0)throw std::runtime_error("Invalid Song MIDI window");
+            MidiClip midi;midi.start=ticks(*o.time);midi.length=ticks(*o.time+*o.duration)-midi.start;
+            midi.source_offset=ticks(offset);
+            if(midi.length<=0)throw std::runtime_error("Song MIDI part below tick resolution");
+            const auto transpose=numeric(o,"transpose").value_or(0.);
+            const auto velocity=numeric(o,"velocity").value_or(0.);
+            if(transpose!=0||velocity!=0)warning("Song part transpose/velocity modification not applied: "+name(o,"MIDI"));
+            for(const auto j:children[i]){
+                const auto& note=objects[j];
+                if(note.kind!=Kind::note||!note.time||!note.duration)continue;
+                const auto pitch=integer(note,"pitch",0,127);
+                const auto vel=numeric(note,"velocity");
+                const auto channel=integer(note,"channel",0,15);
+                if(!pitch||!vel||*vel<=0||*vel>1||*note.time<0||*note.duration<=0||
+                   (!get(note,"channel").empty()&&!channel))
+                    throw std::runtime_error("Invalid Song MIDI note fields");
+                const auto start=ticks(*note.time);
+                const auto end=ticks(*note.time+*note.duration);
+                // Preserve source-relative positions (including hidden notes)
+                // so trimming back to the original region remains possible.
+                const auto id=entity(j,"song-note");
+                midi.notes.push_back({id,start,std::max<Tick>(1,end-start),*pitch,
+                    std::clamp(static_cast<int>(std::lround(*vel*127.)),1,127),channel.value_or(0)});
+                map(j,id);
+            }
+            std::stable_sort(midi.notes.begin(),midi.notes.end(),[](const auto& lhs,const auto& rhs){return lhs.start<rhs.start;});
+            Clip clip;clip.id=entity(i,"song-midi");clip.track=doc.project.tracks[track].id;
+            clip.name=name(o,"Imported MIDI");clip.color=songColor(o);
+            if(!clip.color)clip.color=doc.project.tracks[track].color;
+            clip.midi=std::move(midi);map(i,clip.id);doc.project.clips.push_back(std::move(clip));
+        }
+    }
+    void songDevices(const CreateRequest& request,const fs::path& stageDir){
+        for(const auto& object:objects)if(object.kind==Kind::channel&&object.type=="AudioOutputChannel"){
+            if(const auto gain=numeric(object,"gain");gain&&*gain>=0&&*gain<=Project::maximum_master_gain)
+                doc.project.master_gain=static_cast<float>(*gain);
+            else if(!get(object,"gain").empty())warning("Unverified Song Main gain.");
+        }
+        if(session.songPlugins.empty())return;
+        const auto backups=stageDir/"ImportedVST3";
+        fs::create_directory(backups);
+        std::set<std::size_t> instrumentReady;
+        const auto sameId=[](std::string_view lhs,std::string_view rhs){
+            if(lhs.size()!=rhs.size())return false;
+            const auto upper=[](char value){return value>='a'&&value<='f'?static_cast<char>(value-'a'+'A'):value;};
+            return std::equal(lhs.begin(),lhs.end(),rhs.begin(),[&](char left,char right){return upper(left)==upper(right);});
+        };
+        for(const auto& pluginState:session.songPlugins){
+            checkStop(stop);
+            const auto backup="plugin-"+std::to_string(pluginState.object+1)+".vstpreset";
+            std::ofstream out(backups/backup,std::ios::binary);
+            out.write(pluginState.preset.data(),static_cast<std::streamsize>(pluginState.preset.size()));out.close();
+            if(!out)throw std::runtime_error("Cannot preserve imported VST3 preset");
+            provenance<<"PRESET "<<pluginState.object+1<<' '<<std::quoted("ImportedVST3/"+backup)<<' '<<std::quoted(pluginState.classId)<<'\n';
+            std::vector<const PluginLocation*> candidates;
+            for(const auto& candidate:request.pluginCatalog)if(sameId(candidate.classId,pluginState.classId)&&
+                (!candidate.instrument||*candidate.instrument==pluginState.instrument)&&!candidate.path.empty()){
+                std::error_code error;
+                if(fs::exists(fromUtf8(candidate.path),error)&&!error&&
+                   std::none_of(candidates.begin(),candidates.end(),[&](const auto* previous){return previous->path==candidate.path;}))
+                    candidates.push_back(&candidate);
+            }
+            std::vector<NativeInsert>* chain=&doc.project.master_inserts;
+            std::optional<std::size_t> track;
+            if(pluginState.track){
+                const auto source=*pluginState.track;
+                track=midiTracks[source]?midiTracks[source]:audioTracks[source];
+                if(!track)throw std::runtime_error("Missing native track for Song VST3");
+                chain=&doc.project.tracks[*track].inserts;
+            }
+            const auto retained=" (preset retained: ImportedVST3/"+backup+")";
+            if(candidates.size()!=1){
+                warning(std::string(candidates.empty()?"VST3 not found in local scanner catalogue: ":"Ambiguous VST3 class in local catalogue: ")+pluginState.name+retained);
+                continue;
+            }
+            if(track&&doc.project.tracks[*track].kind==TrackKind::instrument&&!pluginState.instrument&&!instrumentReady.contains(*track)){
+                warning("Instrument not available; effect not installed: "+pluginState.name+retained);continue;
+            }
+            if(chain->size()>=8){warning("Song insert limit reached: "+pluginState.name+retained);continue;}
+            NativeInsert insert;insert.id=entity(pluginState.object,"song-vst3");insert.kind=InsertKind::vst3;
+            insert.class_id=candidates.front()->classId;insert.plugin_path=candidates.front()->path;
+            insert.plugin_name=pluginState.name;insert.bypass=pluginState.bypass;
+            const auto assign=[](SharedBytes& target,const std::string& bytes){
+                const auto* first=reinterpret_cast<const std::byte*>(bytes.data());target.assign(first,first+bytes.size());
+            };
+            assign(insert.component_state,pluginState.component);assign(insert.controller_state,pluginState.controller);
+            insert.validate();
+            if(pluginState.instrument&&track)instrumentReady.insert(*track);
+            map(pluginState.object,insert.id);chain->push_back(std::move(insert));
+        }
     }
     void timeMap(){
         auto& map=doc.project.time;
@@ -368,6 +604,7 @@ struct Media {
     std::string failure;
     bool embedded{};
     std::optional<audio::WavFile> info;
+    Sample playbackFrames{};
 };
 fs::path safeFolderName(std::string_view title){
     auto text=juce::String::fromUTF8(title.data(),static_cast<int>(title.size())).replaceCharacters("\\/:*?\"<>|\r\n\t","_________   ").trim().substring(0,90);
@@ -383,11 +620,12 @@ CreateResult perform(const CreateRequest& req,std::stop_token stop){
     const auto source=fs::absolute(req.source).lexically_normal();
     const auto sourceSize=fs::file_size(source);
     const auto sourceModified=fs::last_write_time(source);
-    const auto session=DAWprojectReader::read(source);
+    const auto session=MRSProjectImport::read(source);
     Projection p(session,result,stop);
-    p.timeMap();p.tracks();p.arrangement();
-    if(p.doc.project.tracks.empty()&&p.doc.project.folders.empty()&&p.doc.project.markers.empty())throw std::runtime_error("No supported tracks or markers found in the export");
-    if(std::any_of(session.objects.begin(),session.objects.end(),[](const Object& o){return o.kind==Kind::device;}))p.warning("Plug-ins and mixer settings were not imported. Assign an instrument to hear imported MIDI.");
+    if(p.isSong()){p.songTimeMap();p.songArrangement();p.songAudio();p.songMidi();}
+    else{p.timeMap();p.tracks();p.arrangement();}
+    if(!p.isSong()&&p.doc.project.tracks.empty()&&p.doc.project.folders.empty()&&p.doc.project.markers.empty())throw std::runtime_error("No supported tracks or markers found in the export");
+    if(!p.isSong()&&std::any_of(session.objects.begin(),session.objects.end(),[](const Object& o){return o.kind==Kind::device;}))p.warning("Plug-ins and mixer settings were not imported. Assign an instrument to hear imported MIDI.");
     for(const auto& warning:session.warnings)if(!warning.starts_with("Studio Pro DAWproject 0.1:"))p.warning(warning);
     const auto base=fs::canonical(source.parent_path());
     std::map<std::string,Media> media;
@@ -404,7 +642,7 @@ CreateResult perform(const CreateRequest& req,std::stop_token stop){
         else if(ref.location==AssetReference::Location::externalUnchecked){
             if(auto external=externalAudio(base,ref.path))m.source=*external;
             else m.failure="External media not found at its exact relative path; locate it explicitly";
-        }else m.failure="Embedded media is missing";
+        }else m.failure=p.isSong()?"Source WAV needs explicit relink":"Embedded media is missing";
         const auto file=m.embedded?fromUtf8(ref.path):m.source;
         if(m.failure.empty()&&!juce::String(file.extension().wstring().c_str()).equalsIgnoreCase(".wav"))m.failure="Only WAV media is supported";
         if(!m.failure.empty())result.missing.push_back({ref.path,m.failure});
@@ -416,6 +654,7 @@ CreateResult perform(const CreateRequest& req,std::stop_token stop){
     if((GetFileAttributesW(root.c_str())&FILE_ATTRIBUTE_REPARSE_POINT)!=0)throw std::runtime_error("Import destination must be a local project directory, not a reparse point");
     Staging stage(root);
     desktop::ensure_project_folders(stage.dir/"project.mrsproject");
+    if(p.isSong())p.songDevices(req,stage.dir);
     for(auto& [key,m]:media){
         checkStop(stop);
         if(!m.failure.empty())continue;
@@ -433,6 +672,7 @@ CreateResult perform(const CreateRequest& req,std::stop_token stop){
                 p.warning("Original sample rate preserved in "+utf8(m.relative)+"; playback uses a project-rate copy.");
                 m.relative=playback;
             }
+            m.playbackFrames=audio::inspect_wav(stage.dir/m.relative).frame_count;
         }catch(const Cancelled&){throw;}catch(const std::exception& error){
             checkStop(stop);m.info.reset();m.failure=error.what();result.missing.push_back({key,m.failure});
             std::error_code removeError;fs::remove(target,removeError);
@@ -450,17 +690,42 @@ CreateResult perform(const CreateRequest& req,std::stop_token stop){
             p.warning("Audio sample rate differs from source metadata: "+entry.clip.name);
         if(const auto expected=integer(sourceObject,"channels",1,64);expected&&static_cast<std::uint32_t>(*expected)!=wav.channels)
             p.warning("Audio channel count differs from source metadata: "+entry.clip.name);
-        const auto available=static_cast<double>(wav.frame_count)/wav.sample_rate-entry.offset;
+        // Song speed is source/output; native duration_ratio is output/source.
+        // songAudio already converted the output-domain offset to source time.
+        stretch::Parameters stretchParams;
+        if(p.isSong()){
+            stretchParams.duration_ratio=1./numeric(sourceObject,"speed").value_or(1.);
+            stretchParams.semitones=numeric(sourceObject,"transpose").value_or(0.);
+            stretchParams.cents=numeric(sourceObject,"tune").value_or(0.);
+        }
+        const auto ratio=stretchParams.duration_ratio;
+        const auto available=(static_cast<double>(wav.frame_count)/wav.sample_rate-entry.offset)*ratio;
         if(available<=0){p.warning("Audio trim starts beyond available media: "+entry.clip.name);continue;}
         if(entry.length>available+0.002)p.warning("Audio clip shortened to available media: "+entry.clip.name);
         auto& c=entry.clip;c.start=samples(entry.start,rate);c.length=std::min(samples(entry.start+std::min(available,entry.length),rate)-c.start,samples(available,rate));
         if(c.length<=0)continue;
         c.source_offset=samples(entry.offset,rate);c.source=utf8(m.relative);
+        if(p.isSong()&&!stretch::neutral(stretchParams)){
+            // Use the native source-window contract. Compute from integer output
+            // length to preserve exact timeline endpoints across Save/Open.
+            const auto remaining=m.playbackFrames-c.source_offset;
+            if(remaining<=0){p.warning("Song stretch source window empty: "+c.name);continue;}
+            Sample extent{};
+            if(stretch::output_frames(remaining,ratio,extent)!=stretch::Status::ok)
+                throw std::runtime_error("Song stretched source length invalid");
+            c.length=std::min(c.length,extent);
+            if(c.length<=0)continue;
+            const auto end=std::min(static_cast<double>(remaining),static_cast<double>(c.length)/ratio);
+            // Bound the processed source to the visible span, not the entire
+            // remaining tail of a long shared stem. Keep the original WAV intact.
+            const auto span=std::min(remaining,static_cast<Sample>(std::ceil(end)));
+            c.stretch=ClipStretch{stretchParams,span,0.,end};
+        }
         c.fade_in=std::clamp(samples(entry.fadeIn,rate),Sample{},c.length);
         c.fade_out=std::clamp(samples(entry.fadeOut,rate),Sample{},c.length);
         p.map(entry.index,c.id);p.doc.project.clips.push_back(std::move(c));
     }
-    p.doc.extensions.push_back({"DAWP",p.provenance.str()});
+    p.doc.extensions.push_back({p.isSong()?"SONG":"DAWP",p.provenance.str()});
     p.doc.validate();
     if(p.doc.project.tracks.size()>audio::max_mixer_tracks||p.doc.project.clips.size()>audio::max_voices)
         throw std::runtime_error("Imported arrangement exceeds Studio playback track or clip limits");
@@ -480,7 +745,7 @@ CreateResult perform(const CreateRequest& req,std::stop_token stop){
         persistence::save_project(stagedFile,p.doc);
         const auto finalFile=folder/filename;
         if(fs::file_size(source)!=sourceSize||fs::last_write_time(source)!=sourceModified)
-            throw std::runtime_error("DAWproject changed during import; select it again");
+            throw std::runtime_error("Source project changed during import; select it again");
         checkStop(stop);
         if(MoveFileExW(stage.dir.c_str(),folder.c_str(),MOVEFILE_WRITE_THROUGH)){
             stage.dir.clear();result.projectFile=finalFile;result.missing.clear();return result;

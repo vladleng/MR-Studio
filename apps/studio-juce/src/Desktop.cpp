@@ -1,3 +1,4 @@
+#include <thread>
 #include "MusicalGrid.h"
 #include "MeterTrack.h"
 #include "Desktop.h"
@@ -71,7 +72,16 @@ class ProjectImportAlert final : public StudioAlertWindow, private juce::ListBox
     }
     static juce::String count(std::size_t n){return juce::String(static_cast<int>(n));}
     static juce::String summary(const Preview& p){
-        if(!p.session)return "Cannot read the selected DAWproject.\n\n"+label(p.error)+"\n\nNo project was changed.";
+        if(!p.session)return "Cannot read the selected project.\n\n"+label(p.error)+"\n\nNo project was changed.";
+        if(p.session->sourceFormat=="StudioOneSong"){
+            using mrs::project_import::Kind;
+            const auto countKind=[&](Kind kind){return count(static_cast<std::size_t>(std::count_if(p.session->objects.begin(),p.session->objects.end(),[&](const auto& o){return o.kind==kind;})));};
+            return label(p.session->title).replaceCharacters("\r\n\t","   ").substring(0,100)
+                +"  |  Studio One / Studio Pro\n"+countKind(Kind::section)+" sections  /  "+countKind(Kind::chord)+" chords  /  "+countKind(Kind::marker)+" markers"
+                +"\n"+count(static_cast<std::size_t>(std::count_if(p.session->objects.begin(),p.session->objects.end(),[](const auto& o){return o.kind==Kind::clip&&o.type=="AudioEvent";})))+" audio clips  /  "
+                +count(static_cast<std::size_t>(std::count_if(p.session->objects.begin(),p.session->objects.end(),[](const auto& o){return o.kind==Kind::clip&&o.type=="MusicPart";})))+" MIDI clips  /  "+countKind(Kind::note)+" notes"
+                +"\n"+count(p.tracks)+" tracks  /  "+count(p.plugins)+" VST3 plug-ins\nVST3 matched against local scanner catalogue; unmatched presets retained. Other routing and automation not restored.\nCreate a separate project; the current project stays open.";
+        }
         return label(p.session->title).replaceCharacters("\r\n\t","   ").substring(0,100)+"  |  "
             +label(p.session->application).substring(0,60)+" "+label(p.session->applicationVersion).substring(0,24)
             +"\n"+count(p.projects)+" project  /  "+count(p.tracks)+" tracks  /  "+count(p.clips)+" clips  /  "+count(p.plugins)+" plug-ins"
@@ -398,6 +408,7 @@ Desktop::Desktop(bool test,bool startAtHome,bool liveApplication):standaloneLive
     if(view.cabRoot.isNotEmpty())app.set_cab_root(path(juce::File(view.cabRoot)),view.cabManifest.toStdString());
     if(view.reverbRoot.isNotEmpty())app.set_reverb_root(path(juce::File(view.reverbRoot)));
     projectSessionStarted=testing&&!startAtHome&&!standaloneLive;if(projectSessionStarted)app.demo();else app.new_project();resetDevice();
+    app.set_stretch_workers(static_cast<unsigned>(view.timePitchWorkers));
     app.set_click_settings(prefs.click);
     app.set_ai_permissions(prefs.ai);
     arrangement=std::make_unique<Arrangement>(*this);browser=std::make_unique<Browser>(*this);
@@ -601,7 +612,7 @@ void Desktop::choose(int chooserOptions,std::function<void(const juce::File&)> c
 juce::PopupMenu Desktop::projectImportMenu() const {
     juce::PopupMenu formats;
     formats.addItem(previewDawprojectAction,"DAWproject (.dawproject)...",!projectImportPreview.valid()&&!projectImportCreate.valid()&&!projectImportDialog);
-    formats.addItem(719,"Studio One / Studio Pro (.song) - not available",false);
+    formats.addItem(previewSongAction,"Studio One / Studio Pro (.song)...",!projectImportPreview.valid()&&!projectImportCreate.valid()&&!projectImportDialog);
     return formats;
 }
 void Desktop::startProjectImportPreview(const juce::File& file){
@@ -609,14 +620,14 @@ void Desktop::startProjectImportPreview(const juce::File& file){
     projectImportSource=file;
     try {
         projectImportPreview=std::async(std::launch::async,[source=path(file)]{return mrs::project_import::MRSProjectImport::preview(source);});
-        message="Reading DAWproject preview...";
+        message="Reading project preview...";
     }catch(const std::exception& e){message=label(e.what());}
     repaint();
 }
 void Desktop::pollProjectImportPreview(){
     if(!projectImportPreview.valid()||projectImportPreview.wait_for(std::chrono::seconds(0))!=std::future_status::ready)return;
     auto result=projectImportPreview.get();
-    if(message=="Reading DAWproject preview...")message.clear();
+    if(message=="Reading project preview...")message.clear();
     auto* alert=new ProjectImportAlert(*this,std::move(result));
     projectImportDialog=alert;
     juce::Component::SafePointer<Desktop> safe(this);
@@ -634,10 +645,12 @@ void Desktop::startProjectImportCreate(mrs::project_import::CreateRequest reques
     projectImportStop=std::stop_source{};
     const auto token=projectImportStop.get_token();
     try{
+        request.pluginCatalog.clear();
+        for(const auto& plugin:catalog)request.pluginCatalog.push_back({plugin.class_id,plugin.path,plugin.instrument});
         projectImportRequest=request;
         projectImportCreate=std::async(std::launch::async,[request=std::move(request),token]{return mrs::project_import::createProject(request,token);});
     }catch(const std::exception& e){projectImportRequest.reset();message=label(e.what());repaint();return;}
-    auto* progress=new StudioAlertWindow(*this,"Importing DAWproject","Copying media and preparing a separate project…\nThe current project will not be changed.",juce::MessageBoxIconType::NoIcon);
+    auto* progress=new StudioAlertWindow(*this,"Importing project","Copying media and preparing a separate project…\nThe current project will not be changed.",juce::MessageBoxIconType::NoIcon);
     projectImportDialog=progress;
     progress->addButton("Cancel",1,juce::KeyPress(juce::KeyPress::escapeKey));
     progress->enterModalState(true,juce::ModalCallbackFunction::create([cancellation=projectImportStop](int answer) mutable {if(answer==1)cancellation.request_stop();}),true);
@@ -671,12 +684,12 @@ void Desktop::pollProjectImportCreate(){
     auto result=projectImportCreate.get();
     auto request=std::exchange(projectImportRequest,std::nullopt);
     if(auto* progress=projectImportDialog.getComponent())delete progress;
-    if(result.cancelled){message="DAWproject import cancelled; no project was created.";repaint();return;}
+    if(result.cancelled){message="Project import cancelled; no project was created.";repaint();return;}
     if(!result.missing.empty()&&result.projectFile.empty()&&request){resolveProjectImportMedia(std::move(*request),std::move(result.missing));return;}
     const bool created=!result.projectFile.empty();
     if(created)home->rescan();
     const auto info=created?juce::String("A new project is available on Project Home. The current project was not changed.\n\n")+juce::String(result.projectFile.filename().wstring().c_str()):"No project was created.\n\n"+label(result.error);
-    auto* alert=new StudioAlertWindow(*this,created?"Project Created":"DAWproject Import Failed",info,juce::MessageBoxIconType::NoIcon);
+    auto* alert=new StudioAlertWindow(*this,created?"Project Created":"Project Import Failed",info,juce::MessageBoxIconType::NoIcon);
     if(!result.warnings.empty()){
         juce::StringArray lines;for(const auto& warning:result.warnings)lines.add(label(warning));
         alert->addTextBlock(lines.joinIntoString("\n"));
@@ -759,9 +772,19 @@ juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupM
         m.addSeparator();m.addItem(715,"Separation models...",!standaloneLive);
         m.addItem(716,"Separation results...",!standaloneLive);
 #endif
+        if(!standaloneLive){
+            juce::PopupMenu preferences,timePitch;
 #if defined(MRS_TRANSCRIPTION_UI)
-        juce::PopupMenu preferences;preferences.addItem(717,"Audio-to-MIDI",!standaloneLive);m.addSubMenu("Preferences",preferences);
+            preferences.addItem(717,"Audio-to-MIDI");
 #endif
+            const auto hardware=std::thread::hardware_concurrency();
+            const auto automatic=mrs::desktop::Application::stretch_worker_limit(0,hardware);
+            timePitch.addItem(730,"Auto ("+juce::String(static_cast<int>(automatic))+" workers)",true,view.timePitchWorkers==0);
+            for(int workerCount=1;workerCount<=16;++workerCount)
+                timePitch.addItem(730+workerCount,juce::String(workerCount)+(workerCount==1?" worker":" workers"),true,view.timePitchWorkers==workerCount);
+            preferences.addSubMenu("Time / Pitch",timePitch);
+            m.addSubMenu("Preferences",preferences);
+        }
         return m;
     }
     // Existing menus retain their action IDs after inserting Options next to File.
@@ -887,9 +910,9 @@ void Desktop::action(int n){
     }
 #endif
 #if defined(MRS_PROJECT_IMPORT_UI)
-    if(n==previewDawprojectAction){
+    if(n==previewDawprojectAction||n==previewSongAction){
         if(!standaloneLive&&!projectImportPreview.valid()&&!projectImportCreate.valid()&&!projectImportDialog){
-            chooser=std::make_unique<juce::FileChooser>("Choose a DAWproject export",juce::File{},"*.dawproject",true);
+            chooser=std::make_unique<juce::FileChooser>(n==previewSongAction?"Choose a Studio One / Studio Pro song":"Choose a DAWproject export",juce::File{},n==previewSongAction?"*.song":"*.dawproject",true);
             juce::Component::SafePointer<Desktop> safe(this);
             chooser->launchAsync(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[safe](const juce::FileChooser& selection){
                 if(safe&&selection.getResult()!=juce::File())safe->startProjectImportPreview(selection.getResult());
@@ -939,6 +962,10 @@ void Desktop::action(int n){
 #if defined(MRS_TRANSCRIPTION_UI)
     if(n==717){showTranscriptionPreferences(*this);return;}
 #endif
+    if(n>=730&&n<=746&&!standaloneLive){
+        view.timePitchWorkers=n-730;app.set_stretch_workers(static_cast<unsigned>(view.timePitchWorkers));saveSettings();
+        message="Time / Pitch worker setting saved (next preparation)";return;
+    }
     if(n==9)return;
     if(n==702){confirmDiscard([this]{choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& file){importLiveShow(file);},"*.json");});return;}
     if(n==701){if(standaloneLive){confirmDiscard([this]{run([this]{newLiveShow();});});return;}auto createShow=[this]{choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[this](const auto& file){createLive(file);},"*.mrlive");};createShow();return;}
@@ -1251,7 +1278,7 @@ void Desktop::timerCallback(){
     else if(wavImportRevision!=importing.revision)message=label(importing.message);
     wavImportRevision=importing.revision;
     const auto stretching=app.stretch_status();
-    if(!importing.busy){if(stretching.busy)message="Preparing Time / Pitch: "+juce::String(static_cast<int>(stretching.progress*100.f))+"% (Esc to cancel)";else if(stretchRevision!=stretching.revision)message=label(stretching.message);}
+    if(!importing.busy){if(stretching.busy)message=label(stretching.message)+": "+juce::String(static_cast<int>(stretching.progress*100.f))+"% (Esc to cancel)";else if(stretchRevision!=stretching.revision)message=label(stretching.message);}
     stretchRevision=stretching.revision;
     // One cheap metadata check every 500ms, and only if explicitly enabled.
     if(++trackHeaderPollTick>=15){trackHeaderPollTick=0;pollTrackHeaderLayout();}if(wasRecording&&!app.recording()&&!app.recording_error().empty())message=label(app.recording_error());if(++previewTick%3==0)updateRecordingPreview();if(!app.recording()){recordingPreview.clear();audioRecordingPreview.clear();}if(dockedEditor&&!dockedClip)dockedEditor.reset();if(preview){if(preview->active()){if(preview->sendBus&&preview->target)app.preview_send_gain(*preview->target,*preview->sendBus,preview->sendGain);else app.preview_mix(preview->target,preview->mix,preview->master);}else cancelPreview();}
@@ -2154,12 +2181,26 @@ void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(arrangementCan
         if(ghost){g.setColour(juce::Colours::white);g.drawRoundedRectangle(r.reduced(1.f),cornerRadius,1.5f);g.setColour(juce::Colour(0xff8ac3ff));}
         if(midi){g.saveState();g.reduceClipRegion(r.toNearestInt().reduced(1));for(const auto& n:midi->notes){const auto begin=std::max(n.start,midi->source_offset),end=std::min(n.start+n.length,midi->source_offset+midi->length);if(begin>=end)continue;const double total=static_cast<double>(time.to_samples(midi->start+midi->length)-time.to_samples(midi->start));const float x=r.getX()+static_cast<float>((time.to_samples(midi->start+begin-midi->source_offset)-time.to_samples(midi->start))/juce::jmax(1.,total)*r.getWidth());const float w=static_cast<float>((time.to_samples(midi->start+end-midi->source_offset)-time.to_samples(midi->start+begin-midi->source_offset))/juce::jmax(1.,total)*r.getWidth());const float y=r.getY()+25+(127-n.pitch)/127.f*juce::jmax(1.f,r.getHeight()-32);g.setColour(ObjectPalette::midiVelocityColour(n.velocity));g.fillRect(x,y,juce::jmax(2.f,w),3.f);}g.restoreState();continue;}
         const auto& waveClip=stretching?stretchDrag->original:c;
-        if(const auto* wave=owner.app.clip_waveform(waveClip)){
-            // Choose polarity from the clip colour before compositing it onto the dark canvas.
+        const auto* wave=owner.app.clip_waveform(waveClip);
+        const bool pending=!wave&&waveClip.stretch&&!mrs::stretch::neutral(waveClip.stretch->parameters);
+        double waveOffset=static_cast<double>(owner.app.clip_playback_offset(waveClip));
+        double framesPerPixel=p->sample_rate/pixelsPerSecond*static_cast<double>(waveClip.length)/c.length;
+        if(pending){
+            // Preview the raw source window until processed PCM is ready.
+            // This affects paint only, never playback or the audio graph.
+            wave=owner.app.waveform(waveClip.source);
+            waveOffset=static_cast<double>(waveClip.source_offset)+waveClip.stretch->window_begin;
+            framesPerPixel/=waveClip.stretch->parameters.duration_ratio;
+        }
+        if(wave){
             const auto waveInk=ObjectPalette::ink(c.color.value_or(defaultColor),1.f,arrangementCanvas);
-            g.setColour(waveInk.withAlpha(arrangeClipFillAlpha));
-            const auto framesPerPixel=p->sample_rate/pixelsPerSecond*static_cast<double>(waveClip.length)/c.length;
-            drawWaveform(g,*wave,r.withTrimmedTop(22),static_cast<double>(owner.app.clip_playback_offset(waveClip)),framesPerPixel);
+            g.setColour(waveInk.withAlpha(pending?arrangeClipFillAlpha*.55f:arrangeClipFillAlpha));
+            drawWaveform(g,*wave,r.withTrimmedTop(22),waveOffset,framesPerPixel);
+        }
+        if(pending&&r.getWidth()>=100){
+            const auto status=owner.app.stretch_status();
+            g.setColour(clipInk.withAlpha(.9f));
+            g.drawText(status.busy?label(status.message):juce::String("Time / pitch not ready"),r.toNearestInt().reduced(4).removeFromBottom(16),juce::Justification::centredLeft,true);
         }
         if(araDropClip&&c.id==*araDropClip){g.setColour(owner.selectionColour());g.drawRoundedRectangle(r.reduced(2.f),cornerRadius,2.f);g.drawText("ARA 2",r.toNearestInt().reduced(6).removeFromBottom(20),juce::Justification::centredRight);}
         if(r.getWidth()>=24){const auto width=r.getWidth();const auto inWidth=static_cast<float>(static_cast<double>(c.fade_in)/c.length*width),outWidth=static_cast<float>(static_cast<double>(c.fade_out)/c.length*width);g.setColour(clipInk.withAlpha(.8f));

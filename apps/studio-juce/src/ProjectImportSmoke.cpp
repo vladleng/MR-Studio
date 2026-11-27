@@ -1,6 +1,7 @@
 #include "Desktop.h"
 #include "ProjectHome.h"
 #include <algorithm>
+#include <bit>
 #include <mrs/persistence.hpp>
 #include <mrs/audio.hpp>
 #include <stdexcept>
@@ -86,6 +87,35 @@ void dawprojectPreviewSmoke(const juce::File& screenshot){
     if(const auto created=folder.createDirectory();created.failed())
         throw std::runtime_error("Fixture directory could not be created: "+created.getErrorMessage().toStdString());
     struct Cleanup{juce::File folder;~Cleanup(){folder.deleteRecursively();}} cleanup{folder};
+    // Synthetic format-9 fixture: no user project or vendor content.
+    const auto song=folder.getChildFile("structure.song");
+    archive(song, {
+        {"metainfo.xml", R"xml(<MetaInformation><Attribute id="Document:FormatVersion" value="9"/><Attribute id="Document:Title" value="Synthetic structure"/><Attribute id="Document:Generator" value="Studio Pro/8.2"/></MetaInformation>)xml"},
+        {"Song/song.xml", R"xml(<Song><Attributes x:id="Root"><Attributes x:id="timeContext" sampleRate="48000">
+            <TempoMap x:id="tempoMap"><TempoMapSegment start="0" tempo="0.5" curveType="0"/></TempoMap>
+            <TimeSignatureMap x:id="timeSignatureMap"><TimeSignatureMapSegment start="0" numerator="4" denominator="4"/></TimeSignatureMap>
+            </Attributes><List x:id="Tracks">
+            <MarkerTrack><MarkerEvent start="16" timeFormat="2" markerType="3" name="End"/></MarkerTrack>
+            <ArrangerTrack><ArrangerEvent start="16" length="8" timeFormat="2" name="Tail" color="FF112233"/><ArrangerEvent start="0" length="16" timeFormat="2" name="Intro"/></ArrangerTrack>
+            <ChordTrack><ChordEvent start="4" length="2" timeFormat="2"><Attributes x:id="chord" root="0" intervals="1 0 0 0 3 0 0 5 0 0 0 7" type="0"/></ChordEvent></ChordTrack>
+            </List></Attributes></Song>)xml"},
+        {"Devices/transportdevice.xml", R"xml(<TransportDevice position="3.5" loopStart="2" loopEnd="4" loopActive="1"/>)xml"}
+    });
+    const auto musical=StudioOneSongReader::read(diskPath(song));
+    check(musical.sourceFormat=="StudioOneSong"&&musical.sourceVersion=="9"&&musical.title=="Synthetic structure","Song metadata differs");
+    const auto countKind=[&](Kind kind){return std::count_if(musical.objects.begin(),musical.objects.end(),[&](const Object& o){return o.kind==kind;});};
+    check(countKind(Kind::section)==2&&countKind(Kind::chord)==1&&countKind(Kind::marker)==1&&countKind(Kind::point)==2,"Song musical event count differs");
+    const auto tail=std::find_if(musical.objects.begin(),musical.objects.end(),[](const Object& o){return o.kind==Kind::section;});
+    check(tail!=musical.objects.end()&&tail->name=="Tail"&&tail->time==16.0&&tail->duration==8.0&&tail->timeUnit==TimeUnit::beats,"Song section at End was lost or reordered");
+    const auto chord=std::find_if(musical.objects.begin(),musical.objects.end(),[](const Object& o){return o.kind==Kind::chord;});
+    check(chord!=musical.objects.end()&&!chord->name.empty()&&chord->time==4.0&&chord->duration==2.0,"Song chord decoding differs");
+    const auto transport=std::find_if(musical.objects.begin(),musical.objects.end(),[](const Object& o){return o.type=="TransportDevice";});
+    check(transport!=musical.objects.end()&&transport->time==3.5&&transport->timeUnit==TimeUnit::seconds,"Song transport position differs");
+    const auto invalidSong=folder.getChildFile("invalid.song");
+    archive(invalidSong,{{"Song/song.xml","<Song/>"},{"metainfo.xml","<MetaInformation><Attribute id=\"Document:FormatVersion\" value=\"99\"/></MetaInformation>"}});
+    bool rejected=false;
+    try { (void)StudioOneSongReader::read(diskPath(invalidSong)); } catch (const std::exception&) { rejected=true; }
+    check(rejected,"Unverified Song format was accepted");
     const auto small=folder.getChildFile("minimal.dawproject");
     archive(small,{{"project.xml",minimal}},0);
     const auto tiny=read(small);
@@ -156,7 +186,7 @@ void dawprojectPreviewSmoke(const juce::File& screenshot){
     auto menu=desktop.projectImportMenu();
     auto iterator=juce::PopupMenu::MenuItemIterator(menu);
     check(iterator.next()&&iterator.getItem().itemID==Desktop::previewDawprojectAction&&iterator.getItem().isEnabled,"DAWproject option not enabled");
-    check(iterator.next()&&!iterator.getItem().isEnabled,"Future .song option is interactive");
+    check(iterator.next()&&iterator.getItem().itemID==Desktop::previewSongAction&&iterator.getItem().isEnabled,"Song structure option not enabled");
     desktop.app.add_audio_track("Unsaved track to preserve");
     const auto store=desktop.app.services().projects;
     const auto original=store->state();
@@ -183,6 +213,144 @@ void dawprojectPreviewSmoke(const juce::File& screenshot){
         delete &alert; // Process disposal without waiting for the next message-loop tick.
         unchanged();
     };
+    auto* songAlert=show(song);
+    check(songAlert->getButton("Create Project")!=nullptr,"Song preview Create button missing");
+    dismiss(*songAlert);
+    const auto songCreated=createProject({diskPath(song),diskPath(folder.getChildFile("SongProjects")),{},false});
+    if(songCreated.projectFile.empty())throw std::runtime_error("Song structure creation failed: "+songCreated.error);
+    const auto songDoc=mrs::persistence::load_project(songCreated.projectFile);
+    const auto& sp=songDoc.project;
+    check(sp.sample_rate==48000&&sp.time.tempos.size()==1&&sp.time.tempos[0].bpm==120&&sp.time.meters[0].numerator==4&&sp.time.meters[0].denominator==4,"Song native timing differs");
+    check(sp.sections.size()==2&&sp.sections[0].name=="Intro"&&sp.sections[0].start==0&&sp.sections[0].end==16*mrs::ppq&&sp.sections[1].name=="Tail"&&sp.sections[1].start==16*mrs::ppq&&sp.sections[1].end==24*mrs::ppq&&sp.sections[1].color==0x112233u,"Song native section geometry or color differs");
+    check(sp.chords.size()==1&&sp.chords[0].symbol==chord->name&&sp.chords[0].start==4*mrs::ppq&&sp.chords[0].end==6*mrs::ppq,"Song native chord differs");
+    check(sp.markers.size()==1&&sp.markers[0].name=="End"&&sp.markers[0].tick==16*mrs::ppq&&sp.tracks.empty()&&sp.clips.empty(),"Song native marker or structure-only contract differs");
+    check(!songDoc.extensions.empty()&&songDoc.extensions[0].tag=="SONG","Song source provenance missing");
+    mrs::desktop::Application songReopened;
+    songReopened.open_project(songCreated.projectFile);
+    check(*songReopened.services().projects->state().project==sp,"Song native open changed structure");
+    songReopened.save_project(songCreated.projectFile);
+    const auto songResaved=mrs::persistence::load_project(songCreated.projectFile);
+    check(songResaved.project==sp&&songResaved.extensions==songDoc.extensions,"Song Save/Reopen lost structure or source metadata");
+    unchanged();
+    // Two source time formats, shared WAV identity, static mix and non-destructive speed.
+    const auto songAudioSource=folder.getChildFile("audio.song");
+    // A native IEEE float64 bounce, same rate, no conversion of original bytes.
+    juce::MemoryOutputStream songFloat;
+    constexpr int songFrames=48000;
+    songFloat.write("RIFF",4);songFloat.writeInt(36+songFrames*8);songFloat.write("WAVEfmt ",8);
+    songFloat.writeInt(16);songFloat.writeShort(3);songFloat.writeShort(1);songFloat.writeInt(48000);
+    songFloat.writeInt(48000*8);songFloat.writeShort(8);songFloat.writeShort(64);
+    songFloat.write("data",4);songFloat.writeInt(songFrames*8);
+    for(int i=0;i<songFrames;++i)songFloat.writeInt64(std::bit_cast<std::int64_t>(0.125));
+    const std::string songWav(static_cast<const char*>(songFloat.getData()),songFloat.getDataSize());
+    check(folder.getChildFile("Media").createDirectory().wasOk(),"Song fixture Media directory");
+    check(folder.getChildFile("Media/take.wav").replaceWithData(songWav.data(),songWav.size()),"Song fixture WAV");
+    archive(songAudioSource,{
+        {"metainfo.xml",R"xml(<MetaInformation><Attribute id="Document:FormatVersion" value="9"/></MetaInformation>)xml"},
+        {"Song/song.xml",R"xml(<Song><Attributes x:id="Root"><Attributes x:id="timeContext" sampleRate="48000"><TempoMap><TempoMapSegment start="0" tempo="0.5" curveType="0"/></TempoMap><TimeSignatureMap><TimeSignatureMapSegment start="0" numerator="4" denominator="4"/></TimeSignatureMap></Attributes><List x:id="Tracks"><MediaTrack mediaType="Audio" trackID="t" name="Audio" color="FF123456"><UID x:id="channelID" uid="c"/><List x:id="Events"><AudioEvent clipID="m" start="2" timeFormat="0" length="0.25" offset="0.125" name="Seconds" speed="1"/><AudioEvent clipID="m" start="4" timeFormat="2" length="0.5" offset="0.25" name="Beats" speed="2"/><AudioEvent clipID="m" start="6" timeFormat="0" length="0.5" offset="1.5" name="Slow tail" speed="0.5" color="FFAA5500"/></List></MediaTrack><MediaTrack mediaType="Audio" trackID="empty" name="Empty"/></List></Attributes></Song>)xml"},
+        {"Song/mediapool.xml",R"xml(<MediaPool><Attributes x:id="rootFolder"><MediaFolder name="Audio"><AudioClip mediaID="m"><Url x:id="path" url="file:///C:/Example/audio/Media/take.wav"/><Attributes x:id="format" sampleRate="48000" numChannels="1" frameCount="48000" bitDepth="64" sampleType="1"/></AudioClip></MediaFolder></Attributes></MediaPool>)xml"},
+        {"Devices/audiomixer.xml",R"xml(<AudioMixer><Attributes x:id="channels"><ChannelGroup><AudioTrackChannel gain="0.5" pan="0.75" mute="1" solo="0"><UID x:id="uniqueID" uid="c"/></AudioTrackChannel></ChannelGroup></Attributes></AudioMixer>)xml"}
+    });
+    const auto songAudioPreview=read(songAudioSource);
+    check(songAudioPreview.session&&songAudioPreview.tracks==2&&songAudioPreview.clips==3,"Song audio preview count differs");
+    const auto songAudioCreated=createProject({diskPath(songAudioSource),diskPath(folder.getChildFile("SongAudioProjects")),{},false});
+    if(songAudioCreated.projectFile.empty())throw std::runtime_error("Song audio creation failed: "+songAudioCreated.error+(songAudioCreated.missing.empty()?"":"; "+songAudioCreated.missing.front().reason));
+    const auto songAudioDoc=mrs::persistence::load_project(songAudioCreated.projectFile);
+    const auto& ap=songAudioDoc.project;
+    check(ap.tracks.size()==2&&ap.tracks[0].mix.gain==0.5f&&ap.tracks[0].mix.pan==0.5f&&ap.tracks[0].mix.mute&&ap.tracks[0].color==0x123456u,"Song audio track mix/color differs");
+    check(ap.clips.size()==3&&ap.clips[0].start==48000&&ap.clips[0].length==12000&&ap.clips[0].source_offset==6000&&ap.clips[0].color==0x123456u&&!ap.clips[0].stretch,"Song seconds clip geometry differs");
+    check(ap.clips[1].start==96000&&ap.clips[1].length==12000&&ap.clips[1].source_offset==12000&&ap.clips[1].color==0x123456u&&ap.clips[1].stretch&&ap.clips[1].stretch->parameters.duration_ratio==0.5&&ap.clips[1].stretch->source_frames==24000&&ap.clips[1].stretch->window_end==24000.0&&ap.clips[0].source==ap.clips[1].source,"Song beat clip / speed / shared source differs");
+    check(ap.clips[2].start==144000&&ap.clips[2].length==24000&&ap.clips[2].source_offset==36000&&ap.clips[2].color==0xAA5500u&&ap.clips[2].stretch&&ap.clips[2].stretch->source_frames==12000&&ap.clips[2].stretch->parameters.duration_ratio==2.,"Song slow tail reaches exact WAV end; explicit clip color preserved");
+    const auto importedFloat= songAudioCreated.projectFile.parent_path()/ap.clips[0].source;
+    check(mrs::audio::inspect_wav(importedFloat).bits==64,"Song float64 bounce was not retained");
+    check(mrs::audio::load_wav(importedFloat).samples.front()==0.125f,"Song float64 bounce decoding differs");
+    mrs::persistence::save_project(songAudioCreated.projectFile,songAudioDoc);
+    check(mrs::persistence::load_project(songAudioCreated.projectFile)==songAudioDoc,"Song audio Save/Reopen differs");
+    // Synthetic format-9 performance: UBJSON big-endian doubles, signed and
+    // unsigned integers, absent start = 0; nonzero source offset, hidden notes.
+    std::string performance="{";
+    const auto musicxKey=[&](std::string_view field){performance+='i';performance+=static_cast<char>(field.size());performance.append(field);};
+    const auto musicxInt=[&](int value){performance+='i';performance+=static_cast<char>(value);};
+    const auto musicxDouble=[&](double value){performance+='D';const auto bits=std::bit_cast<std::uint64_t>(value);for(int shift=56;shift>=0;shift-=8)performance+=static_cast<char>((bits>>shift)&255u);};
+    musicxKey("timeFormat");musicxInt(2);musicxKey("events");performance+='[';
+    performance+='{';musicxKey("pitch");musicxInt(36);musicxKey("length");musicxDouble(.25);musicxKey("velocity");musicxDouble(.75);performance+='}';
+    performance+='{';musicxKey("start");musicxDouble(2.5);musicxKey("pitch");musicxInt(60);musicxKey("length");musicxDouble(.5);musicxKey("velocity");musicxDouble(.5);musicxKey("quantize.start");musicxDouble(.125);performance+='}';
+    performance+='{';musicxKey("start");musicxDouble(3.25);musicxKey("pitch");musicxInt(100);musicxKey("length");musicxDouble(.25);musicxKey("velocity");musicxDouble(1);musicxKey("soundVariationId");musicxInt(24);performance+='}';
+    performance+=']';musicxKey("envelopes");performance+="[]}";
+    const auto midiSong=folder.getChildFile("midi.song");
+    const std::string midiXml=R"xml(<Song><Attributes x:id="Root"><Attributes x:id="timeContext" sampleRate="48000"><TempoMap><TempoMapSegment start="0" tempo="0.5" curveType="0"/></TempoMap><TimeSignatureMap><TimeSignatureMapSegment start="0" numerator="4" denominator="4"/></TimeSignatureMap></Attributes><List x:id="Tracks"><MediaTrack mediaType="Music" trackID="drums" name="Drums" color="FF123456"><Attributes x:id="attributes" drumMode="1"/><List x:id="Events"><MusicPart clipID="m" start="8" length="2" offset="2" timeFormat="2" name="Part"/><MusicPart clipID="m" start="16" length="4" timeFormat="2" name="Repeat" color="FFAA5500"/></List></MediaTrack><MediaTrack mediaType="Music" trackID="bass" name="Bass"/></List></Attributes></Song>)xml";
+    const std::string midiPool=R"xml(<MediaPool><Attributes x:id="rootFolder"><MediaFolder name="Music"><MusicClip mediaID="m"><Url x:id="dataPath" url="media:///Performances/Drums/Take.musicx"/></MusicClip></MediaFolder></Attributes></MediaPool>)xml";
+    const std::string midiMeta=R"xml(<MetaInformation><Attribute id="Document:FormatVersion" value="9"/></MetaInformation>)xml";
+    archive(midiSong,{{"Song/song.xml",midiXml},{"Song/mediapool.xml",midiPool},{"metainfo.xml",midiMeta},{"Performances/Drums/Take.musicx",performance}});
+    const auto midiPreview=read(midiSong);
+    check(midiPreview.session&&midiPreview.tracks==2&&midiPreview.clips==2,"Song MIDI preview counts");
+    check(std::count_if(midiPreview.session->objects.begin(),midiPreview.session->objects.end(),[](const auto& row){return row.kind==Kind::note;})==6,"Song MIDI note records");
+    const auto midiCreated=createProject({diskPath(midiSong),diskPath(folder.getChildFile("SongMidiProjects")),{},false});
+    if(midiCreated.projectFile.empty())throw std::runtime_error("Song MIDI creation failed: "+midiCreated.error);
+    const auto midiDoc=mrs::persistence::load_project(midiCreated.projectFile);
+    const auto& mp=midiDoc.project;
+    check(mp.tracks.size()==2&&mp.tracks[0].kind==mrs::TrackKind::instrument&&mp.tracks[0].midi_drum_mode&&!mp.tracks[1].midi_drum_mode,"Song instrument and drum mode");
+    check(mp.clips.size()==2&&mp.clips[0].midi&&mp.clips[1].midi,"Song MIDI clips");
+    const auto& notes=*mp.clips[0].midi;
+    check(notes.start==8*mrs::ppq&&notes.length==2*mrs::ppq&&notes.source_offset==2*mrs::ppq&&notes.notes.size()==3,"Song MIDI source offset and hidden note");
+    check(notes.notes[0].start==0&&notes.notes[0].pitch==36&&notes.notes[0].velocity==95&&notes.notes[1].start==2400&&notes.notes[1].length==480&&notes.notes[1].velocity==64,"Song MIDI note geometry and velocity");
+    check(mp.clips[0].color==0x123456u&&mp.clips[1].color==0xAA5500u&&notes.notes[0].id!=mp.clips[1].midi->notes[0].id,"Song MIDI color and repeated part identity");
+    mrs::persistence::save_project(midiCreated.projectFile,midiDoc);
+    check(mrs::persistence::load_project(midiCreated.projectFile)==midiDoc,"Song MIDI Save/Reopen");
+    const auto brokenMidi=folder.getChildFile("broken-midi.song");
+    archive(brokenMidi,{{"Song/song.xml",midiXml},{"Song/mediapool.xml",midiPool},{"metainfo.xml",midiMeta},{"Performances/Drums/Take.musicx",performance.substr(0,performance.size()-1)}});
+    check(!read(brokenMidi).session,"Truncated Song MIDI performance rejected");
+    // Standard VST3 container fixture, not executable code or vendor data.
+    const std::string synthClass="00112233445566778899AABBCCDDEEFF",effectClass="112233445566778899AABBCCDDEEFF00";
+    const auto presetFor=[](const std::string& classId){
+        std::string bytes="VST3";
+        const auto put=[&](std::uint64_t value,unsigned count){for(unsigned i=0;i<count;++i)bytes+=static_cast<char>((value>>(8*i))&255u);};
+        put(1,4);bytes+=classId;put(53,8);bytes+="abcde";bytes+="List";put(2,4);
+        bytes+="Comp";put(48,8);put(3,8);bytes+="Cont";put(51,8);put(2,8);return bytes;
+    };
+    const auto deviceXml=[](const std::string& classId,const std::string& pluginName,const std::string& member,const std::string& attrs,const std::string& extra){
+        return "<Attributes "+attrs+"><UID x:id=\"deviceClassID\" uid=\""+classId+"\"/><Attributes x:id=\"deviceData\" name=\""+pluginName+"\"><UID x:id=\"uniqueID\" uid=\"device\"/></Attributes><Attributes x:id=\"ghostData\" presetType=\"vstpreset\"><Attributes x:id=\"classInfo\" classID=\""+classId+"\" name=\""+pluginName+"\" subCategory=\"VST3\"/></Attributes><String x:id=\"presetPath\" text=\""+member+"\"/>"+extra+"</Attributes>";
+    };
+    const auto pluginSong=folder.getChildFile("plugins.song");
+    auto pluginXml=midiXml;
+    const auto trackAttrs=pluginXml.find("<Attributes x:id=\"attributes\" drumMode");
+    check(trackAttrs!=std::string::npos,"Song plugin fixture track");
+    pluginXml.insert(trackAttrs,"<UID x:id=\"channelID\" uid=\"music\"/>");
+    const auto instrumentXml="<AudioSynthFolder>"+deviceXml(synthClass,"Test synth","Presets/Synths/s.vstpreset","name=\"Inst01\"","<List x:id=\"synthChannels\"><UID uid=\"synthOut\"/></List>")+"</AudioSynthFolder>";
+    const std::string midiDeviceXml=R"xml(<MusicTrackDevice><MusicTrackChannel><UID x:id="uniqueID" uid="music"/><Connection x:id="instrumentOut" objectID="synthOut/Input"/><Connection x:id="destination" objectID="device/MusicInput00"/></MusicTrackChannel></MusicTrackDevice>)xml";
+    const auto fxXml=deviceXml(effectClass,"Test effect","Presets/Channels/f.vstpreset","name=\"FX01\" bypass=\"1\"","");
+    const auto mixerXml="<AudioMixer><AudioOutputChannel gain=\"0.75\"><UID x:id=\"uniqueID\" uid=\"main\"/><Attributes x:id=\"Inserts\">"+fxXml+"</Attributes></AudioOutputChannel><AudioSynthChannel synthPort=\"0\" gain=\"0.5\" pan=\"0.25\"><UID x:id=\"uniqueID\" uid=\"synthOut\"/><Connection x:id=\"destination\" objectID=\"main/Input\"/><Attributes x:id=\"Inserts\">"+fxXml+"</Attributes></AudioSynthChannel></AudioMixer>";
+    const std::vector<std::pair<std::string,std::string>> pluginFiles={{"Song/song.xml",pluginXml},{"Song/mediapool.xml",midiPool},{"metainfo.xml",midiMeta},{"Performances/Drums/Take.musicx",performance},{"Devices/musictrackdevice.xml",midiDeviceXml},{"Devices/audiosynthfolder.xml",instrumentXml},{"Devices/audiomixer.xml",mixerXml},{"Presets/Synths/s.vstpreset",presetFor(synthClass)},{"Presets/Channels/f.vstpreset",presetFor(effectClass)}};
+    archive(pluginSong,pluginFiles);
+    const auto pluginPreview=read(pluginSong);
+    check(pluginPreview.session&&pluginPreview.plugins==3,"Song VST3 preview count");
+    const auto fakeModule=folder.getChildFile("fixture.vst3");
+    check(fakeModule.replaceWithText("fixture only; never load"),"Fixture catalogue path");
+    const auto localModule=fakeModule.getFullPathName().toStdString();
+    CreateRequest pluginRequest{diskPath(pluginSong),diskPath(folder.getChildFile("SongPluginProjects")),{},false,{{synthClass,localModule,true},{effectClass,localModule,false}}};
+    const auto pluginCreated=createProject(pluginRequest);
+    if(pluginCreated.projectFile.empty())throw std::runtime_error("Song VST3 creation failed: "+pluginCreated.error);
+    const auto pluginDoc=mrs::persistence::load_project(pluginCreated.projectFile);
+    const auto& pluginProject=pluginDoc.project;
+    check(pluginProject.master_gain==0.75f&&pluginProject.master_inserts.size()==1&&pluginProject.master_inserts[0].bypass,"Song master VST3/gain");
+    check(pluginProject.tracks[0].inserts.size()==2&&pluginProject.tracks[0].inserts[0].class_id==synthClass&&pluginProject.tracks[0].inserts[1].class_id==effectClass&&pluginProject.tracks[0].inserts[1].bypass,"Song instrument/effect order and bypass");
+    check(pluginProject.tracks[0].mix.gain==0.5f&&pluginProject.tracks[0].mix.pan==-0.5f&&!pluginProject.tracks[0].output,"Song synth mixer and Main route");
+    const auto& pluginInsert=pluginProject.tracks[0].inserts[0];
+    check(pluginInsert.component_state.size()==3&&pluginInsert.component_state[0]==std::byte{'a'}&&pluginInsert.controller_state.size()==2&&pluginInsert.controller_state[1]==std::byte{'e'},"Song VST3 opaque state");
+    mrs::persistence::save_project(pluginCreated.projectFile,pluginDoc);
+    check(mrs::persistence::load_project(pluginCreated.projectFile)==pluginDoc,"Song VST3 persistence");
+    pluginRequest.pluginCatalog.clear();
+    const auto missingPlugins=createProject(pluginRequest);
+    check(!missingPlugins.projectFile.empty(),"Missing VST3 must not block import");
+    const auto missingDoc=mrs::persistence::load_project(missingPlugins.projectFile);
+    check(missingDoc.project.master_inserts.empty()&&missingDoc.project.tracks[0].inserts.empty()&&!missingPlugins.warnings.empty(),"Missing plugins not activated");
+    check(std::distance(std::filesystem::directory_iterator(missingPlugins.projectFile.parent_path()/"ImportedVST3"),std::filesystem::directory_iterator{})==3,"Unmatched VST3 presets retained");
+    auto corruptPluginFiles=pluginFiles;corruptPluginFiles.back().second[8]='F';
+    const auto corruptPluginSong=folder.getChildFile("corrupt-plugins.song");archive(corruptPluginSong,corruptPluginFiles);
+    check(!read(corruptPluginSong).session,"VST3 class mismatch rejected");
+
+
+    unchanged();
     auto* alert=show(full);
     check(alert->getNumCustomComponents()==1&&alert->getCustomComponent(0)->getComponentID()=="dawproject-preview-details"&&alert->getButton("Create Project"),"Preview compatibility list or Create button missing");
     if(screenshot!=juce::File()){

@@ -370,7 +370,7 @@ std::shared_ptr<AudioEngine::PreparedTransition> AudioEngine::prepare_voice_tran
        std::any_of(old.voices.begin(),old.voices.end(),[](const auto& v){return bool(v.renderer);}))
         throw std::logic_error("Clip publication requires stopped, non-ARA playback without capture");
     if(voices.size()>max_voices)throw std::invalid_argument("Too many audio voices");
-    std::vector<bool> used(old.voices.size());std::size_t disk_count{},disk_bytes{};
+    std::vector<bool> used(old.voices.size());std::size_t disk_bytes{};
     for(auto& voice:voices){
         if(!voice.asset||voice.renderer||voice.asset->sample_rate!=config_.sample_rate||voice.mixer_track>=old.mixer.size()||
            voice.start<0||voice.length<=0||voice.start>max_sample-voice.length||voice.source_offset<0||
@@ -383,7 +383,7 @@ std::shared_ptr<AudioEngine::PreparedTransition> AudioEngine::prepare_voice_tran
         voice.stream.reset();
         if(voice.asset->file){
             disk_bytes+=ReadAhead::pages*static_cast<std::size_t>(ReadAhead::page_frames)*voice.asset->channels*sizeof(float);
-            if(++disk_count>32||disk_bytes>256*1024*1024)throw std::invalid_argument("Disk voice budget exceeded");
+            if(disk_bytes>256ull*1024*1024)throw std::invalid_argument("Disk voice memory budget exceeded (256 MiB)");
             for(std::size_t i=0;i<old.voices.size();++i){const auto& v=old.voices[i];
                 if(!used[i]&&v.asset==voice.asset&&v.start==voice.start&&v.source_offset==voice.source_offset&&v.length==voice.length&&v.stream){voice.stream=v.stream;used[i]=true;break;}}
             if(!voice.stream){voice.stream=std::make_shared<ReadAhead>(voice.asset->file);
@@ -685,13 +685,17 @@ std::unique_ptr<AudioEngine::PreparedState> AudioEngine::prepare_state(RenderCon
     if (graph.master_inserts) { const auto c=graph.master_inserts->config(); if (c.sample_rate != config.sample_rate || c.channels != config.output_channels || c.max_block < config.max_block) throw std::invalid_argument("master insert config mismatch"); }
     const auto jump_targets=graph.performance?1+static_cast<std::size_t>(std::count_if(graph.performance->sections.begin(),graph.performance->sections.end(),
         [](const auto& section){return section.mode==PerformanceMode::skip||section.mode==PerformanceMode::loop;})):0;
+    // Studio arrangements can have many non-overlapping file-backed clips.
+    // max_voices already bounds their count; retain the byte budget and the
+    // separate Live Performance cap with its additional jump pages.
+    const auto stream_limit=graph.performance?std::size_t{32}:max_voices;
     std::size_t stream_bytes{}, stream_count{};
     for (auto& voice : graph.voices) if (voice.asset->file&&!voice.renderer) {
         if (config.max_block > static_cast<std::uint32_t>(ReadAhead::page_frames))
             throw std::invalid_argument("streaming supports callback blocks up to 8192 frames");
         stream_bytes += (ReadAhead::pages+2*jump_targets)*static_cast<std::size_t>(ReadAhead::page_frames)*voice.asset->channels*sizeof(float);
-        if (++stream_count > 32 || stream_bytes > 256*1024*1024)
-            throw std::invalid_argument("disk voice budget exceeded (32 voices / 256 MiB)");
+        if (++stream_count > stream_limit || stream_bytes > 256ull*1024*1024)
+            throw std::invalid_argument("disk voice budget exceeded (voice count or 256 MiB read-ahead)");
     }
     for (auto& voice : graph.voices) if (voice.asset->file&&!voice.renderer) {
         voice.stream = std::make_shared<ReadAhead>(voice.asset->file);

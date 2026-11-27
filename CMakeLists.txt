@@ -1,5 +1,14 @@
 cmake_minimum_required(VERSION 3.20)
-project(MoonRiverStudio VERSION 0.11.1 LANGUAGES C CXX)
+# The application header is the canonical stage version. JUCE/Windows PE
+# resources use its numeric portion; retain fix/Upd suffixes in app and package.
+set(MRS_VERSION_HEADER "${CMAKE_CURRENT_LIST_DIR}/apps/studio-desktop/include/mrs/version.hpp")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${MRS_VERSION_HEADER}")
+file(READ "${MRS_VERSION_HEADER}" MRS_VERSION_HEADER_TEXT)
+if(NOT MRS_VERSION_HEADER_TEXT MATCHES "(^|[\r\n])inline constexpr std::string_view application_version[ \t]*=[ \t]*\"(0\\.[0-9]+\\.[0-9]+)(-(fix|Upd)[0-9]+)?\";")
+  message(FATAL_ERROR "Invalid Studio application_version in version.hpp")
+endif()
+set(MRS_STUDIO_BINARY_VERSION "${CMAKE_MATCH_2}")
+project(MoonRiverStudio VERSION "${MRS_STUDIO_BINARY_VERSION}" LANGUAGES C CXX)
 include(CTest)
 include(cmake/TranscriptionProfile.cmake)
 if(MSVC)
