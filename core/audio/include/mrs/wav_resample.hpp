@@ -18,6 +18,9 @@ struct WavExportCallbacks {
     std::function<bool(const OfflineRenderProgress&)> continue_render{};
     std::function<bool(float)> continue_conversion{};
     std::stop_token stop{};
+    // Optional detached package metadata writer, called only for a completed
+    // stem batch, on the worker, inside the private folder before publication.
+    std::function<void(const std::filesystem::path&)> finalize_stems{};
 };
 using MasterRenderSource=std::function<OfflineRenderResult(const OfflineRenderCallbacks&)>;
 WavExportResult export_wav24(const std::filesystem::path&,std::uint32_t source_rate,
