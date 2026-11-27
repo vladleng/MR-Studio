@@ -106,14 +106,22 @@ public:
         Sample end()const noexcept{return end_;}
         std::uint32_t rate()const noexcept{return config_.sample_rate;}
         audio::OfflineRenderResult render(const audio::OfflineRenderCallbacks&);
+        // IDs are captured in request order from the immutable project snapshot.
+        const std::vector<Id>& stem_tracks()const noexcept{return stem_ids_;}
+        audio::OfflineRenderResult render_stems(const audio::OfflineStemRenderCallbacks&);
     private:
         friend class Application;
         audio::RenderConfig config_{};
         audio::RenderGraph graph_;
         Sample begin_{},end_{};
+        std::vector<Id> stem_ids_;
+        std::vector<std::size_t> stem_indices_;
         std::atomic<bool> used_{};
     };
     std::shared_ptr<PreparedMasterExport> prepare_master_export(Sample begin,Sample end);
+    // Same exclusive export session/finish contract. Reject empty or
+    // unsupported selections before stopping the device.
+    std::shared_ptr<PreparedMasterExport> prepare_stem_export(Sample begin,Sample end,std::span<const Id> tracks);
     void finish_master_export(const std::shared_ptr<PreparedMasterExport>&);
     bool export_active()const noexcept{return static_cast<bool>(active_export_);}
     audio::WavExportResult export_wav(const std::filesystem::path&,Sample begin,Sample end,
@@ -598,6 +606,7 @@ private:
     std::vector<audio::Voice> prepare_clip_voices(const Project&,std::span<const Id>,std::uint32_t outputs,bool strict);
     void poll_clip_updates();
     std::vector<std::shared_ptr<audio::AudioEngine::PreparedTransition>> clip_updates_;
+    std::shared_ptr<PreparedMasterExport> prepare_audio_export(Sample begin,Sample end,std::span<const Id> stem_tracks);
     std::shared_ptr<PreparedMasterExport> active_export_;
     bool export_restart_device_{};
     void require_not_playing() const;
