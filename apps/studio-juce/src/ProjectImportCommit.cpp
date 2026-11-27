@@ -235,9 +235,13 @@ struct Projection {
                 throw std::runtime_error("Song clip stretch parameters outside native range");
             Clip clip;clip.id=entity(i,"song-audio");clip.track=doc.project.tracks[track].id;clip.name=name(o,"Imported audio");
             clip.color=songColor(o);
+            if(!clip.color)clip.color=doc.project.tracks[track].color;
             if(get(o,"normalize")=="1"||(!get(o,"modification").empty()&&get(o,"modification")!="0"))
                 warning("Song normalization or clip modification not applied: "+clip.name);
-            audio.push_back({*assets[i],i,*o.time*secondsPerBeat,length,offset,0.,0.,std::move(clip)});
+            // Song offset is in the stretched/output domain; the native Clip
+            // source_offset is in original WAV frames. Scale both offset and
+            // visible source span by speed, never the timeline start/duration.
+            audio.push_back({*assets[i],i,*o.time*secondsPerBeat,length,offset*speed,0.,0.,std::move(clip)});
         }
     }
     void timeMap(){
@@ -582,8 +586,7 @@ CreateResult perform(const CreateRequest& req,std::stop_token stop){
         if(const auto expected=integer(sourceObject,"channels",1,64);expected&&static_cast<std::uint32_t>(*expected)!=wav.channels)
             p.warning("Audio channel count differs from source metadata: "+entry.clip.name);
         // Song speed is source/output; native duration_ratio is output/source.
-        // Offset is interpreted as source-domain time (verified Capture geometry,
-        // actual stretched audio playback still requires acceptance).
+        // songAudio already converted the output-domain offset to source time.
         stretch::Parameters stretchParams;
         if(p.isSong()){
             stretchParams.duration_ratio=1./numeric(sourceObject,"speed").value_or(1.);

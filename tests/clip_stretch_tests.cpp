@@ -79,6 +79,13 @@ std::shared_ptr<audio::AudioData> signal(){
     return source;
 }
 void cache(){
+    constexpr std::uintmax_t MiB=1024ull*1024;
+    // Repro: a valid imported project's active PCM exceeds the former
+    // 512 MiB aggregate cap, but is disk-backed and fits available space.
+    audio::validate_stretch_disk_space(753*MiB,1024*MiB);
+    rejects([&]{audio::validate_stretch_disk_space(753*MiB,800*MiB);});
+    audio::validate_stretch_disk_space(0,0);
+    audio::validate_stretch_disk_space(960*MiB,1024*MiB);
     auto source=signal();auto p=fixture();auto params=stretch::Parameters{};params.duration_ratio=1.25;params.semitones=7;
     const auto id=p.clips[0].id;SetAudioStretch{id,params}.apply(p);
     auto prepared=audio::prepare_stretch_cache(source,p.clips[0]);

@@ -15,7 +15,10 @@ struct StretchCache {
 };
 std::string stretch_cache_key(const AudioData&, const Clip&, stretch::Backend = stretch::Backend::signalsmith);
 // Owns a private temporary directory; never writes beside/over the source.
-// 512 MiB is the maximum for one entry and the application's total live cache.
+// 512 MiB is the maximum for one entry. Active project PCM is streamed from
+// disk; only unused/warm entries have a fixed aggregate eviction budget.
+// Preflight pending writes against available disk space, not a RAM budget.
+void validate_stretch_disk_space(std::uintmax_t pending_bytes,std::uintmax_t available_bytes);
 std::shared_ptr<const StretchCache> prepare_stretch_cache(
     std::shared_ptr<const AudioData>, const Clip&, std::stop_token = {},
     std::function<void(float)> progress = {}, stretch::Backend = stretch::Backend::signalsmith);

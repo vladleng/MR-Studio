@@ -107,33 +107,37 @@ void Application::poll_stretch(){
     stretch_checked_revision_=state.revision;
     try{
         struct Request {std::string key;std::shared_ptr<const audio::AudioData> source;Clip clip;stretch::Backend backend;};
-        std::vector<Request> requests;std::set<std::string> needed;std::uintmax_t bytes{};
+        std::vector<Request> requests;std::set<std::string> needed;std::uintmax_t pendingBytes{};
         for(const auto& c:state.project->clips)if(!c.midi&&processed(c)){
             const auto source=asset(c.source);const auto key=audio::stretch_cache_key(*source,c,clip_stretch_backend(c));
             if(!needed.insert(key).second)continue;
-            bytes+=static_cast<std::uintmax_t>(audio_output_extent(c))*source->channels*4;
-            if(bytes>512*1024*1024)throw std::invalid_argument("Time / pitch cache exceeds 512 MiB; shorten/split the selected source region");
-            if(!stretch_cache_.contains(key))requests.push_back({key,source,c,clip_stretch_backend(c)});
+            const auto bytes=static_cast<std::uintmax_t>(audio_output_extent(c))*source->channels*4;
+            if(bytes>512ull*1024*1024)throw std::invalid_argument("One Time / pitch cache entry exceeds 512 MiB; split the source region");
+            if(!stretch_cache_.contains(key)){
+                pendingBytes+=bytes+44; // RIFF header
+                requests.push_back({key,source,c,clip_stretch_backend(c)});
+            }
         }
-        // Warm Undo entries share the same 512 MiB budget, not a second cache.
-        // Bound tiny entries too; evict only keys unused by the current project.
+        // Active entries must remain available for playback, regardless of the
+        // total streamed PCM size. Limit only unused/warm Undo entries.
         const auto tick=++stretch_cache_clock_;
         std::erase_if(stretch_cache_used_,[&](const auto& item){return !needed.contains(item.first)&&!stretch_cache_.contains(item.first);});
         for(const auto& key:needed)stretch_cache_used_[key]=tick;
-        std::uintmax_t occupied=bytes;
-        for(const auto& [key,entry]:stretch_cache_)if(!needed.contains(key))occupied+=entry->bytes;
-        while(occupied>512*1024*1024||stretch_cache_.size()+requests.size()>64){
+        std::uintmax_t warmBytes{};std::size_t warmCount{};
+        for(const auto& [key,entry]:stretch_cache_)if(!needed.contains(key)){warmBytes+=entry->bytes;++warmCount;}
+        while(warmBytes>512ull*1024*1024||warmCount>64){
             auto victim=stretch_cache_.end();
             for(auto it=stretch_cache_.begin();it!=stretch_cache_.end();++it)if(!needed.contains(it->first)&&
                (victim==stretch_cache_.end()||stretch_cache_used_[it->first]<stretch_cache_used_[victim->first]))victim=it;
-            if(victim==stretch_cache_.end())throw std::invalid_argument("Time / pitch cache entry budget exceeded");
-            occupied-=victim->second->bytes;stretch_cache_used_.erase(victim->first);stretch_cache_.erase(victim);
+            if(victim==stretch_cache_.end())break;
+            warmBytes-=victim->second->bytes;--warmCount;stretch_cache_used_.erase(victim->first);stretch_cache_.erase(victim);
         }
         if(requests.empty()){
             const auto message=needed.empty()?(stretch_status_.message.empty()?std::string{}:std::string{"Time / pitch inactive"}):std::string{"Time / pitch ready"};
             if(stretch_status_.busy||stretch_status_.message!=message){stretch_status_.message=message;++stretch_status_.revision;}
             stretch_status_.busy=false;stretch_status_.progress=1;return;
         }
+        audio::validate_stretch_disk_space(pendingBytes,std::filesystem::space(std::filesystem::temp_directory_path()).available);
         auto job=std::make_shared<StretchJob>();job->projects=services_.projects;job->revision=state.revision;
         const auto token=job->stop.get_token();auto* progress=&job->progress;
         job->result=std::async(std::launch::async,[requests=std::move(requests),token,progress]{

@@ -2162,12 +2162,26 @@ void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(arrangementCan
         if(ghost){g.setColour(juce::Colours::white);g.drawRoundedRectangle(r.reduced(1.f),cornerRadius,1.5f);g.setColour(juce::Colour(0xff8ac3ff));}
         if(midi){g.saveState();g.reduceClipRegion(r.toNearestInt().reduced(1));for(const auto& n:midi->notes){const auto begin=std::max(n.start,midi->source_offset),end=std::min(n.start+n.length,midi->source_offset+midi->length);if(begin>=end)continue;const double total=static_cast<double>(time.to_samples(midi->start+midi->length)-time.to_samples(midi->start));const float x=r.getX()+static_cast<float>((time.to_samples(midi->start+begin-midi->source_offset)-time.to_samples(midi->start))/juce::jmax(1.,total)*r.getWidth());const float w=static_cast<float>((time.to_samples(midi->start+end-midi->source_offset)-time.to_samples(midi->start+begin-midi->source_offset))/juce::jmax(1.,total)*r.getWidth());const float y=r.getY()+25+(127-n.pitch)/127.f*juce::jmax(1.f,r.getHeight()-32);g.setColour(ObjectPalette::midiVelocityColour(n.velocity));g.fillRect(x,y,juce::jmax(2.f,w),3.f);}g.restoreState();continue;}
         const auto& waveClip=stretching?stretchDrag->original:c;
-        if(const auto* wave=owner.app.clip_waveform(waveClip)){
-            // Choose polarity from the clip colour before compositing it onto the dark canvas.
+        const auto* wave=owner.app.clip_waveform(waveClip);
+        const bool pending=!wave&&waveClip.stretch&&!mrs::stretch::neutral(waveClip.stretch->parameters);
+        double waveOffset=static_cast<double>(owner.app.clip_playback_offset(waveClip));
+        double framesPerPixel=p->sample_rate/pixelsPerSecond*static_cast<double>(waveClip.length)/c.length;
+        if(pending){
+            // Preview the raw source window until processed PCM is ready.
+            // This affects paint only, never playback or the audio graph.
+            wave=owner.app.waveform(waveClip.source);
+            waveOffset=static_cast<double>(waveClip.source_offset)+waveClip.stretch->window_begin;
+            framesPerPixel/=waveClip.stretch->parameters.duration_ratio;
+        }
+        if(wave){
             const auto waveInk=ObjectPalette::ink(c.color.value_or(defaultColor),1.f,arrangementCanvas);
-            g.setColour(waveInk.withAlpha(arrangeClipFillAlpha));
-            const auto framesPerPixel=p->sample_rate/pixelsPerSecond*static_cast<double>(waveClip.length)/c.length;
-            drawWaveform(g,*wave,r.withTrimmedTop(22),static_cast<double>(owner.app.clip_playback_offset(waveClip)),framesPerPixel);
+            g.setColour(waveInk.withAlpha(pending?arrangeClipFillAlpha*.55f:arrangeClipFillAlpha));
+            drawWaveform(g,*wave,r.withTrimmedTop(22),waveOffset,framesPerPixel);
+        }
+        if(pending&&r.getWidth()>=100){
+            const auto status=owner.app.stretch_status();
+            g.setColour(clipInk.withAlpha(.9f));
+            g.drawText(status.busy?"Time / pitch preparing":"Time / pitch not ready",r.toNearestInt().reduced(4).removeFromBottom(16),juce::Justification::centredLeft,true);
         }
         if(araDropClip&&c.id==*araDropClip){g.setColour(owner.selectionColour());g.drawRoundedRectangle(r.reduced(2.f),cornerRadius,2.f);g.drawText("ARA 2",r.toNearestInt().reduced(6).removeFromBottom(20),juce::Justification::centredRight);}
         if(r.getWidth()>=24){const auto width=r.getWidth();const auto inWidth=static_cast<float>(static_cast<double>(c.fade_in)/c.length*width),outWidth=static_cast<float>(static_cast<double>(c.fade_out)/c.length*width);g.setColour(clipInk.withAlpha(.8f));

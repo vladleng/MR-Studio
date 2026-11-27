@@ -40,6 +40,11 @@ auto stamp(const AudioData& source){
     return std::pair{std::filesystem::last_write_time(source.file->path),std::filesystem::file_size(source.file->path)};
 }
 }
+void validate_stretch_disk_space(std::uintmax_t pending_bytes,std::uintmax_t available_bytes){
+    constexpr std::uintmax_t reserve=64ull*1024*1024;
+    if(pending_bytes&&(available_bytes<reserve||pending_bytes>available_bytes-reserve))
+        throw std::runtime_error("Not enough free disk space for Time / pitch cache (64 MiB reserve)");
+}
 bool StretchCache::source_current() const {
     try{return stamp(*source)==std::pair{source_time,source_bytes};}catch(const std::filesystem::filesystem_error&){return false;}
 }
