@@ -108,6 +108,7 @@ public:
         audio::OfflineRenderResult render(const audio::OfflineRenderCallbacks&);
         // IDs are captured in request order from the immutable project snapshot.
         const std::vector<Id>& stem_tracks()const noexcept{return stem_ids_;}
+        // Sink index is the position in stem_tracks(), not a mixer index.
         audio::OfflineRenderResult render_stems(const audio::OfflineStemRenderCallbacks&);
     private:
         friend class Application;
