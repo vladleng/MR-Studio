@@ -612,6 +612,22 @@ void offline_stem_wavs() {
     const auto cancel_conversion=dir.path/"cancel-conversion";
     CHECK(!audio::export_stem_wavs24(cancel_conversion,44100,441,2,constant,{{},[](float p){return p<.75f;}}).completed);
     CHECK(!std::filesystem::exists(cancel_conversion));
+    const auto metadata=dir.path/"metadata";
+    audio::WavExportCallbacks finalize;
+    finalize.finalize_stems=[&](const auto& staged){
+        CHECK(!std::filesystem::exists(metadata));
+        CHECK(audio::inspect_wav(staged/"stem-1.wav").frame_count==4);
+        std::ofstream file(staged/"Item.mrlive");file<<"fixture";file.close();
+    };
+    CHECK(audio::export_stem_wavs24(metadata,48000,4,2,source,finalize).completed);
+    CHECK(std::filesystem::exists(metadata/"Item.mrlive"));
+    const auto broken_metadata=dir.path/"broken-metadata";
+    finalize.finalize_stems=[](const auto& staged){
+        std::ofstream file(staged/"Item.mrlive");file<<"partial";
+        throw std::runtime_error("metadata failure");
+    };
+    rejects([&]{audio::export_stem_wavs24(broken_metadata,48000,4,2,source,finalize);});
+    CHECK(!std::filesystem::exists(broken_metadata));
     const auto input=dir.path/"input.wav";wav(input,2,48000);
     Application app;app.import_wav(input);
     const auto id=app.services().projects->state().project->tracks.front().id;
