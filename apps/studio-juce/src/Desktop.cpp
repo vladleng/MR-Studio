@@ -459,6 +459,7 @@ Desktop::Desktop(bool test,bool startAtHome,bool liveApplication):standaloneLive
     home=std::make_unique<ProjectHome>(*this);addChildComponent(*home);if(!standaloneLive&&(!testing||startAtHome)){showProjectHome(true);if(!testing)home->rescan();}if(standaloneLive){liveDocument.emplace();prepareLiveInterface(true);showProjectHome(false);liveEmptyRevision=std::pair{app.services().projects->state().revision,app.graphs()->state().revision};}startTimerHz(30);
 }
 Desktop::~Desktop(){
+    preferencesWindow.reset();
     exportWindow.reset(); // joins offline worker before Application/theme retirement
 #if defined(MRS_PROJECT_IMPORT_UI)
     projectImportStop.request_stop();
@@ -769,22 +770,8 @@ juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupM
                   trackHeaderHotReload);
         m.addItem(712,"Restore Default Track Header",trackHeaderLayoutSource!=juce::File() && !app.recording());
 #if defined(MRS_SEPARATION_UI)
-        m.addSeparator();m.addItem(715,"Separation models...",!standaloneLive);
-        m.addItem(716,"Separation results...",!standaloneLive);
+        m.addSeparator();m.addItem(716,"Separation results...",!standaloneLive);
 #endif
-        if(!standaloneLive){
-            juce::PopupMenu preferences,timePitch;
-#if defined(MRS_TRANSCRIPTION_UI)
-            preferences.addItem(717,"Audio-to-MIDI");
-#endif
-            const auto hardware=std::thread::hardware_concurrency();
-            const auto automatic=mrs::desktop::Application::stretch_worker_limit(0,hardware);
-            timePitch.addItem(730,"Auto ("+juce::String(static_cast<int>(automatic))+" workers)",true,view.timePitchWorkers==0);
-            for(int workerCount=1;workerCount<=16;++workerCount)
-                timePitch.addItem(730+workerCount,juce::String(workerCount)+(workerCount==1?" worker":" workers"),true,view.timePitchWorkers==workerCount);
-            preferences.addSubMenu("Time / Pitch",timePitch);
-            m.addSubMenu("Preferences",preferences);
-        }
         return m;
     }
     // Existing menus retain their action IDs after inserting Options next to File.
@@ -795,8 +782,9 @@ juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupM
 #endif
         juce::PopupMenu recent;for(std::size_t i=0;i<prefs.recent_projects.size();++i)recent.addItem(1000+static_cast<int>(i),label(prefs.recent_projects[i]));m.addSubMenu("Open recent project",recent);m.addSeparator();m.addItem(7,"Open diagnostics folder");}
     if(originalIndex==1){m.addItem(10,"Undo",app.services().projects->state().can_undo);m.addItem(11,"Redo",app.services().projects->state().can_redo);m.addItem(24,"Split selected clip (S)");m.addItem(25,"Delete selected clip (Backspace)");m.addItem(43,"Create MIDI clip at cursor",selectedTrack.has_value());m.addItem(44,"Edit MIDI clip notes",selectedClip.has_value());m.addItem(45,"Duplicate selected clip (D)",selectedClip.has_value());m.addItem(52,"Merge MIDI clips (G)",selectedClips.size()>=2);m.addItem(46,"Loop selected clip",selectedClip.has_value());}
+    if(originalIndex==1&&!standaloneLive){m.addSeparator();m.addItem(717,"Preferences... (Ctrl+,)",!app.recording());}
     if(originalIndex==2){m.addItem(20,"Add audio track");m.addItem(28,"Add instrument track");m.addItem(21,"Add bus");m.addItem(22,"Rename track");m.addItem(23,folderSelection(selectedTrack).size()>1?"Delete selected tracks":"Delete track",selectedTrack.has_value()&&!app.recording());m.addItem(26,"Move track up");m.addItem(27,"Move track down");}
-    if(originalIndex==3){m.addItem(30,"Play");m.addItem(31,"Pause");m.addItem(32,"Stop");m.addItem(33,"Record");m.addItem(34,"Previous section");m.addItem(35,"Next section");m.addItem(36,"Toggle loop");m.addItem(48,"Previous marker",!app.recording());m.addItem(49,"Next marker",!app.recording());m.addItem(50,"Go to section...",!app.recording());m.addItem(51,"Go to marker...",!app.recording());m.addItem(40,"Audio settings...");m.addItem(41,"Engine profiling...");m.addItem(42,"MIDI panic / all notes off");m.addItem(47,"Project tempo...");
+    if(originalIndex==3){m.addItem(30,"Play");m.addItem(31,"Pause");m.addItem(32,"Stop");m.addItem(33,"Record");m.addItem(34,"Previous section");m.addItem(35,"Next section");m.addItem(36,"Toggle loop");m.addItem(48,"Previous marker",!app.recording());m.addItem(49,"Next marker",!app.recording());m.addItem(50,"Go to section...",!app.recording());m.addItem(51,"Go to marker...",!app.recording());if(standaloneLive)m.addItem(40,"Audio settings...");m.addItem(41,"Engine profiling...");m.addItem(42,"MIDI panic / all notes off");m.addItem(47,"Project tempo...");
         const auto c=app.click_settings();juce::PopupMenu click,count,level;const bool enabled=!app.recording();
         click.addItem(500,"During playback",enabled,c.playback);click.addItem(501,"During recording",enabled,c.recording);click.addItem(502,"Accent first beat",enabled,c.accent);
         for(const auto value:{10,20,35,50,75,100})level.addItem(600+value,juce::String(value)+"%",enabled,c.level==value);click.addSubMenu("Level",level);
@@ -923,7 +911,6 @@ void Desktop::action(int n){
 #endif
     if(busyGesture()){if(n==3||n==4){reportSaveError("Finish the active edit before saving the show");return;}if(n==34||n==35||n==48||n==49||n==50||n==51){message="Finish editing before navigating";repaint();}return;}mrs::diagnostics::event("ui_action="+std::to_string(n));run([&]{if(standaloneLive&&n==1){action(701);return;}if(standaloneLive&&(n==6||n==8))return;if(standaloneLive&&n==2){confirmDiscard([this]{choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& file){openFile(file);},"*.mrlive");});return;}
 #if defined(MRS_SEPARATION_UI)
-    if(n==715){if(!standaloneLive)showSeparationModels(*this);return;}
     if(n==716){if(!standaloneLive)showSeparation(*this);return;}
 #endif
     if(n==710){
@@ -959,13 +946,7 @@ void Desktop::action(int n){
     }
     if(n==7){const auto logs=mrs::diagnostics::folder();if(logs.empty())throw std::runtime_error("Diagnostics unavailable; see package README");if(!testing)juce::File(juce::String(logs.wstring().c_str())).revealToUser();return;}
     if(n>=500&&n<=700){auto c=app.click_settings();if(n==500)c.playback=!c.playback;else if(n==501)c.recording=!c.recording;else if(n==502)c.accent=!c.accent;else if(n==503)c.playback=c.recording=!(c.playback||c.recording);else if(n==504){if(c.count_bars){lastCountBars=c.count_bars;c.count_bars=0;}else c.count_bars=lastCountBars;}else if(n>=510&&n<=514)c.count_bars=n-510;else if(n>=600)c.level=n-600;else return;app.set_click_settings(c);if(c.count_bars)lastCountBars=c.count_bars;prefs.click=c;saveSettings();return;}
-#if defined(MRS_TRANSCRIPTION_UI)
-    if(n==717){showTranscriptionPreferences(*this);return;}
-#endif
-    if(n>=730&&n<=746&&!standaloneLive){
-        view.timePitchWorkers=n-730;app.set_stretch_workers(static_cast<unsigned>(view.timePitchWorkers));saveSettings();
-        message="Time / Pitch worker setting saved (next preparation)";return;
-    }
+    if(n==717){if(!standaloneLive&&!app.recording())openPreferences();return;}
     if(n==9)return;
     if(n==702){confirmDiscard([this]{choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& file){importLiveShow(file);},"*.json");});return;}
     if(n==701){if(standaloneLive){confirmDiscard([this]{run([this]{newLiveShow();});});return;}auto createShow=[this]{choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[this](const auto& file){createLive(file);},"*.mrlive");};createShow();return;}
@@ -1236,6 +1217,7 @@ bool Desktop::shortcutAllowedFor(juce::Component* focused) const {
 bool Desktop::workspaceShortcut(const juce::KeyPress& k){if(standaloneLive)return false;if(homeVisible||k.getModifiers().isAnyModifierKeyDown()||juce::Component::getCurrentlyModalComponent())return false;
     if(k.getKeyCode()==juce::KeyPress::F2Key){run([&]{toggleEditor();});return true;}if(k.getKeyCode()==juce::KeyPress::F3Key){const bool open=app.workspace()!=mrs::desktop::Workspace::mix;if(open&&clipEditorOpen())toggleEditor();setWorkspace(open?mrs::desktop::Workspace::mix:mrs::desktop::Workspace::arrange);return true;}if(k.getKeyCode()==juce::KeyPress::F5Key){sidebar=!sidebar;resized();repaint();return true;}return false;}
 bool Desktop::keyPressed(const juce::KeyPress& k){if(workspaceShortcut(k))return true;if(!shortcutAllowed())return false;
+    if(!standaloneLive&&!app.recording()&&k.getModifiers().isCtrlDown()&&!k.getModifiers().isAltDown()&&!k.getModifiers().isShiftDown()&&k.getKeyCode()==','){action(717);return true;}
     if(k.getKeyCode()==juce::KeyPress::escapeKey&&livePendingItem.isNotEmpty()){cancelLiveSwitch();return true;}
     if(k.getKeyCode()==juce::KeyPress::escapeKey&&app.stretch_status().busy){app.cancel_stretch();return true;}
     if(k.getKeyCode()==juce::KeyPress::escapeKey&&app.wav_import_status().busy){app.cancel_wav_import();return true;}

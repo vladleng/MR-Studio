@@ -37,6 +37,8 @@ struct ViewSettings {
     bool transcriptionCompatibility{},transcriptionQuantize{};
     int transcriptionGrid{3},transcriptionStrength{100},transcriptionVelocity{100};
     int separationCpuThreads{}; // 0 Auto; user intent, not an affinity-capped count
+    bool separationSmallChunk{}; // default chunk unless explicitly requested and supported
+    juce::String preferencesPage{"Audio"};
     int timePitchWorkers{}; // 0 Auto; independent of device processing workers
     juce::String separationModel; // Stable catalogue ID; app preference, never project state
     bool noteClipColors{}, noteInstrumentColors{}; // Legacy/global standalone Live preference; Studio stores its mode per track.
@@ -84,6 +86,7 @@ struct ViewSettings {
         object->setProperty("transcriptionQuantize",transcriptionQuantize);object->setProperty("transcriptionGrid",transcriptionGrid);object->setProperty("transcriptionStrength",transcriptionStrength);object->setProperty("transcriptionVelocity",transcriptionVelocity);
         object->setProperty("timePitchWorkers",timePitchWorkers);
         object->setProperty("separationCpuThreads",separationCpuThreads);object->setProperty("separationModel",separationModel);
+        object->setProperty("separationSmallChunk",separationSmallChunk);object->setProperty("preferencesPage",preferencesPage);
         object->setProperty("trackHeight",trackHeight);object->setProperty("pixelsPerSecond",pixelsPerSecond);
         object->setProperty("channelInspector",channelInspector);object->setProperty("channelInspectorWidth",channelInspectorWidth);
         object->setProperty("mixerHeight",mixerHeight);object->setProperty("editorHeight",editorHeight);object->setProperty("controllersOpen",controllersOpen);object->setProperty("editorAttached",editorAttached);
@@ -111,6 +114,8 @@ struct ViewSettings {
             const auto n=static_cast<int>(value["separationCpuThreads"]);
             if(n==0||n==1||n==2||n==4||n==8||n==16||n==32)result.separationCpuThreads=n;
         }
+        if(value["separationSmallChunk"].isBool())result.separationSmallChunk=static_cast<bool>(value["separationSmallChunk"]);
+        if(value["preferencesPage"].isString())result.preferencesPage=value["preferencesPage"].toString().substring(0,64);
         if(value["separationModel"].isString())result.separationModel=value["separationModel"].toString().substring(0,128);
         result.lastLiveShow=value["lastLiveShow"].toString().substring(0,32768);
         result.lastStudioOneShow=value["lastStudioOneShow"].toString().substring(0,32768);

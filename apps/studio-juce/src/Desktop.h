@@ -395,6 +395,7 @@ public:
     void refreshInsertEditors();
     void closeUnpinnedEditors();
     void audioSettings();
+    void openPreferences(const juce::String& page = {});
     void aiPermissions();
     void aiAssistant();
     void setAiPermissions(mrs::ai::PermissionPolicy);
@@ -517,7 +518,8 @@ public:
     Theme theme;
     std::unique_ptr<juce::DocumentWindow> separationModelsWindow; // Studio-only utility, no project state
     std::unique_ptr<juce::DocumentWindow> separationWindow;
-    std::unique_ptr<juce::DocumentWindow> transcriptionWindow,transcriptionPreferencesWindow,transcriptionModelsWindow;
+    std::unique_ptr<juce::DocumentWindow> transcriptionWindow,transcriptionModelsWindow;
+    std::unique_ptr<EditorWindow> preferencesWindow;
     std::shared_ptr<TranscriptionSetup> transcriptionSetup;
     std::shared_ptr<mr::separation::ProjectJob> separationJob;
     std::optional<TrackHeaderLayout> trackHeaderLayout; // UI-only, never project state.

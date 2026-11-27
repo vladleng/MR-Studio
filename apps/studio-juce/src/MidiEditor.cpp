@@ -289,6 +289,7 @@ private:
     }
     // One project grid for both Piano Roll and Drum Grid; Live retains its prior preference path.
     void syncToolbarPreferences(){
+        follow.setToggleState(owner.view.midiFollowPlayhead,juce::dontSendNotification);
         syncNoteColors();
         const auto spec=noteGridFromView();const bool enabled=gridSnapEnabled();
         if(roll.gridSpec!=spec||roll.snapGrid!=enabled){

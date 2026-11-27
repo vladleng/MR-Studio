@@ -6,6 +6,14 @@
 #include "CabBrowser.h"
 #include "ToneBrowser.h"
 #include "RigPanel.h"
+#include "GraphiteWindow.h"
+#if defined(MRS_TRANSCRIPTION_UI)
+#include "TranscriptionView.h"
+#endif
+#if defined(MRS_SEPARATION_UI)
+#include "SeparationModelsView.h"
+#include "SeparationRunner.h"
+#endif
 #include <mrs/recording.hpp>
 #include <fstream>
 #include <set>
@@ -650,5 +658,132 @@ void aiPermissionsSmoke(Desktop& owner){
     check(owner.app.snapshot()==project,"AI permission UI does not mutate project");for(const auto* component:{static_cast<const juce::Component*>(&permissionPanel.mode),static_cast<const juce::Component*>(&permissionPanel.apply),static_cast<const juce::Component*>(&permissionPanel.revoke)})check(permissionPanel.getLocalBounds().contains(component->getBounds()),"AI settings layout bounds");
     owner.setAiPermissions(original);owner.message.clear();
 }
-void Desktop::audioSettings(){for(auto& existing:windows)if(existing->isVisible()&&existing->getName()=="Audio settings"){existing->toFront(true);return;}auto window=std::make_unique<EditorWindow>("Audio settings",new AudioPanel(*this));window->setLookAndFeel(&theme);windows.push_back(std::move(window));}
+
+namespace {
+// Only real application settings are registered here. Device activation and
+// model installers retain their existing lifecycle and explicit actions.
+class PreferenceUtilityPage final : public juce::Component {
+public:
+    PreferenceUtilityPage(Desktop& desktop,const juce::String& name):owner(desktop){
+        title.setText(name,juce::dontSendNotification);title.setFont(owner.theme.font(22));addAndMakeVisible(title);
+        note.setJustificationType(juce::Justification::topLeft);addAndMakeVisible(note);
+        if(name=="MIDI"){
+            toggle("Follow playhead",owner.view.midiFollowPlayhead,[this](bool v){owner.view.midiFollowPlayhead=v;owner.syncMidiEditorTools();owner.saveSettings();});
+            toggle("Resume playback from stop position",owner.view.midiResumePlayback,[this](bool v){owner.view.midiResumePlayback=v;owner.syncMidiEditorTools();owner.saveSettings();});
+            note.setText("MIDI ports and channels are assigned per instrument track.",juce::dontSendNotification);
+        }else if(name=="Plugins"){
+            action("VST3 catalogue","Scan folder...",[this]{juce::Component::SafePointer<Desktop> safe(&owner);owner.choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectDirectories,[safe](const auto& f){if(safe)safe->run([&]{safe->scan(f);});});});
+            note.setText("Scanning uses the existing VST3 catalogue and plugin browser.",juce::dontSendNotification);
+        }else if(name=="Time / Pitch"){
+            auto& c=choice("Preparation workers");c.addItem("Auto ("+juce::String(static_cast<int>(mrs::desktop::Application::stretch_worker_limit(0,std::thread::hardware_concurrency())))+" workers)",1);
+            for(int n=1;n<=16;++n)c.addItem(juce::String(n),n+1);
+            c.setSelectedId(owner.view.timePitchWorkers+1,juce::dontSendNotification);
+            c.onChange=[this,&c]{owner.run([&]{owner.view.timePitchWorkers=c.getSelectedId()-1;owner.app.set_stretch_workers(static_cast<unsigned>(owner.view.timePitchWorkers));owner.saveSettings();});};
+            note.setText("Applies to the next Time / Pitch preparation.",juce::dontSendNotification);
+#if defined(MRS_SEPARATION_UI)
+        }else if(name=="Audio Separation"){
+            auto& cpu=choice("CPU threads");cpu.setComponentID("separation-cpu-threads");
+            cpu.addItem("Auto ("+juce::String(mr::separation::chooseCpuThreads())+")",1);for(int n:{1,2,4,8,16,32})cpu.addItem(juce::String(n),n+1);
+            cpu.setSelectedId(owner.view.separationCpuThreads+1,juce::dontSendNotification);
+            cpu.onChange=[this,&cpu]{owner.run([&]{owner.view.separationCpuThreads=juce::jmax(1,cpu.getSelectedId())-1;owner.saveSettings();});};
+            auto& chunks=choice("Processing chunk size");chunks.setComponentID("separation-chunk-size");
+            chunks.addItem("Default chunk",1);chunks.addItem("Smaller chunk (less memory)",2);chunks.setSelectedId(owner.view.separationSmallChunk?2:1,juce::dontSendNotification);
+            chunks.onChange=[this,&chunks]{owner.run([&]{owner.view.separationSmallChunk=chunks.getSelectedId()==2;owner.saveSettings();});};
+            note.setText("Local CPU runtime. Applies to the next separation job. Models without small chunk support use their default.",juce::dontSendNotification);
+#endif
+        }else if(name=="Models & Data"){
+#if defined(MRS_TRANSCRIPTION_UI)
+            action("Audio-to-MIDI","Manage models...",[this]{showTranscriptionModels(owner);});
+#endif
+#if defined(MRS_SEPARATION_UI)
+            action("Audio Separation","Manage models...",[this]{showSeparationModels(owner);});
+#endif
+            note.setText("Installation, verification and removal use the existing model managers.",juce::dontSendNotification);
+        }
+    }
+    void resized()override{
+        const int w=getWidth();title.setBounds(24,24,w-48,36);
+        int y=84;for(auto& row:rows){row.label->setBounds(24,y,w-280,32);row.control->setBounds(w-244,y,220,32);y+=52;}
+        note.setBounds(24,y+12,w-48,64);
+    }
+    void paint(juce::Graphics& g)override{g.fillAll(owner.theme.role(ColourRole::window,panel));g.setColour(owner.theme.role(ColourRole::border,outline));g.drawHorizontalLine(68,24.f,static_cast<float>(getWidth()-24));}
+private:
+    struct Row{std::unique_ptr<juce::Label> label;std::unique_ptr<juce::Component> control;};
+    template<class Control> Control& addRow(const juce::String& text,std::unique_ptr<Control> control){
+        auto caption=std::make_unique<juce::Label>();caption->setText(text,juce::dontSendNotification);caption->setFont(owner.theme.font(13));
+        auto* result=control.get();control->setTitle(text);addAndMakeVisible(*caption);addAndMakeVisible(*control);
+        rows.push_back({std::move(caption),std::move(control)});return *result;
+    }
+    juce::ComboBox& choice(const juce::String& text){return addRow(text,std::make_unique<juce::ComboBox>());}
+    void toggle(const juce::String& text,bool selected,std::function<void(bool)> fn){
+        auto& c=addRow(text,std::make_unique<juce::ToggleButton>());c.setToggleState(selected,juce::dontSendNotification);
+        c.onClick=[this,&c,fn=std::move(fn)]{owner.run([&]{fn(c.getToggleState());});};
+    }
+    void action(const juce::String& text,const juce::String& button,std::function<void()> fn){
+        auto& c=addRow(text,std::make_unique<juce::TextButton>(button));c.onClick=[this,fn=std::move(fn)]{owner.run(fn);};
+    }
+    Desktop& owner;juce::Label title,note;std::vector<Row> rows;
+};
+
+class PreferencesPanel final : public juce::Component {
+public:
+    explicit PreferencesPanel(Desktop& desktop,const juce::String& requested):owner(desktop){
+        addPage("Audio");addPage("MIDI");addPage("Plugins");addPage("Time / Pitch");
+#if defined(MRS_TRANSCRIPTION_UI)
+        addPage("Audio-to-MIDI");
+#endif
+#if defined(MRS_SEPARATION_UI)
+        addPage("Audio Separation");
+#endif
+#if defined(MRS_TRANSCRIPTION_UI) || defined(MRS_SEPARATION_UI)
+        addPage("Models & Data");
+#endif
+        setSize(920,640);select(requested.isNotEmpty()?requested:owner.view.preferencesPage);
+    }
+    void select(const juce::String& requested){
+        auto it=std::find_if(pages.begin(),pages.end(),[&](const auto& p){return p.name==requested;});
+        if(it==pages.end())it=pages.begin();
+        if(!it->content){
+            if(it->name=="Audio")it->content=std::make_unique<AudioPanel>(owner,owner.testing);
+#if defined(MRS_TRANSCRIPTION_UI)
+            else if(it->name=="Audio-to-MIDI")it->content=makeTranscriptionPreferencesPage(owner);
+#endif
+            else it->content=std::make_unique<PreferenceUtilityPage>(owner,it->name);
+            it->content->setComponentID("preferences-page-"+it->name);addChildComponent(*it->content);
+        }
+        for(auto& page:pages){const bool selected=&page==&*it;page.button->setToggleState(selected,juce::dontSendNotification);if(page.content)page.content->setVisible(selected);}
+        if(owner.view.preferencesPage!=it->name){owner.view.preferencesPage=it->name;owner.saveSettings();}
+        resized();
+    }
+    void resized()override{
+        int y=24;for(auto& page:pages){page.button->setBounds(12,y,176,36);y+=42;if(page.content)page.content->setBounds(202,12,getWidth()-214,getHeight()-24);}
+    }
+    void paint(juce::Graphics& g)override{
+        g.fillAll(owner.theme.role(ColourRole::window,panel));g.setColour(owner.theme.role(ColourRole::panel,surface));
+        g.fillRoundedRectangle(4.f,8.f,192.f,static_cast<float>(getHeight()-16),6.f);
+    }
+private:
+    struct Page{juce::String name;std::unique_ptr<juce::TextButton> button;std::unique_ptr<juce::Component> content;};
+    void addPage(const juce::String& name){
+        auto button=std::make_unique<juce::TextButton>(name);button->setTitle(name);button->setComponentID("preferences-nav-"+name);
+        button->setColour(juce::TextButton::buttonOnColourId,owner.theme.role(ColourRole::focus,accent).withAlpha(.35f));
+        button->onClick=[this,name]{owner.run([&]{select(name);});};addAndMakeVisible(*button);pages.push_back({name,std::move(button),{}});
+    }
+    Desktop& owner;std::vector<Page> pages;
+};
+}
+
+void Desktop::openPreferences(const juce::String& page){
+    if(standaloneLive||app.recording())return;
+    if(preferencesWindow&&preferencesWindow->isVisible()){
+        if(page.isNotEmpty())static_cast<PreferencesPanel*>(preferencesWindow->getContentComponent())->select(page);
+        preferencesWindow->toFront(true);return;
+    }
+    preferencesWindow.reset();
+    preferencesWindow=std::make_unique<EditorWindow>("MR Studio - Preferences",new PreferencesPanel(*this,page));
+    preferencesWindow->setLookAndFeel(&theme);preferencesWindow->setResizable(false,false);
+    applyGraphiteWindowCaption(*preferencesWindow);
+}
+
+void Desktop::audioSettings(){if(!standaloneLive){openPreferences("Audio");return;}for(auto& existing:windows)if(existing->isVisible()&&existing->getName()=="Audio settings"){existing->toFront(true);return;}auto window=std::make_unique<EditorWindow>("Audio settings",new AudioPanel(*this));window->setLookAndFeel(&theme);windows.push_back(std::move(window));}
 }
