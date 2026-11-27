@@ -570,6 +570,7 @@ private:
     std::map<std::string,std::uint64_t> stretch_cache_used_;
     std::uint64_t stretch_cache_clock_{};
     StretchStatus stretch_status_;
+    bool stretch_publication_failed_{};
     std::uint64_t stretch_checked_revision_{~std::uint64_t{}};
     void poll_stretch();
     void stop_stretch();

@@ -63,6 +63,7 @@ void Application::retry_stretch(){
 }
 bool Application::stretch_ready(bool check_source){
     for(const auto& c:services_.projects->state().project->clips)if(!c.midi&&processed(c)){
+        if(stretch_publication_failed_)return false;
         const auto source=asset(c.source);
         const auto entry=stretch_cache_.find(audio::stretch_cache_key(*source,c,clip_stretch_backend(c)));
         if(entry==stretch_cache_.end())return false;
@@ -93,10 +94,12 @@ void Application::poll_stretch(){
         try{
             auto entries=job->result.get();
             for(auto& [key,entry]:entries)stretch_cache_.insert_or_assign(key,std::move(entry));
-            stretch_status_.message="Time / pitch ready";stretch_status_.progress=1;
-            // Existing device quiescence/read-ahead/PDC lifecycle is reused.
-            // Cached PCM has already had algorithmic pre-roll removed.
+            // A complete cache is not a complete playback graph. Keep playback
+            // blocked until the stopped voice publication succeeds.
+            stretch_publication_failed_=true;
             if(!refresh_clip_audio(*state.project))rebuild_audio(true);
+            stretch_publication_failed_=false;
+            stretch_status_.message="Time / pitch ready";stretch_status_.progress=1;
         }catch(const std::exception& e){stretch_status_.message=std::string("Time / pitch failed: ")+e.what();}
     }
     if(!retired_stretch_.empty()&&stretch_checked_revision_!=state.revision&&!recording()&&head.playback!=PlaybackState::playing){
@@ -133,6 +136,13 @@ void Application::poll_stretch(){
             warmBytes-=victim->second->bytes;--warmCount;stretch_cache_used_.erase(victim->first);stretch_cache_.erase(victim);
         }
         if(requests.empty()){
+            if(needed.empty())stretch_publication_failed_=false;
+            else if(stretch_publication_failed_){
+                // Explicit retry or an edit may fix the graph without requiring
+                // another DSP render. A failed retry remains a failed state.
+                if(!refresh_clip_audio(*state.project))rebuild_audio(true);
+                stretch_publication_failed_=false;
+            }
             const auto message=needed.empty()?(stretch_status_.message.empty()?std::string{}:std::string{"Time / pitch inactive"}):std::string{"Time / pitch ready"};
             if(stretch_status_.busy||stretch_status_.message!=message){stretch_status_.message=message;++stretch_status_.revision;}
             stretch_status_.busy=false;stretch_status_.progress=1;return;
@@ -170,6 +180,6 @@ void Application::stop_stretch(){
     if(stretch_job_&&stretch_job_->result.valid())stretch_job_->result.wait();
     for(auto& job:retired_stretch_)if(job->result.valid())job->result.wait();
     stretch_job_.reset();retired_stretch_.clear();stretch_cache_.clear();stretch_cache_used_.clear();
-    stretch_checked_revision_=~std::uint64_t{};stretch_status_={};
+    stretch_checked_revision_=~std::uint64_t{};stretch_status_={};stretch_publication_failed_=false;
 }
 } // namespace mrs::desktop

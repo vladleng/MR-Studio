@@ -75,14 +75,15 @@ bool Application::refresh_clip_audio(const Project& project){
     for(const auto& pending:clip_updates_)engine_->cancel_transition(pending);
     poll_clip_updates();
     auto plan=engine_->prepare_voice_transition(prepare_clip_voices(project));
-    if(!device_config_->process_buffer_frames&&engine_->async_voice_transition_available()){
-        clip_updates_.push_back(plan);
-        if(!engine_->stage_transition(plan)){clip_updates_.pop_back();throw std::runtime_error("Clip publication busy");}
-    }else{
-        bool swapped=false;
-        try{device_->stop();engine_->quiesce();engine_->swap_voice_transition_stopped(plan);swapped=true;device_->start();engine_->acknowledge_transition(plan);}
-        catch(...){const auto error=std::current_exception();try{device_->stop();engine_->quiesce();if(swapped)engine_->rollback_voice_transition_stopped(plan);device_->start();}catch(...){disconnect();}std::rethrow_exception(error);}
-    }
+    // Time / Pitch completion is a readiness barrier, not an interactive
+    // clip drag. Reuse the existing quiesced transition for actual graph
+    // adoption before reporting ready; ordinary clip edits stay asynchronous.
+    bool swapped=false;
+    try{
+        device_->stop();engine_->quiesce();engine_->swap_voice_transition_stopped(plan);swapped=true;
+        if(!engine_->acknowledge_transition(plan))throw std::runtime_error("Time / pitch voice publication was not acknowledged");
+        device_->start();
+    }catch(...){const auto error=std::current_exception();try{device_->stop();engine_->quiesce();if(swapped)engine_->rollback_voice_transition_stopped(plan);device_->start();}catch(...){disconnect();}std::rethrow_exception(error);}
     return true;
 }
 }

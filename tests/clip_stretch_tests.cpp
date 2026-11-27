@@ -186,6 +186,48 @@ void desktop_test(){
     CHECK(app.snapshot().project==saved);CHECK(app.clip_waveform(app.services().projects->state().project->clips[0]));
     for(const auto& [file,time]:entries)CHECK(fs::is_regular_file(file)&&fs::last_write_time(file)==time);
     app.set_clip_stretch(savedId,params,true);CHECK(!app.services().projects->state().project->clips[0].stretch);
+
+    // Repeat the real failure shape with 58 stretched / 19 neutral clips.
+    // Shared source/parameters intentionally reuse one DSP cache; the graph
+    // still needs one audible voice and reader per timeline clip.
+    auto many=app.snapshot();many.project.clips.clear();
+    const auto baseClip=saved.clips.front();
+    for(int i=0;i<77;++i){
+        auto c=baseClip;c.id=new_id();c.start=static_cast<Sample>(i)*baseClip.length;
+        if(i<19){c.stretch.reset();c.length=1024;c.source_offset=0;}
+        many.project.clips.push_back(std::move(c));
+    }
+    const auto manyPath=path.parent_path()/"many.mrsproject";
+    persistence::save_project(manyPath,many);app.open_project(manyPath);
+    app.connect(std::make_unique<Device>(),{0,48000,128,{}, {0,1}});
+    finish(app);
+    CHECK(app.stretch_status().message=="Time / pitch ready");
+    CHECK(app.engine()->stopped_graph().voices.size()==77);
+    for(const int i:{0,19,40,76}){
+        const auto pos=many.project.clips[static_cast<std::size_t>(i)].start+256;
+        app.seek(pos);app.engine()->process(nullptr,out.data(),128);
+        app.play();double audible{};
+        for(int block=0;block<4;++block){app.engine()->process(nullptr,out.data(),128);for(float x:out)audible+=x*x;}
+        CHECK(audible>0.001);
+        app.pause();app.engine()->process(nullptr,out.data(),128);app.poll();
+    }
+    // Reproduce publication failure without breaking a source/cache: 129
+    // processed clips exceed the existing overall voice bound. Cache readiness
+    // must not allow Play to silently run the partial graph.
+    auto excessive=many;excessive.project.clips.clear();
+    for(std::size_t i=0;i<=audio::max_voices;++i){
+        auto c=baseClip;c.id=new_id();c.start=static_cast<Sample>(i)*baseClip.length;
+        excessive.project.clips.push_back(std::move(c));
+    }
+    const auto excessivePath=path.parent_path()/"excessive.mrsproject";
+    persistence::save_project(excessivePath,excessive);app.open_project(excessivePath);
+    app.connect(std::make_unique<Device>(),{0,48000,128,{}, {0,1}});
+    finish(app);
+    CHECK(app.stretch_status().message.find("Time / pitch failed:") == 0);
+    CHECK(app.clip_waveform(app.services().projects->state().project->clips.front()));
+    rejects([&]{app.play();});
+    app.retry_stretch();CHECK(app.stretch_status().message.find("Time / pitch failed:") == 0);
+    rejects([&]{app.play();});
 }
 }
 int main(int argc,char** argv){try{CHECK(argc==2);const std::string suite=argv[1];if(suite=="model")model();else if(suite=="cache")cache();else if(suite=="desktop")desktop_test();else throw std::runtime_error("Unknown suite");std::cout<<"PASS "<<suite<<'\n';return 0;}catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

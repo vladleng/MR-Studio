@@ -2973,7 +2973,10 @@ audio::AudioEngine::LibraryPreviewState Application::library_preview_state() con
     return engine_->library_preview_state();
 }
 void Application::play() { require(!active_export_,"Audio export in progress");require(audio_running(),"connect audio or choose Offline clock first");
-    require(stretch_ready(true),"Time / pitch is not ready. Wait for preparation, apply again after cancellation, or reopen a changed source.");
+    if(!stretch_ready(true)){
+        if(stretch_publication_failed_)throw std::runtime_error(stretch_status_.message);
+        throw std::invalid_argument("Time / pitch is not ready. Wait for preparation, apply again after cancellation, or reopen a changed source.");
+    }
 #ifdef MRS_HAS_ARA
     if (ara_ && engine_->state().playback!=PlaybackState::playing && ara_->poll()) {unsaved_=true;refresh_ara(false);}
 #endif
