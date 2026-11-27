@@ -179,13 +179,13 @@ public:
     }
     // The same ZIP bounds, exact member identity and CRC apply to binary
     // performance data. Never extract or open an archived external path.
-    std::optional<std::string> member(std::string_view name) {
+    std::optional<std::string> member(std::string_view name,std::uint64_t maxBytes=maxXml) {
         const auto it = entries.find(pathKey(name));
         if (it == entries.end()) return {};
         const auto& record = it->second;
-        if (record.name != name || record.directory || record.size == 0 || record.size > maxXml || record.packed > maxXml + 65536
+        if (record.name != name || record.directory || record.size == 0 || record.size > maxBytes || record.packed > maxBytes + 65536
             || record.packed == 0 || record.size > std::uint64_t(record.packed) * 512 + 65536)
-            fail("Invalid ZIP XML member or XML expansion limit exceeded");
+            fail("Invalid ZIP member or expansion limit exceeded");
         auto compressed = at(record.start, record.packed);
         auto bytes = record.method == 0 ? std::move(compressed) : inflateXml(compressed,record.size);
         if (crc32(0,reinterpret_cast<const Bytef*>(bytes.data()),static_cast<uInt>(bytes.size())) != record.crc
@@ -692,6 +692,49 @@ public:
         if(!format||!events||at!=bytes.size())fail("Incomplete or trailing Song MIDI performance");
     }
 };
+std::string songClassId(std::string_view value){
+    std::string id;
+    for(const char ch:value){
+        if(ch=='{'||ch=='}'||ch=='-')continue;
+        if(ch>='a'&&ch<='f')id+=static_cast<char>(ch-'a'+'A');
+        else if((ch>='0'&&ch<='9')||(ch>='A'&&ch<='F'))id+=ch;
+        else fail("Invalid Song VST3 class ID");
+    }
+    if(id.size()!=32)fail("Invalid Song VST3 class ID length");
+    return id;
+}
+void decodeSongPreset(SongVst3& pluginState){
+    const std::string_view bytes=pluginState.preset;
+    const auto u64=[&](std::size_t offset){
+        return std::uint64_t(le(bytes,offset,4))|(std::uint64_t(le(bytes,offset+4,4))<<32);
+    };
+    if(bytes.size()<56||bytes.substr(0,4)!="VST3"||le(bytes,4,4)!=1||
+       songClassId(bytes.substr(8,32))!=pluginState.classId)
+        fail("Song VST3 preset header/class ID mismatch");
+    const auto list=u64(40);
+    if(list<48||list>bytes.size()-8||bytes.substr(static_cast<std::size_t>(list),4)!="List")
+        fail("Invalid Song VST3 chunk list");
+    const auto count=le(bytes,static_cast<std::size_t>(list)+4,4);
+    if(count>128||list+8+std::uint64_t(count)*20!=bytes.size())fail("Invalid Song VST3 chunk count");
+    bool comp=false,cont=false;
+    std::vector<std::pair<std::uint64_t,std::uint64_t>> ranges;
+    for(std::uint32_t n=0;n<count;++n){
+        const auto at=static_cast<std::size_t>(list+8+std::uint64_t(n)*20);
+        const auto tag=bytes.substr(at,4);
+        const auto offset=u64(at+4),size=u64(at+12);
+        if(offset<48||offset>list||size>list-offset)fail("Invalid Song VST3 chunk bounds");
+        if(size)ranges.emplace_back(offset,offset+size);
+        if(tag=="Comp"||tag=="Cont"){
+            auto& seen=tag=="Comp"?comp:cont;
+            if(seen||size>16*MiB)fail("Duplicate or oversized Song VST3 state");
+            seen=true;
+            (tag=="Comp"?pluginState.component:pluginState.controller)=bytes.substr(static_cast<std::size_t>(offset),static_cast<std::size_t>(size));
+        }
+    }
+    std::sort(ranges.begin(),ranges.end());
+    for(std::size_t i=1;i<ranges.size();++i)if(ranges[i].first<ranges[i-1].second)fail("Overlapping Song VST3 chunks");
+    if(!comp)fail("Song VST3 preset missing component state");
+}
 std::string exactNumber(double value){
     std::array<char,64> chars{};
     const auto result=std::to_chars(chars.data(),chars.data()+chars.size(),value,std::chars_format::general,std::numeric_limits<double>::max_digits10);
@@ -853,7 +896,7 @@ ImportSessionDTO StudioOneSongReader::read(const std::filesystem::path& file) {
     if(mixer){
         if(mixer->tag!="AudioMixer")fail("Invalid Song mixer");
         const auto scan=[&](const auto& self,const Node& node)->void{
-            if(node.tag=="AudioTrackChannel"){
+            if(node.tag=="AudioTrackChannel"||node.tag=="AudioSynthChannel"||node.tag=="AudioOutputChannel"){
                 const auto* uid=childById(node,"UID","uniqueID");
                 if(uid&&!uid->get("uid").empty()&&!channels.emplace(std::string(uid->get("uid")),&node).second)
                     fail("Duplicate Song mixer channel ID");
@@ -862,6 +905,93 @@ ImportSessionDTO StudioOneSongReader::read(const std::filesystem::path& file) {
         };
         scan(scan,*mixer);
     }
+    const auto uidOf=[&](const Node& node,std::string_view key){
+        const auto* uid=childById(node,"UID",key);
+        return uid?std::string(uid->get("uid")):std::string{};
+    };
+    const auto connection=[&](const Node& node,std::string_view key,std::string_view suffix){
+        const auto* edge=childById(node,"Connection",key);
+        if(!edge)return std::string{};
+        const auto id=edge->get("objectID");
+        if(!id.ends_with(suffix)||id.size()<=suffix.size())return std::string{};
+        return std::string(id.substr(0,id.size()-suffix.size()));
+    };
+    std::optional<Node> musicDevice,synthFolder;
+    if(const auto data=archive.xml("Devices/musictrackdevice.xml")){
+        musicDevice=parseXml(::ui::live::normalizeStudioOneXml(*data));
+        if(musicDevice->tag!="MusicTrackDevice")fail("Invalid Song music device");
+    }
+    if(const auto data=archive.xml("Devices/audiosynthfolder.xml")){
+        synthFolder=parseXml(::ui::live::normalizeStudioOneXml(*data));
+        if(synthFolder->tag!="AudioSynthFolder")fail("Invalid Song synth folder");
+    }
+    std::map<std::string,const Node*> musicChannels,synths;
+    if(musicDevice){
+        const auto scan=[&](const auto& self,const Node& node)->void{
+            if(node.tag=="MusicTrackChannel"){
+                auto uid=uidOf(node,"uniqueID");
+                if(!uid.empty()&&!musicChannels.emplace(std::move(uid),&node).second)fail("Duplicate Song MIDI channel");
+            }
+            for(const auto& child:node.children)self(self,child);
+        };scan(scan,*musicDevice);
+    }
+    if(synthFolder)for(const auto& synth:synthFolder->children){
+        if(const auto* data=childById(synth,"Attributes","deviceData")){
+            auto uid=uidOf(*data,"uniqueID");
+            if(!uid.empty()&&!synths.emplace(std::move(uid),&synth).second)fail("Duplicate Song synth identity");
+        }
+    }
+    const Node* main=nullptr;std::string mainId;
+    unsigned outputCount{};
+    for(const auto& [id,channel]:channels)if(channel->tag=="AudioOutputChannel"){
+        ++outputCount;main=channel;mainId=id;
+    }
+    if(outputCount!=1){main=nullptr;mainId.clear();if(outputCount>1)warning("Multiple Song output channels not mapped to hardware.");}
+    std::uint64_t presetBytes{};
+    const auto addPlugin=[&](const Node& device,std::optional<std::size_t> track,bool instrument){
+        const auto* ghost=childById(device,"Attributes","ghostData");
+        const auto* info=ghost?childById(*ghost,"Attributes","classInfo"):nullptr;
+        const auto* path=childById(device,"String","presetPath");
+        if(!info||!path||ghost->get("presetType")!="vstpreset"||!info->get("subCategory").starts_with("VST3")){
+            warning("Unsupported Song device omitted: "+std::string(device.get("name")));return;
+        }
+        SongVst3 state;state.track=track;state.instrument=instrument;state.bypass=device.get("bypass")=="1";
+        state.name=info->get("name");state.classId=songClassId(info->get("classID"));
+        if(songClassId(uidOf(device,"deviceClassID"))!=state.classId)
+            fail("Song VST3 device identity mismatch");
+        state.member=path->get("text");
+        if(!state.member.starts_with("Presets/")||!state.member.ends_with(".vstpreset"))fail("Unsafe Song VST3 preset reference");
+        const auto bytes=archive.member(state.member,33*MiB);
+        if(!bytes)fail("Song VST3 preset missing");
+        if(bytes->size()>64*MiB-presetBytes)fail("Song VST3 preset aggregate budget exceeded");
+        presetBytes+=bytes->size();state.preset=*bytes;decodeSongPreset(state);
+        if(dto.songPlugins.size()>=32)fail("Song VST3 count exceeds native project limit");
+        state.object=add(Kind::device,device,track);
+        auto& row=dto.objects[state.object];row.type="Vst3Plugin";row.name=state.name;
+        row.properties.emplace_back("classId",state.classId);
+        row.properties.emplace_back("presetPath",state.member);
+        row.properties.emplace_back("role",instrument?"instrument":"effect");
+        row.detail="Verified VST3 preset; installation and restore checked on target PC";
+        dto.songPlugins.push_back(std::move(state));
+    };
+    const auto addInserts=[&](const Node& channel,std::optional<std::size_t> track){
+        if(const auto* inserts=childById(channel,"Attributes","Inserts"))
+            for(const auto& item:inserts->children)
+                if(item.tag=="Attributes"&&!uidOf(item,"deviceClassID").empty())addPlugin(item,track,false);
+        if(const auto* post=childById(channel,"Attributes","PostFaderInserts"))
+            for(const auto& item:post->children)if(!uidOf(item,"deviceClassID").empty())
+                warning("Song post-fader insert not imported: "+std::string(channel.get("label")));
+        if(const auto* sends=childById(channel,"Attributes","Sends"))
+            for(const auto& item:sends->children)if(item.get("x_id")!="Presets")
+                warning("Song send not imported: "+std::string(channel.get("label")));
+    };
+    if(main){
+        const auto index=add(Kind::channel,*main);
+        dto.objects[index].detail="Main gain and pre-fader inserts";
+        if(main->get("mute")=="1")warning("Song Main mute not supported.");
+        addInserts(*main,{});
+    }
+    std::set<std::string> usedSynths,usedChannels;
     std::size_t midiNotes{};
     std::map<std::string,SongPerformance> performances;
     for(const auto& track:tracks->children){
@@ -871,19 +1001,47 @@ ImportSessionDTO StudioOneSongReader::read(const std::filesystem::path& file) {
         const auto trackIndex=add(Kind::track,track);
         auto& target=dto.objects[trackIndex];
         target.id=track.get("trackID");
-        target.detail=music?"Instrument track; plug-in assignment deferred":"Audio track and static mixer settings";
+        target.detail=music?"Instrument track and verified single-output routing":"Audio track and static mixer settings";
         target.support=Support::supported;
         if(music){
             if(const auto* settings=childById(track,"Attributes","attributes"))
                 if(settings->get("drumMode")=="1")target.properties.emplace_back("drumMode","1");
         }
-        if(!music)if(const auto* uid=childById(track,"UID","channelID")){
-            const auto found=channels.find(std::string(uid->get("uid")));
-            if(found!=channels.end()){
-                for(const auto key:{"gain","pan","mute","solo"})
-                    if(!found->second->get(key).empty())target.properties.emplace_back(std::string("mix.")+key,found->second->get(key));
-            }else warning("Song track mixer channel not found: "+target.name);
+        const auto channelId=uidOf(track,"channelID");
+        const Node* audioChannel=nullptr;const Node* instrument=nullptr;
+        if(music){
+            const auto found=musicChannels.find(channelId);
+            if(found!=musicChannels.end()){
+                const auto& midiChannel=*found->second;
+                const auto outId=connection(midiChannel,"instrumentOut","/Input");
+                const auto synthId=connection(midiChannel,"destination","/MusicInput00");
+                const auto out=channels.find(outId),synth=synths.find(synthId);
+                if(out!=channels.end()&&out->second->tag=="AudioSynthChannel"&&out->second->get("synthPort")=="0"&&synth!=synths.end()){
+                    const auto* ports=childById(*synth->second,"List","synthChannels");
+                    if(ports&&ports->children.size()==1&&ports->children.front().tag=="UID"&&ports->children.front().get("uid")==outId&&
+                       !usedSynths.contains(synthId)&&!usedChannels.contains(outId)){
+                        usedSynths.insert(synthId);usedChannels.insert(outId);
+                        audioChannel=out->second;instrument=synth->second;
+                    }
+                }
+                if(!instrument)warning("Song instrument route not representable (shared/multi-output or unsupported MIDI port): "+target.name);
+                if(midiChannel.get("mute")=="1")target.properties.emplace_back("midi.mute","1");
+                if(midiChannel.get("solo")=="1")target.properties.emplace_back("midi.solo","1");
+            }else if(!channelId.empty())warning("Song MIDI mixer channel not found: "+target.name);
+        }else if(const auto found=channels.find(channelId);found!=channels.end()&&found->second->tag=="AudioTrackChannel"){
+            audioChannel=found->second;
+        }else if(!channelId.empty())warning("Song track mixer channel not found: "+target.name);
+        if(audioChannel){
+            for(const auto key:{"gain","pan","mute","solo"})
+                if(!audioChannel->get(key).empty())target.properties.emplace_back(std::string("mix.")+key,audioChannel->get(key));
+            if(const auto* destination=childById(*audioChannel,"Connection","destination")){
+                target.properties.emplace_back("destination",std::string(destination->get("objectID")));
+                if(mainId.empty()||connection(*audioChannel,"destination","/Input")!=mainId)
+                    warning("Song output route not representable; using Main: "+target.name);
+            }
         }
+        if(instrument)addPlugin(*instrument,trackIndex,true);
+        if(audioChannel)addInserts(*audioChannel,trackIndex);
         const auto* events=childById(track,"List","Events");
         if(!events)continue;
         for(const auto& event:events->children){
@@ -991,7 +1149,7 @@ ImportSessionDTO StudioOneSongReader::read(const std::filesystem::path& file) {
         row.timeUnit = TimeUnit::seconds;
         // Loop coordinates and active state remain raw source properties.
     }
-    warning("Song import includes structure, audio and MIDI notes. Assign instruments to hear MIDI; plug-ins, routing, instrument mixer, clip gain curves, controllers and automation are not imported.");
+    warning("Song import supports VST3 single-output instruments, pre-fader inserts and Main routing. Other routing, sends, clip gain curves, controllers, Sound Variations and automation are not restored.");
     warning("Source playhead and loop are retained as metadata, not applied to the running transport.");
     return dto;
 }

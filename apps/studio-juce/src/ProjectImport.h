@@ -34,11 +34,20 @@ struct AssetReference {
     Location location{};
 };
 
+// Verified standard VST3 preset chunks, never executed during preview/import.
+struct SongVst3 {
+    std::size_t object{};
+    std::optional<std::size_t> track; // null = Main
+    std::string classId, name, member, preset, component, controller;
+    bool instrument{}, bypass{};
+};
+
 struct ImportSessionDTO {
     static constexpr unsigned schemaVersion = 1;
     std::string sourceFormat, sourceVersion, application, applicationVersion, title;
     std::vector<Object> objects;
     std::vector<AssetReference> assets;
+    std::vector<SongVst3> songPlugins;
     std::vector<std::string> warnings;
 };
 
@@ -57,7 +66,7 @@ public:
     static void copyEmbeddedAudio(const std::filesystem::path&, const std::vector<EmbeddedAudioCopy>&, std::stop_token);
 };
 
-// Studio One source adapter for musical structure, audio and MIDI notes.
+// Studio One source adapter for musical structure, audio, MIDI and VST3 state.
 class StudioOneSongReader {
 public:
     static ImportSessionDTO read(const std::filesystem::path&);

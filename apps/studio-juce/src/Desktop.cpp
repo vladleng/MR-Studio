@@ -80,7 +80,7 @@ class ProjectImportAlert final : public StudioAlertWindow, private juce::ListBox
                 +"  |  Studio One / Studio Pro\n"+countKind(Kind::section)+" sections  /  "+countKind(Kind::chord)+" chords  /  "+countKind(Kind::marker)+" markers"
                 +"\n"+count(static_cast<std::size_t>(std::count_if(p.session->objects.begin(),p.session->objects.end(),[](const auto& o){return o.kind==Kind::clip&&o.type=="AudioEvent";})))+" audio clips  /  "
                 +count(static_cast<std::size_t>(std::count_if(p.session->objects.begin(),p.session->objects.end(),[](const auto& o){return o.kind==Kind::clip&&o.type=="MusicPart";})))+" MIDI clips  /  "+countKind(Kind::note)+" notes"
-                +"\n"+count(p.tracks)+" tracks\nStructure, audio and MIDI import. Assign instruments to hear MIDI. Plug-ins, routing and automation are not imported yet.\nCreate a separate project; the current project stays open.";
+                +"\n"+count(p.tracks)+" tracks  /  "+count(p.plugins)+" VST3 plug-ins\nVST3 matched against local scanner catalogue; unmatched presets retained. Other routing and automation not restored.\nCreate a separate project; the current project stays open.";
         }
         return label(p.session->title).replaceCharacters("\r\n\t","   ").substring(0,100)+"  |  "
             +label(p.session->application).substring(0,60)+" "+label(p.session->applicationVersion).substring(0,24)
@@ -612,7 +612,7 @@ void Desktop::choose(int chooserOptions,std::function<void(const juce::File&)> c
 juce::PopupMenu Desktop::projectImportMenu() const {
     juce::PopupMenu formats;
     formats.addItem(previewDawprojectAction,"DAWproject (.dawproject)...",!projectImportPreview.valid()&&!projectImportCreate.valid()&&!projectImportDialog);
-    formats.addItem(previewSongAction,"Studio One / Studio Pro (.song) — structure and audio...",!projectImportPreview.valid()&&!projectImportCreate.valid()&&!projectImportDialog);
+    formats.addItem(previewSongAction,"Studio One / Studio Pro (.song)...",!projectImportPreview.valid()&&!projectImportCreate.valid()&&!projectImportDialog);
     return formats;
 }
 void Desktop::startProjectImportPreview(const juce::File& file){
@@ -645,6 +645,8 @@ void Desktop::startProjectImportCreate(mrs::project_import::CreateRequest reques
     projectImportStop=std::stop_source{};
     const auto token=projectImportStop.get_token();
     try{
+        request.pluginCatalog.clear();
+        for(const auto& plugin:catalog)request.pluginCatalog.push_back({plugin.class_id,plugin.path,plugin.instrument});
         projectImportRequest=request;
         projectImportCreate=std::async(std::launch::async,[request=std::move(request),token]{return mrs::project_import::createProject(request,token);});
     }catch(const std::exception& e){projectImportRequest.reset();message=label(e.what());repaint();return;}

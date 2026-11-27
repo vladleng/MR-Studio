@@ -300,6 +300,55 @@ void dawprojectPreviewSmoke(const juce::File& screenshot){
     const auto brokenMidi=folder.getChildFile("broken-midi.song");
     archive(brokenMidi,{{"Song/song.xml",midiXml},{"Song/mediapool.xml",midiPool},{"metainfo.xml",midiMeta},{"Performances/Drums/Take.musicx",performance.substr(0,performance.size()-1)}});
     check(!read(brokenMidi).session,"Truncated Song MIDI performance rejected");
+    // Standard VST3 container fixture, not executable code or vendor data.
+    const std::string synthClass="00112233445566778899AABBCCDDEEFF",effectClass="112233445566778899AABBCCDDEEFF00";
+    const auto presetFor=[](const std::string& classId){
+        std::string bytes="VST3";
+        const auto put=[&](std::uint64_t value,unsigned count){for(unsigned i=0;i<count;++i)bytes+=static_cast<char>((value>>(8*i))&255u);};
+        put(1,4);bytes+=classId;put(53,8);bytes+="abcde";bytes+="List";put(2,4);
+        bytes+="Comp";put(48,8);put(3,8);bytes+="Cont";put(51,8);put(2,8);return bytes;
+    };
+    const auto deviceXml=[](const std::string& classId,const std::string& pluginName,const std::string& member,const std::string& attrs,const std::string& extra){
+        return "<Attributes "+attrs+"><UID x:id=\"deviceClassID\" uid=\""+classId+"\"/><Attributes x:id=\"deviceData\" name=\""+pluginName+"\"><UID x:id=\"uniqueID\" uid=\"device\"/></Attributes><Attributes x:id=\"ghostData\" presetType=\"vstpreset\"><Attributes x:id=\"classInfo\" classID=\""+classId+"\" name=\""+pluginName+"\" subCategory=\"VST3\"/></Attributes><String x:id=\"presetPath\" text=\""+member+"\"/>"+extra+"</Attributes>";
+    };
+    const auto pluginSong=folder.getChildFile("plugins.song");
+    auto pluginXml=midiXml;
+    const auto trackAttrs=pluginXml.find("<Attributes x:id=\"attributes\" drumMode");
+    check(trackAttrs!=std::string::npos,"Song plugin fixture track");
+    pluginXml.insert(trackAttrs,"<UID x:id=\"channelID\" uid=\"music\"/>");
+    const auto instrumentXml="<AudioSynthFolder>"+deviceXml(synthClass,"Test synth","Presets/Synths/s.vstpreset","name=\"Inst01\"","<List x:id=\"synthChannels\"><UID uid=\"synthOut\"/></List>")+"</AudioSynthFolder>";
+    const std::string midiDeviceXml=R"xml(<MusicTrackDevice><MusicTrackChannel><UID x:id="uniqueID" uid="music"/><Connection x:id="instrumentOut" objectID="synthOut/Input"/><Connection x:id="destination" objectID="device/MusicInput00"/></MusicTrackChannel></MusicTrackDevice>)xml";
+    const auto fxXml=deviceXml(effectClass,"Test effect","Presets/Channels/f.vstpreset","name=\"FX01\" bypass=\"1\"","");
+    const auto mixerXml="<AudioMixer><AudioOutputChannel gain=\"0.75\"><UID x:id=\"uniqueID\" uid=\"main\"/><Attributes x:id=\"Inserts\">"+fxXml+"</Attributes></AudioOutputChannel><AudioSynthChannel synthPort=\"0\" gain=\"0.5\" pan=\"0.25\"><UID x:id=\"uniqueID\" uid=\"synthOut\"/><Connection x:id=\"destination\" objectID=\"main/Input\"/><Attributes x:id=\"Inserts\">"+fxXml+"</Attributes></AudioSynthChannel></AudioMixer>";
+    const std::vector<std::pair<std::string,std::string>> pluginFiles={{"Song/song.xml",pluginXml},{"Song/mediapool.xml",midiPool},{"metainfo.xml",midiMeta},{"Performances/Drums/Take.musicx",performance},{"Devices/musictrackdevice.xml",midiDeviceXml},{"Devices/audiosynthfolder.xml",instrumentXml},{"Devices/audiomixer.xml",mixerXml},{"Presets/Synths/s.vstpreset",presetFor(synthClass)},{"Presets/Channels/f.vstpreset",presetFor(effectClass)}};
+    archive(pluginSong,pluginFiles);
+    const auto pluginPreview=read(pluginSong);
+    check(pluginPreview.session&&pluginPreview.plugins==3,"Song VST3 preview count");
+    const auto fakeModule=folder.getChildFile("fixture.vst3");
+    check(fakeModule.replaceWithText("fixture only; never load"),"Fixture catalogue path");
+    const auto localModule=fakeModule.getFullPathName().toStdString();
+    CreateRequest pluginRequest{diskPath(pluginSong),diskPath(folder.getChildFile("SongPluginProjects")),{},false,{{synthClass,localModule,true},{effectClass,localModule,false}}};
+    const auto pluginCreated=createProject(pluginRequest);
+    if(pluginCreated.projectFile.empty())throw std::runtime_error("Song VST3 creation failed: "+pluginCreated.error);
+    const auto pluginDoc=mrs::persistence::load_project(pluginCreated.projectFile);
+    const auto& pluginProject=pluginDoc.project;
+    check(pluginProject.master_gain==0.75f&&pluginProject.master_inserts.size()==1&&pluginProject.master_inserts[0].bypass,"Song master VST3/gain");
+    check(pluginProject.tracks[0].inserts.size()==2&&pluginProject.tracks[0].inserts[0].class_id==synthClass&&pluginProject.tracks[0].inserts[1].class_id==effectClass&&pluginProject.tracks[0].inserts[1].bypass,"Song instrument/effect order and bypass");
+    check(pluginProject.tracks[0].mix.gain==0.5f&&pluginProject.tracks[0].mix.pan==-0.5f&&!pluginProject.tracks[0].output,"Song synth mixer and Main route");
+    const auto& pluginInsert=pluginProject.tracks[0].inserts[0];
+    check(pluginInsert.component_state.size()==3&&pluginInsert.component_state[0]==std::byte{'a'}&&pluginInsert.controller_state.size()==2&&pluginInsert.controller_state[1]==std::byte{'e'},"Song VST3 opaque state");
+    mrs::persistence::save_project(pluginCreated.projectFile,pluginDoc);
+    check(mrs::persistence::load_project(pluginCreated.projectFile)==pluginDoc,"Song VST3 persistence");
+    pluginRequest.pluginCatalog.clear();
+    const auto missingPlugins=createProject(pluginRequest);
+    check(!missingPlugins.projectFile.empty(),"Missing VST3 must not block import");
+    const auto missingDoc=mrs::persistence::load_project(missingPlugins.projectFile);
+    check(missingDoc.project.master_inserts.empty()&&missingDoc.project.tracks[0].inserts.empty()&&!missingPlugins.warnings.empty(),"Missing plugins not activated");
+    check(std::distance(std::filesystem::directory_iterator(missingPlugins.projectFile.parent_path()/"ImportedVST3"),std::filesystem::directory_iterator{})==3,"Unmatched VST3 presets retained");
+    auto corruptPluginFiles=pluginFiles;corruptPluginFiles.back().second[8]='F';
+    const auto corruptPluginSong=folder.getChildFile("corrupt-plugins.song");archive(corruptPluginSong,corruptPluginFiles);
+    check(!read(corruptPluginSong).session,"VST3 class mismatch rejected");
+
 
     unchanged();
     auto* alert=show(full);

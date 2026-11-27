@@ -213,8 +213,8 @@ struct Projection {
             else if(!get(o,"mix.gain").empty())warning("Unverified Song channel gain: "+t.name);
             if(auto v=numeric(o,"mix.pan");v&&*v>=0&&*v<=1)t.mix.pan=static_cast<float>(*v*2-1);
             else if(!get(o,"mix.pan").empty())warning("Unverified Song channel pan: "+t.name);
-            t.mix.mute=get(o,"mix.mute")=="1"||get(o,"mute")=="1";
-            t.mix.solo=get(o,"mix.solo")=="1";
+            t.mix.mute=get(o,"mix.mute")=="1"||get(o,"mute")=="1"||get(o,"midi.mute")=="1";
+            t.mix.solo=get(o,"mix.solo")=="1"||get(o,"midi.solo")=="1";
             (music?midiTracks:audioTracks)[i]=doc.project.tracks.size();map(i,t.id);
             doc.project.tracks.push_back(std::move(t));
         }
@@ -287,6 +287,65 @@ struct Projection {
             clip.name=name(o,"Imported MIDI");clip.color=songColor(o);
             if(!clip.color)clip.color=doc.project.tracks[track].color;
             clip.midi=std::move(midi);map(i,clip.id);doc.project.clips.push_back(std::move(clip));
+        }
+    }
+    void songDevices(const CreateRequest& request,const fs::path& stageDir){
+        for(const auto& object:objects)if(object.kind==Kind::channel&&object.type=="AudioOutputChannel"){
+            if(const auto gain=numeric(object,"gain");gain&&*gain>=0&&*gain<=Project::maximum_master_gain)
+                doc.project.master_gain=static_cast<float>(*gain);
+            else if(!get(object,"gain").empty())warning("Unverified Song Main gain.");
+        }
+        if(session.songPlugins.empty())return;
+        const auto backups=stageDir/"ImportedVST3";
+        fs::create_directory(backups);
+        std::set<std::size_t> instrumentReady;
+        const auto sameId=[](std::string_view lhs,std::string_view rhs){
+            if(lhs.size()!=rhs.size())return false;
+            const auto upper=[](char value){return value>='a'&&value<='f'?static_cast<char>(value-'a'+'A'):value;};
+            return std::equal(lhs.begin(),lhs.end(),rhs.begin(),[&](char left,char right){return upper(left)==upper(right);});
+        };
+        for(const auto& pluginState:session.songPlugins){
+            checkStop(stop);
+            const auto backup="plugin-"+std::to_string(pluginState.object+1)+".vstpreset";
+            std::ofstream out(backups/backup,std::ios::binary);
+            out.write(pluginState.preset.data(),static_cast<std::streamsize>(pluginState.preset.size()));out.close();
+            if(!out)throw std::runtime_error("Cannot preserve imported VST3 preset");
+            provenance<<"PRESET "<<pluginState.object+1<<' '<<std::quoted("ImportedVST3/"+backup)<<' '<<std::quoted(pluginState.classId)<<'\n';
+            std::vector<const PluginLocation*> candidates;
+            for(const auto& candidate:request.pluginCatalog)if(sameId(candidate.classId,pluginState.classId)&&
+                (!candidate.instrument||*candidate.instrument==pluginState.instrument)&&!candidate.path.empty()){
+                std::error_code error;
+                if(fs::exists(fromUtf8(candidate.path),error)&&!error&&
+                   std::none_of(candidates.begin(),candidates.end(),[&](const auto* previous){return previous->path==candidate.path;}))
+                    candidates.push_back(&candidate);
+            }
+            std::vector<NativeInsert>* chain=&doc.project.master_inserts;
+            std::optional<std::size_t> track;
+            if(pluginState.track){
+                const auto source=*pluginState.track;
+                track=midiTracks[source]?midiTracks[source]:audioTracks[source];
+                if(!track)throw std::runtime_error("Missing native track for Song VST3");
+                chain=&doc.project.tracks[*track].inserts;
+            }
+            const auto retained=" (preset retained: ImportedVST3/"+backup+")";
+            if(candidates.size()!=1){
+                warning(std::string(candidates.empty()?"VST3 not found in local scanner catalogue: ":"Ambiguous VST3 class in local catalogue: ")+pluginState.name+retained);
+                continue;
+            }
+            if(track&&doc.project.tracks[*track].kind==TrackKind::instrument&&!pluginState.instrument&&!instrumentReady.contains(*track)){
+                warning("Instrument not available; effect not installed: "+pluginState.name+retained);continue;
+            }
+            if(chain->size()>=8){warning("Song insert limit reached: "+pluginState.name+retained);continue;}
+            NativeInsert insert;insert.id=entity(pluginState.object,"song-vst3");insert.kind=InsertKind::vst3;
+            insert.class_id=candidates.front()->classId;insert.plugin_path=candidates.front()->path;
+            insert.plugin_name=pluginState.name;insert.bypass=pluginState.bypass;
+            const auto assign=[](SharedBytes& target,const std::string& bytes){
+                const auto* first=reinterpret_cast<const std::byte*>(bytes.data());target.assign(first,first+bytes.size());
+            };
+            assign(insert.component_state,pluginState.component);assign(insert.controller_state,pluginState.controller);
+            insert.validate();
+            if(pluginState.instrument&&track)instrumentReady.insert(*track);
+            map(pluginState.object,insert.id);chain->push_back(std::move(insert));
         }
     }
     void timeMap(){
@@ -566,7 +625,7 @@ CreateResult perform(const CreateRequest& req,std::stop_token stop){
     if(p.isSong()){p.songTimeMap();p.songArrangement();p.songAudio();p.songMidi();}
     else{p.timeMap();p.tracks();p.arrangement();}
     if(!p.isSong()&&p.doc.project.tracks.empty()&&p.doc.project.folders.empty()&&p.doc.project.markers.empty())throw std::runtime_error("No supported tracks or markers found in the export");
-    if(std::any_of(session.objects.begin(),session.objects.end(),[](const Object& o){return o.kind==Kind::device;}))p.warning("Plug-ins and mixer settings were not imported. Assign an instrument to hear imported MIDI.");
+    if(!p.isSong()&&std::any_of(session.objects.begin(),session.objects.end(),[](const Object& o){return o.kind==Kind::device;}))p.warning("Plug-ins and mixer settings were not imported. Assign an instrument to hear imported MIDI.");
     for(const auto& warning:session.warnings)if(!warning.starts_with("Studio Pro DAWproject 0.1:"))p.warning(warning);
     const auto base=fs::canonical(source.parent_path());
     std::map<std::string,Media> media;
@@ -595,6 +654,7 @@ CreateResult perform(const CreateRequest& req,std::stop_token stop){
     if((GetFileAttributesW(root.c_str())&FILE_ATTRIBUTE_REPARSE_POINT)!=0)throw std::runtime_error("Import destination must be a local project directory, not a reparse point");
     Staging stage(root);
     desktop::ensure_project_folders(stage.dir/"project.mrsproject");
+    if(p.isSong())p.songDevices(req,stage.dir);
     for(auto& [key,m]:media){
         checkStop(stop);
         if(!m.failure.empty())continue;
