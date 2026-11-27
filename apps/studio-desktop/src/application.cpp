@@ -2603,10 +2603,16 @@ audio::Mp3ExportResult Application::export_mp3(const std::filesystem::path& dest
     },callbacks);
 }
 audio::OfflineRenderResult Application::PreparedMasterExport::render(const audio::OfflineRenderCallbacks& callbacks){
+    if(!stem_ids_.empty())throw std::logic_error("Use render_stems for a stem export plan");
     if(used_.exchange(true))throw std::logic_error("Export plan already rendered");
     // A copy retains all processors on the control owner while the temporary
     // engine and its workers are destroyed here.
     return audio::render_master_range(config_,graph_,begin_,end_,callbacks);
+}
+audio::OfflineRenderResult Application::PreparedMasterExport::render_stems(const audio::OfflineStemRenderCallbacks& callbacks){
+    if(stem_ids_.empty())throw std::logic_error("Not a stem export plan");
+    if(used_.exchange(true))throw std::logic_error("Export plan already rendered");
+    return audio::render_stem_range(config_,graph_,begin_,end_,stem_indices_,callbacks);
 }
 void Application::finish_master_export(const std::shared_ptr<PreparedMasterExport>& plan){
     require_ai_owner();
@@ -2624,12 +2630,34 @@ audio::OfflineRenderResult Application::export_master(Sample begin,Sample end,co
     finish_master_export(plan);return rendered;
 }
 std::shared_ptr<Application::PreparedMasterExport> Application::prepare_master_export(Sample begin,Sample end) {
+    return prepare_audio_export(begin,end,{});
+}
+std::shared_ptr<Application::PreparedMasterExport> Application::prepare_stem_export(Sample begin,Sample end,std::span<const Id> tracks) {
+    require(!tracks.empty(),"Select at least one stem track");
+    return prepare_audio_export(begin,end,tracks);
+}
+std::shared_ptr<Application::PreparedMasterExport> Application::prepare_audio_export(Sample begin,Sample end,std::span<const Id> stem_tracks) {
     require_ai_owner();
     require_not_playing();
     require(workspace_!=Workspace::live&&!performance_plan_,"Audio export is Studio-only");
     require(begin>=0&&end>begin&&end<=max_sample,"Invalid export range");
     require(!preparing_project_&&!pending_live_insert_switch_.transition&&!staged_insert_target_&&staged_insert_graphs_.empty()&&retained_insert_keys_.empty(),"Wait for pending graph changes before export");
     require(stretch_ready(true),"Wait for current time / pitch preparation before export");
+    std::vector<std::size_t> stem_indices;
+    if(!stem_tracks.empty()) {
+        require(stem_tracks.size()<=audio::max_mixer_tracks,"Too many selected stems");
+        const auto project=services_.projects->state().project;
+        std::vector<Id> mixer_ids;
+        for(const auto& track:project->tracks)if(track.kind!=TrackKind::midi)mixer_ids.push_back(track.id);
+        for(const auto& id:stem_tracks) {
+            const auto track=std::find_if(project->tracks.begin(),project->tracks.end(),[&](const auto& t){return t.id==id;});
+            require(track!=project->tracks.end()&&track->kind!=TrackKind::midi,"Missing or unsupported stem track");
+            require(!track->output&&track->hardware_outputs.empty(),"Stem must be routed directly to Master");
+            const auto index=static_cast<std::size_t>(std::find(mixer_ids.begin(),mixer_ids.end(),id)-mixer_ids.begin());
+            require(index<audio::max_mixer_tracks&&std::find(stem_indices.begin(),stem_indices.end(),index)==stem_indices.end(),"Duplicate or invalid stem track");
+            stem_indices.push_back(index);
+        }
+    }
     const auto phase=device_?device_->status().phase:audio::DevicePhase::closed;
     require(phase!=audio::DevicePhase::error,"Recover audio device before export");
     const bool restart=phase==audio::DevicePhase::running;
@@ -2712,14 +2740,18 @@ std::shared_ptr<Application::PreparedMasterExport> Application::prepare_master_e
             return prepared;
         };
         for(const auto& t:project.tracks)if(t.kind!=TrackKind::midi)graph.inserts.push_back(chain(t.inserts,t.kind==TrackKind::instrument));
-        graph.master_inserts=chain(project.master_inserts,false);
-        graph.processors=std::make_shared<processing::PreparedGraph>(
-            processing::GraphSnapshot{std::make_shared<const processing::GraphState>(std::move(graph_state)),0,false,false},
-            processing::ProcessConfig{project.sample_rate,2,block,block,false,true});
+        if(stem_tracks.empty()) {
+            graph.master_inserts=chain(project.master_inserts,false);
+            graph.processors=std::make_shared<processing::PreparedGraph>(
+                processing::GraphSnapshot{std::make_shared<const processing::GraphState>(std::move(graph_state)),0,false,false},
+                processing::ProcessConfig{project.sample_rate,2,block,block,false,true});
+        }
         audio::RenderConfig config{project.sample_rate,0,2,block};
         if(device_config_)config.processing_workers=device_config_->processing_workers;
         auto plan=std::make_shared<PreparedMasterExport>();
         plan->config_=config;plan->graph_=std::move(graph);plan->begin_=begin;plan->end_=end;
+        plan->stem_ids_.assign(stem_tracks.begin(),stem_tracks.end());
+        plan->stem_indices_=std::move(stem_indices);
         export_restart_device_=restart;active_export_=plan;return plan;
     }catch(...){
         const auto original=std::current_exception();
