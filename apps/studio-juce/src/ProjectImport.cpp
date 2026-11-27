@@ -11,6 +11,8 @@
 #include <xmllite.h>
 #include <algorithm>
 #include <array>
+#include <bit>
+#include <limits>
 #include <charconv>
 #include <cmath>
 #include <fstream>
@@ -175,7 +177,9 @@ public:
         const auto found = entries.find(pathKey(path));
         return found != entries.end() && !found->second.directory && found->second.name == path;
     }
-    std::optional<std::string> xml(std::string_view name) {
+    // The same ZIP bounds, exact member identity and CRC apply to binary
+    // performance data. Never extract or open an archived external path.
+    std::optional<std::string> member(std::string_view name) {
         const auto it = entries.find(pathKey(name));
         if (it == entries.end()) return {};
         const auto& record = it->second;
@@ -185,7 +189,12 @@ public:
         auto compressed = at(record.start, record.packed);
         auto bytes = record.method == 0 ? std::move(compressed) : inflateXml(compressed,record.size);
         if (crc32(0,reinterpret_cast<const Bytef*>(bytes.data()),static_cast<uInt>(bytes.size())) != record.crc
-            || !validUtf8(bytes) || bytes.find('\0') != bytes.npos) fail("Corrupt ZIP XML or non-UTF-8 text");
+            ) fail("Corrupt ZIP member checksum");
+        return bytes;
+    }
+    std::optional<std::string> xml(std::string_view name) {
+        auto bytes=member(name);
+        if(bytes&&(!validUtf8(*bytes)||bytes->find('\0')!=bytes->npos))fail("Corrupt ZIP XML or non-UTF-8 text");
         return bytes;
     }
     void copyAudio(const EmbeddedAudioCopy& copy, const std::stop_token& stop) {
@@ -579,6 +588,119 @@ ImportSessionDTO DAWprojectReader::read(const std::filesystem::path& file) {
     return dto;
 }
 
+namespace {
+// Studio One format-9 musicx: observed unoptimized UBJSON containers,
+// big-endian numeric scalars. Bound all reads, nesting and event counts.
+// Never guess an unknown encoding or parse by scanning for pitch bytes.
+class SongPerformance {
+    std::string_view bytes;
+    std::size_t at{}, values{};
+    char peek() const {if(at>=bytes.size())fail("Truncated Song MIDI performance");return bytes[at];}
+    char take(){const auto c=peek();++at;return c;}
+    std::uint64_t bits(unsigned n){
+        std::uint64_t v{};
+        for(unsigned i=0;i<n;++i)v=(v<<8)|static_cast<unsigned char>(take());
+        return v;
+    }
+    double scalar(char tag){
+        double v{};
+        switch(tag){
+            case 'i':v=std::bit_cast<std::int8_t>(static_cast<std::uint8_t>(bits(1)));break;
+            case 'U':v=static_cast<double>(bits(1));break;
+            case 'I':v=std::bit_cast<std::int16_t>(static_cast<std::uint16_t>(bits(2)));break;
+            case 'l':v=std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(bits(4)));break;
+            case 'L':v=static_cast<double>(std::bit_cast<std::int64_t>(bits(8)));break;
+            case 'd':v=std::bit_cast<float>(static_cast<std::uint32_t>(bits(4)));break;
+            case 'D':v=std::bit_cast<double>(bits(8));break;
+            default:fail("Unsupported Song MIDI numeric encoding");
+        }
+        if(!std::isfinite(v))fail("Nonfinite Song MIDI number");
+        return v;
+    }
+    static bool numericTag(char tag){return std::string_view("iUIlLdD").find(tag)!=std::string_view::npos;}
+    std::string string(){
+        const auto n=scalar(take());
+        if(n<0||n>1048576||std::floor(n)!=n||n>static_cast<double>(bytes.size()-at))
+            fail("Invalid Song MIDI string length");
+        const auto count=static_cast<std::size_t>(n);
+        std::string text(bytes.substr(at,count));at+=count;
+        if(!validUtf8(text)||text.find('\0')!=text.npos)fail("Invalid Song MIDI string");
+        return text;
+    }
+    void budget(unsigned depth){
+        if(depth>32||++values>1000000)fail("Song MIDI performance complexity limit exceeded");
+    }
+    void skip(unsigned depth){
+        budget(depth);const auto tag=take();
+        if(numericTag(tag)){(void)scalar(tag);return;}
+        if(tag=='S'){(void)string();return;}
+        if(tag=='T'||tag=='F'||tag=='Z'||tag=='N')return;
+        if(tag=='C'){(void)take();return;}
+        if(tag=='{'||tag=='['){
+            const auto end=tag=='{'?'}':']';
+            while(peek()!=end){if(tag=='{')(void)string();skip(depth+1);}
+            (void)take();return;
+        }
+        fail("Unsupported Song MIDI performance encoding");
+    }
+public:
+    struct Note {std::map<std::string,double> fields;};
+    std::vector<Note> notes;
+    bool unsupportedEvents{},envelopes{},variations{},extraFields{},quantize{};
+    explicit SongPerformance(std::string_view source):bytes(source){
+        if(take()!='{')fail("Invalid Song MIDI performance root");
+        bool format=false,events=false;std::set<std::string> keys;
+        while(peek()!='}'){
+            budget(0);auto key=string();
+            if(!keys.insert(key).second)fail("Duplicate Song MIDI performance field");
+            if(key=="timeFormat"){
+                if(scalar(take())!=2)fail("Unsupported Song MIDI performance time format");
+                format=true;
+            }else if(key=="events"){
+                if(take()!='[')fail("Invalid Song MIDI event list");
+                events=true;
+                while(peek()!=']'){
+                    budget(1);
+                    if(take()!='{')fail("Invalid Song MIDI event");
+                    Note note;std::set<std::string> fields;
+                    while(peek()!='}'){
+                        budget(2);auto field=string();
+                        if(!fields.insert(field).second)fail("Duplicate Song MIDI event field");
+                        if(field.starts_with("quantize."))quantize=true;
+                        if(field=="soundVariationId")variations=true;
+                        const bool known=field=="start"||field=="length"||field=="pitch"||field=="velocity"||field=="channel"||field=="noteId"||field.starts_with("quantize.")||field=="soundVariationId";
+                        if(!known)extraFields=true;
+                        if(numericTag(peek()))note.fields.emplace(std::move(field),scalar(take()));
+                        else{extraFields=true;skip(3);}
+                    }
+                    (void)take();
+                    if(!note.fields.contains("pitch")||!note.fields.contains("length")||!note.fields.contains("velocity")){
+                        unsupportedEvents=true;continue;
+                    }
+                    if(notes.size()>=32768)fail("Song MIDI note limit exceeded");
+                    notes.push_back(std::move(note));
+                }
+                (void)take();
+            }else if(key=="envelopes"){
+                if(peek()!='[')fail("Invalid Song MIDI envelopes");
+                (void)take();envelopes=peek()!=']';
+                while(peek()!=']')skip(1);
+                (void)take();
+            }else{extraFields=true;skip(1);}
+        }
+        (void)take();
+        if(!format||!events||at!=bytes.size())fail("Incomplete or trailing Song MIDI performance");
+    }
+};
+std::string exactNumber(double value){
+    std::array<char,64> chars{};
+    const auto result=std::to_chars(chars.data(),chars.data()+chars.size(),value,std::chars_format::general,std::numeric_limits<double>::max_digits10);
+    if(result.ec!=std::errc{})fail("Cannot retain Song MIDI number");
+    return {chars.data(),result.ptr};
+}
+
+} // namespace
+
 ImportSessionDTO StudioOneSongReader::read(const std::filesystem::path& file) {
     Archive archive(file);
     const auto xml = archive.xml("Song/song.xml");
@@ -716,7 +838,7 @@ ImportSessionDTO StudioOneSongReader::read(const std::filesystem::path& file) {
     if(pool){
         if(pool->tag!="MediaPool")fail("Invalid Song media pool");
         const auto scan=[&](const auto& self,const Node& node)->void{
-            if(node.tag=="AudioClip"){
+            if(node.tag=="AudioClip"||node.tag=="MusicClip"){
                 const auto id=node.get("mediaID");
                 if(id.empty()||!sources.emplace(std::string(id),&node).second)fail("Invalid or duplicate Song media ID");
             }
@@ -740,14 +862,22 @@ ImportSessionDTO StudioOneSongReader::read(const std::filesystem::path& file) {
         };
         scan(scan,*mixer);
     }
+    std::size_t midiNotes{};
+    std::map<std::string,SongPerformance> performances;
     for(const auto& track:tracks->children){
-        if(track.tag!="MediaTrack"||track.get("mediaType")!="Audio")continue;
+        if(track.tag!="MediaTrack")continue;
+        const bool music=track.get("mediaType")=="Music";
+        if(!music&&track.get("mediaType")!="Audio")continue;
         const auto trackIndex=add(Kind::track,track);
         auto& target=dto.objects[trackIndex];
         target.id=track.get("trackID");
-        target.detail="Audio track and static mixer settings";
+        target.detail=music?"Instrument track; plug-in assignment deferred":"Audio track and static mixer settings";
         target.support=Support::supported;
-        if(const auto* uid=childById(track,"UID","channelID")){
+        if(music){
+            if(const auto* settings=childById(track,"Attributes","attributes"))
+                if(settings->get("drumMode")=="1")target.properties.emplace_back("drumMode","1");
+        }
+        if(!music)if(const auto* uid=childById(track,"UID","channelID")){
             const auto found=channels.find(std::string(uid->get("uid")));
             if(found!=channels.end()){
                 for(const auto key:{"gain","pan","mute","solo"})
@@ -757,6 +887,48 @@ ImportSessionDTO StudioOneSongReader::read(const std::filesystem::path& file) {
         const auto* events=childById(track,"List","Events");
         if(!events)continue;
         for(const auto& event:events->children){
+            if(music){
+                if(event.tag!="MusicPart"){warning("Unsupported Song MIDI event type: "+event.tag);continue;}
+                const auto clipIndex=add(Kind::clip,event,trackIndex);
+                auto& part=dto.objects[clipIndex];
+                part.time=number(event.get("start"));part.duration=number(event.get("length"));
+                if(!part.time||*part.time<0||!part.duration||*part.duration<=0||event.get("timeFormat")!="2")
+                    fail("Invalid or unsupported Song MIDI part range");
+                part.timeUnit=part.durationUnit=part.contentTimeUnit=TimeUnit::beats;
+                part.support=Support::supported;part.detail="MIDI notes and source window";
+                const auto found=sources.find(std::string(event.get("clipID")));
+                if(found==sources.end()||found->second->tag!="MusicClip")fail("Song MIDI part has no MusicClip media-pool entry");
+                const auto* url=childById(*found->second,"Url","dataPath");
+                if(!url||!url->get("url").starts_with("media:///"))fail("Unsupported Song MIDI performance reference");
+                const auto memberName=std::string(url->get("url").substr(9));
+                if(!memberName.starts_with("Performances/")||!memberName.ends_with(".musicx"))
+                    fail("Unsupported Song MIDI performance path");
+                part.properties.emplace_back("performancePath",memberName);
+                part.properties.emplace_back("mediaID",std::string(event.get("clipID")));
+                auto cached=performances.find(memberName);
+                if(cached==performances.end()){
+                    const auto data=archive.member(memberName);
+                    if(!data)fail("Song MIDI performance member missing");
+                    cached=performances.try_emplace(memberName,*data).first;
+                }
+                const auto& decoded=cached->second;
+                if(decoded.notes.size()>32768-midiNotes)fail("Song project MIDI note limit exceeded");
+                midiNotes+=decoded.notes.size();
+                if(decoded.unsupportedEvents||decoded.envelopes||decoded.extraFields)
+                    warning("Song MIDI controllers/expressions or unknown event fields not interpreted: "+part.name);
+                if(decoded.variations)warning("Song sound variation assignments retained as metadata only: "+part.name);
+                if(decoded.quantize)warning("Song quantize history retained as metadata; imported note values are the stored start/length/velocity: "+part.name);
+                for(const auto& note:decoded.notes){
+                    Object row{};row.kind=Kind::note;row.type="MusicNote";row.parent=clipIndex;
+                    row.timeUnit=row.durationUnit=TimeUnit::beats;
+                    row.time=note.fields.contains("start")?note.fields.at("start"):0.;
+                    row.duration=note.fields.at("length");
+                    row.support=Support::supported;row.detail="MIDI note";
+                    for(const auto& [key,value]:note.fields)row.properties.emplace_back(key,exactNumber(value));
+                    dto.objects.push_back(std::move(row));
+                }
+                continue;
+            }
             if(event.tag!="AudioEvent"){warning("Unsupported Song audio event type: "+event.tag);continue;}
             const auto clipIndex=add(Kind::clip,event,trackIndex);
             auto& clip=dto.objects[clipIndex];
@@ -777,7 +949,7 @@ ImportSessionDTO StudioOneSongReader::read(const std::filesystem::path& file) {
                 warning("Song clip gain/envelope not applied (raw level retained): "+clip.name);
             }
             const auto found=sources.find(std::string(event.get("clipID")));
-            if(found==sources.end())fail("Song audio clip has no media-pool entry");
+            if(found==sources.end()||found->second->tag!="AudioClip")fail("Song audio clip has no media-pool entry");
             const auto* url=childById(*found->second,"Url","path");
             if(!url||url->get("url").empty())fail("Song audio source path missing");
             const auto sourceUrl=std::string(url->get("url"));
@@ -819,7 +991,7 @@ ImportSessionDTO StudioOneSongReader::read(const std::filesystem::path& file) {
         row.timeUnit = TimeUnit::seconds;
         // Loop coordinates and active state remain raw source properties.
     }
-    warning("Song import includes audio tracks, direct audio events and static channel mix. MIDI, plug-ins, routing, clip gain curves and automation are not imported.");
+    warning("Song import includes structure, audio and MIDI notes. Assign instruments to hear MIDI; plug-ins, routing, instrument mixer, clip gain curves, controllers and automation are not imported.");
     warning("Source playhead and loop are retained as metadata, not applied to the running transport.");
     return dto;
 }

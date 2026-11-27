@@ -266,6 +266,41 @@ void dawprojectPreviewSmoke(const juce::File& screenshot){
     check(mrs::audio::load_wav(importedFloat).samples.front()==0.125f,"Song float64 bounce decoding differs");
     mrs::persistence::save_project(songAudioCreated.projectFile,songAudioDoc);
     check(mrs::persistence::load_project(songAudioCreated.projectFile)==songAudioDoc,"Song audio Save/Reopen differs");
+    // Synthetic format-9 performance: UBJSON big-endian doubles, signed and
+    // unsigned integers, absent start = 0; nonzero source offset, hidden notes.
+    std::string performance="{";
+    const auto musicxKey=[&](std::string_view field){performance+='i';performance+=static_cast<char>(field.size());performance.append(field);};
+    const auto musicxInt=[&](int value){performance+='i';performance+=static_cast<char>(value);};
+    const auto musicxDouble=[&](double value){performance+='D';const auto bits=std::bit_cast<std::uint64_t>(value);for(int shift=56;shift>=0;shift-=8)performance+=static_cast<char>((bits>>shift)&255u);};
+    musicxKey("timeFormat");musicxInt(2);musicxKey("events");performance+='[';
+    performance+='{';musicxKey("pitch");musicxInt(36);musicxKey("length");musicxDouble(.25);musicxKey("velocity");musicxDouble(.75);performance+='}';
+    performance+='{';musicxKey("start");musicxDouble(2.5);musicxKey("pitch");musicxInt(60);musicxKey("length");musicxDouble(.5);musicxKey("velocity");musicxDouble(.5);musicxKey("quantize.start");musicxDouble(.125);performance+='}';
+    performance+='{';musicxKey("start");musicxDouble(3.25);musicxKey("pitch");musicxInt(100);musicxKey("length");musicxDouble(.25);musicxKey("velocity");musicxDouble(1);musicxKey("soundVariationId");musicxInt(24);performance+='}';
+    performance+=']';musicxKey("envelopes");performance+="[]}";
+    const auto midiSong=folder.getChildFile("midi.song");
+    const std::string midiXml=R"xml(<Song><Attributes x:id="Root"><Attributes x:id="timeContext" sampleRate="48000"><TempoMap><TempoMapSegment start="0" tempo="0.5" curveType="0"/></TempoMap><TimeSignatureMap><TimeSignatureMapSegment start="0" numerator="4" denominator="4"/></TimeSignatureMap></Attributes><List x:id="Tracks"><MediaTrack mediaType="Music" trackID="drums" name="Drums" color="FF123456"><Attributes x:id="attributes" drumMode="1"/><List x:id="Events"><MusicPart clipID="m" start="8" length="2" offset="2" timeFormat="2" name="Part"/><MusicPart clipID="m" start="16" length="4" timeFormat="2" name="Repeat" color="FFAA5500"/></List></MediaTrack><MediaTrack mediaType="Music" trackID="bass" name="Bass"/></List></Attributes></Song>)xml";
+    const std::string midiPool=R"xml(<MediaPool><Attributes x:id="rootFolder"><MediaFolder name="Music"><MusicClip mediaID="m"><Url x:id="dataPath" url="media:///Performances/Drums/Take.musicx"/></MusicClip></MediaFolder></Attributes></MediaPool>)xml";
+    const std::string midiMeta=R"xml(<MetaInformation><Attribute id="Document:FormatVersion" value="9"/></MetaInformation>)xml";
+    archive(midiSong,{{"Song/song.xml",midiXml},{"Song/mediapool.xml",midiPool},{"metainfo.xml",midiMeta},{"Performances/Drums/Take.musicx",performance}});
+    const auto midiPreview=read(midiSong);
+    check(midiPreview.session&&midiPreview.tracks==2&&midiPreview.clips==2,"Song MIDI preview counts");
+    check(std::count_if(midiPreview.session->objects.begin(),midiPreview.session->objects.end(),[](const auto& row){return row.kind==Kind::note;})==6,"Song MIDI note records");
+    const auto midiCreated=createProject({diskPath(midiSong),diskPath(folder.getChildFile("SongMidiProjects")),{},false});
+    if(midiCreated.projectFile.empty())throw std::runtime_error("Song MIDI creation failed: "+midiCreated.error);
+    const auto midiDoc=mrs::persistence::load_project(midiCreated.projectFile);
+    const auto& mp=midiDoc.project;
+    check(mp.tracks.size()==2&&mp.tracks[0].kind==mrs::TrackKind::instrument&&mp.tracks[0].midi_drum_mode&&!mp.tracks[1].midi_drum_mode,"Song instrument and drum mode");
+    check(mp.clips.size()==2&&mp.clips[0].midi&&mp.clips[1].midi,"Song MIDI clips");
+    const auto& notes=*mp.clips[0].midi;
+    check(notes.start==8*mrs::ppq&&notes.length==2*mrs::ppq&&notes.source_offset==2*mrs::ppq&&notes.notes.size()==3,"Song MIDI source offset and hidden note");
+    check(notes.notes[0].start==0&&notes.notes[0].pitch==36&&notes.notes[0].velocity==95&&notes.notes[1].start==2400&&notes.notes[1].length==480&&notes.notes[1].velocity==64,"Song MIDI note geometry and velocity");
+    check(mp.clips[0].color==0x123456u&&mp.clips[1].color==0xAA5500u&&notes.notes[0].id!=mp.clips[1].midi->notes[0].id,"Song MIDI color and repeated part identity");
+    mrs::persistence::save_project(midiCreated.projectFile,midiDoc);
+    check(mrs::persistence::load_project(midiCreated.projectFile)==midiDoc,"Song MIDI Save/Reopen");
+    const auto brokenMidi=folder.getChildFile("broken-midi.song");
+    archive(brokenMidi,{{"Song/song.xml",midiXml},{"Song/mediapool.xml",midiPool},{"metainfo.xml",midiMeta},{"Performances/Drums/Take.musicx",performance.substr(0,performance.size()-1)}});
+    check(!read(brokenMidi).session,"Truncated Song MIDI performance rejected");
+
     unchanged();
     auto* alert=show(full);
     check(alert->getNumCustomComponents()==1&&alert->getCustomComponent(0)->getComponentID()=="dawproject-preview-details"&&alert->getButton("Create Project"),"Preview compatibility list or Create button missing");

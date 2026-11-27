@@ -57,7 +57,7 @@ public:
     static void copyEmbeddedAudio(const std::filesystem::path&, const std::vector<EmbeddedAudioCopy>&, std::stop_token);
 };
 
-// Studio One source adapter for musical structure; audio/MIDI are not read yet.
+// Studio One source adapter for musical structure, audio and MIDI notes.
 class StudioOneSongReader {
 public:
     static ImportSessionDTO read(const std::filesystem::path&);
