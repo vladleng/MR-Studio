@@ -546,8 +546,12 @@ void offline_stem_plan() {
     });
     const auto result=worker.get();
     CHECK(result.completed&&result.frames_written==34&&samples[0].size()==68&&samples[1].size()==68);
-    for(float value:samples[0])CHECK(std::abs(value-2000.f/65536.f)<1e-7f);
-    for(float value:samples[1])CHECK(std::abs(value-4000.f/65536.f)<1e-7f);
+    // PCM16 fixture amplitude is 4000/32768. The stem tap precedes both
+    // the legacy demo master processor (0.5) and the explicit master insert.
+    // Only the selected track's own gain insert is applied to the first stem.
+    constexpr float source_sample=4000.f/32768.f;
+    for(float value:samples[0])CHECK(std::abs(value-source_sample*.5f)<1e-7f);
+    for(float value:samples[1])CHECK(std::abs(value-source_sample)<1e-7f);
     rejects([&]{plan->render_stems({[](std::size_t,std::span<const float>){}});});
     app.finish_master_export(plan);plan.reset();
     CHECK(!app.export_active()&&app.audio_running()&&driver->opens==1);
