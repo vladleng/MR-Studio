@@ -2621,6 +2621,12 @@ audio::OfflineRenderResult Application::PreparedMasterExport::render_stems(const
         },callbacks.continue_render
     });
 }
+audio::StemWavExportResult Application::PreparedMasterExport::export_stem_wavs(
+        const std::filesystem::path& destination,const audio::WavExportCallbacks& callbacks){
+    if(stem_ids_.empty())throw std::logic_error("Not a stem export plan");
+    return audio::export_stem_wavs24(destination,rate(),end()-begin(),stem_ids_.size(),
+        [this](const auto& sink){return render_stems(sink);},callbacks);
+}
 void Application::finish_master_export(const std::shared_ptr<PreparedMasterExport>& plan){
     require_ai_owner();
     require(plan&&active_export_==plan,"Export plan is not active");
