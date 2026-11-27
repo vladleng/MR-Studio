@@ -196,7 +196,7 @@ public:
         const auto p=owner.project();const mrs::Timeline time(p->time,p->sample_rate);
         if(liveExport){
             wav.setVisible(false);mp3.setVisible(false);
-            labelText(trackHeading,"SELECT TRACKS");
+            labelText(trackHeading,"SELECT TRACKS  /  MASTER ROUTES");
             addAndMakeVisible(selectAll);addAndMakeVisible(selectNone);
             addAndMakeVisible(trackViewport);trackViewport.setViewedComponent(&trackList,false);
             trackViewport.setScrollBarsShown(true,false);
@@ -205,6 +205,9 @@ public:
                 juce::String kind=track.kind==mrs::TrackKind::audio?"Audio":track.kind==mrs::TrackKind::instrument?"Instrument":track.kind==mrs::TrackKind::bus?"Bus":"MIDI";
                 auto title=juce::String::fromUTF8(track.name.c_str())+"  |  "+kind;
                 if(!eligible)title+="  (unsupported route)";
+                else if(track.kind==mrs::TrackKind::bus)title+="  (includes all inputs)";
+                if(track.mix.mute)title+="  [Muted]";
+                if(track.mix.solo)title+="  [Solo]";
                 auto toggle=std::make_unique<juce::ToggleButton>(title);
                 toggle->setEnabled(eligible);
                 toggle->onClick=[this]{updateRange();};
