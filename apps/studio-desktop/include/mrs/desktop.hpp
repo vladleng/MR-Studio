@@ -110,6 +110,10 @@ public:
         const std::vector<Id>& stem_tracks()const noexcept{return stem_ids_;}
         // Sink index is the position in stem_tracks(), not a mixer index.
         audio::OfflineRenderResult render_stems(const audio::OfflineStemRenderCallbacks&);
+        // Worker-only convenience: publish a new folder with all selected PCM24
+        // files in stem_tracks() order. Finish the plan on the control owner.
+        audio::StemWavExportResult export_stem_wavs(const std::filesystem::path&,
+                                                   const audio::WavExportCallbacks& = {});
     private:
         friend class Application;
         audio::RenderConfig config_{};
