@@ -2781,6 +2781,23 @@ void exportAudioSmoke(){
         ~TemporaryDirectory(){root.deleteRecursively();}
     } temp;
     check(temp.root.createDirectory().wasOk(),"create export smoke directory");
+    {
+        mrs::Project musical;musical.sample_rate=48000;
+        musical.time.tempos={{0,100.},{4*mrs::ppq,120.},{16*mrs::ppq,90.}};
+        musical.time.meters={{1,4,4},{5,3,4}};
+        musical.sections={{mrs::new_id(),"Verse",0,8*mrs::ppq},{mrs::new_id(),"Chorus",8*mrs::ppq,16*mrs::ppq}};
+        musical.chords={{mrs::new_id(),"Dm7",3*mrs::ppq,5*mrs::ppq},{mrs::new_id(),"G7",7*mrs::ppq,9*mrs::ppq}};
+        const mrs::Timeline timing(musical.time,musical.sample_rate);
+        const auto begin=timing.to_samples(4*mrs::ppq),end=timing.to_samples(12*mrs::ppq);
+        const auto context=live::studioExportContext(musical,begin,end,"Song");
+        check(context.bpm&&*context.bpm==120.&&context.sourceMeter=="4/4"&&context.lengthBars&&*context.lengthBars==2.,"rebased active tempo meter and length");
+        check(context.sections.size()==2&&static_cast<double>(context.sections[0]["start"])==0.&&static_cast<double>(context.sections[1]["length"])==1.,"clip and rebase sections");
+        check(context.chords.size()==2&&static_cast<double>(context.chords[0]["start"])==0.&&static_cast<double>(context.chords[0]["length"])==.25&&context.chords[0]["symbol"].toString()=="Dm7","clip and rebase authored chords");
+        bool rejected=false;try{(void)live::studioExportContext(musical,0,end,"Song");}catch(const std::exception&){rejected=true;}
+        check(rejected,"variable tempo rejected");
+        rejected=false;try{(void)live::studioExportContext(musical,begin+1,end,"Song");}catch(const std::exception&){rejected=true;}
+        check(rejected,"off-grid range rejected");
+    }
     const auto source=temp.root.getChildFile("input.wav");
     const auto sourcePath=std::filesystem::path(source.getFullPathName().toWideCharPointer());
     std::vector<float> tone(96000,.125f);
