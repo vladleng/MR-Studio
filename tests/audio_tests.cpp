@@ -707,7 +707,7 @@ void sends() {
     update.tracks[0].mute=true; CHECK(engine.enqueue_mix(update)); engine.process(nullptr,out.data(),512); CHECK(out[1022] == 0);
     update.tracks[0].mute=false; update.tracks[0].gain=0.5f; update.tracks[1].solo=true;
     CHECK(engine.enqueue_mix(update)); engine.process(nullptr,out.data(),512); CHECK(out[1022] == 0.203125f);
-    update.tracks[1].mute=true; CHECK(engine.enqueue_mix(update)); engine.process(nullptr,out.data(),512); CHECK(out[1022] == 0.125f);
+    update.tracks[1].mute=true; CHECK(engine.enqueue_mix(update)); engine.process(nullptr,out.data(),512); CHECK(out[1022] == 0.203125f); // explicit bus solo overrides its own mute
     update.tracks[1].mute=false; update.send_gains[0][0]=0; CHECK(engine.enqueue_mix(update)); engine.process(nullptr,out.data(),512); CHECK(out[1022] == 0.140625f);
     update.send_gains[0][0]=std::numeric_limits<float>::quiet_NaN(); CHECK(!engine.enqueue_mix(update));
     auto bad=graph; bad.sends[1]={{2,1,false}}; rejects([&] { engine.prepare({48000,0,2,512},bad); });
@@ -766,7 +766,12 @@ void mixer() {
     CHECK(engine.enqueue_mix(update)); engine.process(nullptr,out.data(),512);
     CHECK(out[1022] == 0.25f && out[1023] == 0.25f); // exclusive solo after ramp
     update.tracks[0].mute = true; CHECK(engine.enqueue_mix(update)); engine.process(nullptr,out.data(),512);
-    CHECK(out[1022] == 0 && out[1023] == 0); // mute wins over solo
+    CHECK(out[1022] == 0.25f && out[1023] == 0.25f); // explicit solo overrides stored mute
+    update.tracks[0].solo = false; update.tracks[1].gain = 0.5f;
+    CHECK(engine.enqueue_mix(update)); engine.process(nullptr,out.data(),512);
+    CHECK(out[1022] == 0.125f && out[1023] == 0.125f); // clearing solo restores the stored mute
+    update.tracks[0].solo = true; CHECK(engine.enqueue_mix(update)); engine.process(nullptr,out.data(),512);
+    CHECK(out[1022] == 0.25f && out[1023] == 0.25f); // solo an already muted channel
     update.tracks[0] = {}; update.tracks[1] = {}; update.master_gain = 4;
     CHECK(engine.enqueue_mix(update)); engine.process(nullptr,out.data(),512);
     CHECK(out[1022] == 1 && engine.metrics().clipped_samples > 0 && engine.take_meters().master.left >= 2);

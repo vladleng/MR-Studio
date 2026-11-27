@@ -912,7 +912,8 @@ void AudioEngine::set_mix(const MixerUpdate& update, bool ramp) noexcept {
     mix_ramp_ = ramp ? std::max(1U,config_.sample_rate/200) : 0;
     for (std::size_t i=0; i<update.count; ++i) {
         const auto& m = update.tracks[i];
-        gate_target_[i] = m.mute || (solo && !admitted[i]) ? 0.0f : 1.0f;
+        // Explicit solo overrides this channel's stored mute; routing admission alone does not.
+        gate_target_[i] = (m.mute && !m.solo) || (solo && !admitted[i]) ? 0.0f : 1.0f;
         if (!ramp) gate_[i] = gate_target_[i];
         gate_step_[i] = ramp ? (gate_target_[i]-gate_[i])/static_cast<float>(mix_ramp_) : 0;
         for (std::size_t j=0; j<graph_.sends[i].size(); ++j) {
