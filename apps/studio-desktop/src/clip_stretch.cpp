@@ -162,7 +162,7 @@ void Application::poll_stretch(){
         }
         const auto cacheRoot=path_.extension()==".mrsproject"?path_.parent_path():std::filesystem::path{};
         auto job=std::make_shared<StretchJob>();job->projects=services_.projects;job->revision=state.revision;
-        const auto stop=job->stop;auto* progress=&job->progress;auto* checking=&job->checkingCache;
+        auto stop=job->stop;auto* progress=&job->progress;auto* checking=&job->checkingCache;
         const auto workers=std::min<unsigned>(stretch_worker_limit(stretch_workers_,std::thread::hardware_concurrency()),static_cast<unsigned>(requests.size()));
         job->workers=workers;
         checking->store(!cacheRoot.empty());
