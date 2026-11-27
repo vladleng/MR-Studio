@@ -35,7 +35,12 @@ inline ShowContextSong studioExportContext(const mrs::Project& project,mrs::Samp
     const double samplesPerBar=secondsPerBar*project.sample_rate;
     const double barTicks=static_cast<double>(mrs::ppq)*4.*meter->numerator/meter->denominator;
     // Derive duration from the exact rendered interval, not a rounded tick.
-    const double bars=static_cast<double>(end-begin)/samplesPerBar;
+    const double exactBars=static_cast<double>(end-begin)/samplesPerBar;
+    // Sample rounding at a bar boundary must not reject an otherwise valid
+    // minimum or maximum item. Keep all other fractional durations intact.
+    const double tolerance=1./samplesPerBar;
+    const double bars=std::abs(exactBars-1.)<=tolerance?1.:
+        std::abs(exactBars-4096.)<=tolerance?4096.:exactBars;
     if(bars<1.||bars>4096.||tempo->bpm<20.||tempo->bpm>400.)
         throw std::runtime_error("Export range or tempo is outside MR Live item limits");
     ShowContextSong result;
@@ -47,8 +52,12 @@ inline ShowContextSong studioExportContext(const mrs::Project& project,mrs::Samp
         const double a=std::max(0.,static_cast<double>(event.start-firstTick)/barTicks);
         const double b=std::min(bars,static_cast<double>(event.end-firstTick)/barTicks);
         if(b<=a)return;
+        // The destination enforces a quarter-bar minimum. Reject actual
+        // short events; tolerate only floating-point arithmetic noise.
+        const auto length=b-a;
+        const auto normalizedLength=length<.25&&length>=.25-1.e-10?.25:length;
         auto row=object();
-        put(row,"id",freshId());put(row,"start",a);put(row,"length",b-a);
+        put(row,"id",freshId());put(row,"start",a);put(row,"length",normalizedLength);
         put(row,key,juce::String::fromUTF8(text.c_str()));rows.add(row);
     };
     for(const auto& event:project.sections)append(sections,event,"name",event.name);
