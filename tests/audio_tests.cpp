@@ -690,7 +690,27 @@ void offline_stems() {
         [](std::size_t,std::span<const float>){},[](const OfflineRenderProgress& p){return p.written==0;}
     });
     CHECK(!cancel.completed&&cancel.frames_written>0);
-    const auto sink=[](std::size_t,std::span<const float>){throw std::runtime_error("unexpected stem write");};
+    // A terminal subgroup is exported as its combined contribution, not as
+    // separate upstream files. This includes its own fader and PDC.
+    auto group=make_graph();
+    group.voices.pop_back();
+    group.buses={false,false,true};
+    group.outputs={2,2,no_mixer_track};
+    group.mixer[2].gain=.5f;
+    const std::array<std::size_t,1> group_track{2};
+    std::vector<float> combined;
+    const auto grouped=render_stem_range({48000,0,2,4},std::move(group),3,12,group_track,{
+        [&](std::size_t track,std::span<const float> data){
+            CHECK(track==2);combined.insert(combined.end(),data.begin(),data.end());
+        }
+    });
+    CHECK(grouped.completed&&combined.size()==18);
+    for(std::size_t i=0;i<9;++i) {
+        CHECK(combined[2*i]==(i<2?.125f:.1875f));
+        CHECK(combined[2*i+1]==(i<2?.25f:.375f));
+    }
+    bool unexpected_write=false;
+    const auto sink=[&](std::size_t,std::span<const float>){unexpected_write=true;};
     const std::array<std::size_t,2> duplicate{0,0};
     rejects([&]{render_stem_range({48000,0,2,4},make_graph(),0,20,duplicate,{sink});});
     const std::array<std::size_t,1> invalid{3};
@@ -699,6 +719,7 @@ void offline_stems() {
     rejects([&]{render_stem_range({48000,0,2,4},routed,0,20,tracks,{sink});});
     auto direct=make_graph();direct.hardware_outputs={{0,1},{},{}};
     rejects([&]{render_stem_range({48000,0,2,4},direct,0,20,tracks,{sink});});
+    CHECK(!unexpected_write);
 }
 void offline_streaming() {
     TempFile file;std::string payload;
