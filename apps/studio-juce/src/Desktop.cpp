@@ -2783,15 +2783,18 @@ void exportAudioSmoke(){
     check(temp.root.createDirectory().wasOk(),"create export smoke directory");
     const auto source=temp.root.getChildFile("input.wav");
     const auto sourcePath=std::filesystem::path(source.getFullPathName().toWideCharPointer());
-    std::array<float,4096> tone; tone.fill(.125f);
-    {mrs::audio::Recorder writer(sourcePath,48000,0,{0});writer.capture(tone.data(),1,4096,0);writer.finish();}
+    std::vector<float> tone(96000,.125f);
+    {mrs::audio::Recorder writer(sourcePath,48000,0,{0});
+     for(std::size_t first=0;first<tone.size();first+=4096)
+        writer.capture(tone.data()+first,1,static_cast<std::uint32_t>(std::min<std::size_t>(4096,tone.size()-first)),first);
+     writer.finish();}
     Desktop d(true);
     d.app.import_wav(sourcePath);d.refresh(true);d.showProjectHome(false);
     d.view.exportFormat=1;d.view.exportRange=1;
     d.action(Desktop::exportAudioAction);
     check(d.exportWindow&&d.exportWindow->isVisible(),"File menu opens export window");
     auto* exportPanel=dynamic_cast<ExportAudioPanel*>(d.exportWindow->getContentComponent());
-    check(exportPanel&&exportPanel->selectedRange()==mrs::LoopRange{0,4096},"export range reflects source");
+    check(exportPanel&&exportPanel->selectedRange()==mrs::LoopRange{0,96000},"export range reflects source");
     check(exportPanel->start.isEnabled(),"valid export ready");
     exportPanel->mp3.onClick();check(exportPanel->format==2&&exportPanel->mp3.getToggleState(),"MP3 selection");
     exportPanel->wav.onClick();check(exportPanel->format==1&&exportPanel->wav.getToggleState(),"WAV selection");
@@ -2808,7 +2811,7 @@ void exportAudioSmoke(){
     if(exportPanel->busy||!exportPanel->finished||d.app.export_active())throw std::runtime_error("export did not complete: "+exportPanel->detail.getText().toStdString());
     const auto result=temp.root.getChildFile("mix.wav");
     const auto info=mrs::audio::inspect_wav(std::filesystem::path(result.getFullPathName().toWideCharPointer()));
-    check(info.sample_rate==48000&&info.bits==24&&info.channels==2&&info.frame_count==4096,"WAV produced through dialog");
+    check(info.sample_rate==48000&&info.bits==24&&info.channels==2&&info.frame_count==96000,"WAV produced through dialog");
     check(d.app.services().projects->state().project==before.project,"export preserves project");
     exportPanel->start.onClick();
     check(!exportPanel->busy&&exportPanel->operation.getText()=="Export failed"&&result.existsAsFile(),"dialog refuses overwrite");
@@ -2835,7 +2838,14 @@ void exportAudioSmoke(){
     if(stems->busy||!stems->finished||d.app.export_active())throw std::runtime_error("stem export did not complete: "+stems->detail.getText().toStdString());
     const auto stemFile=temp.root.getChildFile("backing").getChildFile("stem-1.wav");
     const auto stemInfo=mrs::audio::inspect_wav(std::filesystem::path(stemFile.getFullPathName().toWideCharPointer()));
-    check(stemInfo.sample_rate==48000&&stemInfo.bits==24&&stemInfo.channels==2&&stemInfo.frame_count==4096,"stem WAV produced through dialog");
+    check(stemInfo.sample_rate==48000&&stemInfo.bits==24&&stemInfo.channels==2&&stemInfo.frame_count==96000,"stem WAV produced through dialog");
+    const auto liveFile=temp.root.getChildFile("backing").getChildFile("Item.mrlive");
+    const auto exported=LiveDocument::read(liveFile);
+    check(exported.interfaceState["items"].size()==1,"one native item exported");
+    const auto item=exported.interfaceState["items"][0]["id"].toString();
+    const auto rows=live::playbackRows(exported.interfaceState,item);
+    check(rows.size()==1&&rows[0]["file"].toString()==stemFile.getFullPathName(),"native item relinks exported WAV");
+    check(exported.interfaceState["setlists"][0]["entries"].size()==0,"export does not insert performance entry");
     check(d.app.services().projects->state().project==before.project,"stem export preserves project");
     d.exportWindow->closeButtonPressed();
 }
