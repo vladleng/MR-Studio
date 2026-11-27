@@ -777,8 +777,8 @@ juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupM
             const auto hardware=std::thread::hardware_concurrency();
             const auto automatic=mrs::desktop::Application::stretch_worker_limit(0,hardware);
             timePitch.addItem(730,"Auto ("+juce::String(static_cast<int>(automatic))+" workers)",true,view.timePitchWorkers==0);
-            for(int n=1;n<=16;++n)
-                timePitch.addItem(730+n,juce::String(n)+(n==1?" worker":" workers"),true,view.timePitchWorkers==n);
+            for(int workerCount=1;workerCount<=16;++workerCount)
+                timePitch.addItem(730+workerCount,juce::String(workerCount)+(workerCount==1?" worker":" workers"),true,view.timePitchWorkers==workerCount);
             preferences.addSubMenu("Time / Pitch",timePitch);
             m.addSubMenu("Preferences",preferences);
         }
