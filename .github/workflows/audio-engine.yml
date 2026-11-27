@@ -1,6 +1,6 @@
 name: Windows Studio Release
 # Product versions are validated against the source header before building.
-run-name: ${{ (startsWith(github.event.pull_request.title, '[candidate:studio]') || startsWith(github.event.pull_request.title, '[candidate:studio-ui]')) && 'MR Studio 0.12.4 — Windows candidate' || startsWith(github.event.pull_request.title, '[candidate:live]') && 'MR Live 0.9.3-Upd9 — Windows candidate' || startsWith(github.event.pull_request.title, '[candidate:studio-live]') && 'MR Studio 0.12.4 / MR Live 0.9.3-Upd9 — Windows candidate' || (inputs.checks == 'live' && !inputs.integration && 'MR Live 0.9.3-Upd9 — Windows Release' || ((inputs.checks == 'studio' || inputs.checks == 'studio-ui' || inputs.checks == 'separation' || inputs.checks == 'separation-ui') && !inputs.integration && 'MR Studio 0.12.4 — Windows Release' || 'MR Studio 0.12.4 / MR Live 0.9.3-Upd9 — Windows Release')) }}
+run-name: ${{ (startsWith(github.event.pull_request.title, '[candidate:studio]') || startsWith(github.event.pull_request.title, '[candidate:studio-ui]')) && 'MR Studio 0.13.0 — Windows candidate' || startsWith(github.event.pull_request.title, '[candidate:live]') && 'MR Live 0.9.3-Upd9 — Windows candidate' || startsWith(github.event.pull_request.title, '[candidate:studio-live]') && 'MR Studio 0.13.0 / MR Live 0.9.3-Upd9 — Windows candidate' || (inputs.checks == 'live' && !inputs.integration && 'MR Live 0.9.3-Upd9 — Windows Release' || ((inputs.checks == 'studio' || inputs.checks == 'studio-ui' || inputs.checks == 'separation' || inputs.checks == 'separation-ui') && !inputs.integration && 'MR Studio 0.13.0 — Windows Release' || 'MR Studio 0.13.0 / MR Live 0.9.3-Upd9 — Windows Release')) }}
 # Heavy acceptance packages are explicit: manual dispatch OR one PR title request.
 # An ordinary commit, body edit or title edit never launches a Windows build.
 on:
@@ -25,7 +25,7 @@ permissions:
   contents: read
   actions: read
 env:
-  RELEASE_BANNER: 'MR Studio 0.12.4 / MR Live 0.9.3-Upd9 — Windows Release'
+  RELEASE_BANNER: 'MR Studio 0.13.0 / MR Live 0.9.3-Upd9 — Windows Release'
 concurrency:
   group: windows-${{ (github.event_name == 'pull_request' && github.event.action == 'edited' && github.event.changes.title.from != null && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.ref == 'main' && !startsWith(github.event.changes.title.from, '[candidate:') && ((startsWith(github.event.pull_request.title, '[candidate:studio]') || startsWith(github.event.pull_request.title, '[candidate:studio-ui]')) || startsWith(github.event.pull_request.title, '[candidate:live]') || startsWith(github.event.pull_request.title, '[candidate:studio-live]'))) && format('candidate-{0}', github.event.pull_request.number) || github.event_name == 'workflow_dispatch' && format('{0}-{1}-{2}-{3}', github.ref, inputs.checks, inputs.integration, inputs.ara) || github.run_id }}
   cancel-in-progress: true

@@ -211,6 +211,9 @@ void separationProjectSmoke(){
         ensure(c!=nullptr,"Separation CPU preference");return c;
     };
     auto* cpu=cpuPreference();cpu->setSelectedId(9,juce::dontSendNotification);cpu->onChange();
+    auto* chunks=dynamic_cast<juce::ComboBox*>(owner.preferencesWindow->getContentComponent()->findChildWithID("preferences-page-Audio Separation")->findChildWithID("separation-chunk-size"));
+    ensure(chunks!=nullptr,"Separation chunk preference");chunks->setSelectedId(2,juce::dontSendNotification);chunks->onChange();
+    ensure(owner.view.separationSmallChunk,"Chunk choice persisted before processing");
     owner.preferencesWindow->setVisible(false);
     const int savedModel=static_cast<int>(modelCatalogue().size());panelView->models_.setSelectedId(savedModel,juce::dontSendNotification);panelView->models_.onChange();
     ensure(owner.view.separationCpuThreads==8&&owner.view.separationModel==modelCatalogue().back().id,"Persist choices on selection before processing");
@@ -220,6 +223,9 @@ void separationProjectSmoke(){
     panelView->detailsButton_.onClick();ensure(panelView->details_.isVisible(),"Open diagnostics without starting a job");
     owner.separationWindow.reset();showSeparation(owner,clip.id,manager,job);panelView=dynamic_cast<SeparationPanel*>(owner.separationWindow->getContentComponent());
     ensure(panelView&&cpuPreference()->getSelectedId()==9&&panelView->models_.getSelectedId()==savedModel&&!panelView->details_.isVisible(),"Reopen restores saved CPU/model and keeps diagnostics folded");
+    chunks=dynamic_cast<juce::ComboBox*>(owner.preferencesWindow->getContentComponent()->findChildWithID("preferences-page-Audio Separation")->findChildWithID("separation-chunk-size"));
+    ensure(chunks&&chunks->getSelectedId()==2&&owner.view.separationSmallChunk,"Chunk preference restored from saved settings");
+    chunks->setSelectedId(1,juce::dontSendNotification);chunks->onChange();
     auto legacy=juce::JSON::parse(owner.view.encode());legacy.getDynamicObject()->removeProperty("separationCpuThreads");legacy.getDynamicObject()->removeProperty("separationModel");
     const auto defaults=ViewSettings::decode(juce::JSON::toString(legacy));ensure(defaults.separationCpuThreads==0&&defaults.separationModel.isEmpty(),"Legacy settings defaults");
     legacy.getDynamicObject()->setProperty("separationCpuThreads",3);legacy.getDynamicObject()->setProperty("separationModel",42);

@@ -327,7 +327,22 @@ void transcriptionSmoke(const juce::File& fake){
     showTranscription(owner,clip);auto* view=dynamic_cast<TranscriptionPanel*>(owner.transcriptionWindow->getContentComponent());need(view&&view->model_.getNumItems()==1&&view->start_.isEnabled()&&!view->stem_.isVisible(),"Compact full-mix start");
     need(view->source_label_.getText()[0]==0x0418&&view->start_.getButtonText()[0]==0x0420,"Converter captions must decode UTF-8");
     need(owner.theme.getLabelFont(view->title_).getHeight()>owner.theme.getLabelFont(view->source_label_).getHeight(),"Title font hierarchy must be honored by the shared Theme");
-    snapshot(*view,"mix-start");TranscriptionPreferences prefs(owner);prefs.setLookAndFeel(&owner.theme);snapshot(prefs,"preferences");prefs.setLookAndFeel(nullptr);snapshot(manager,"models");
+    snapshot(*view,"mix-start");
+    owner.action(717);need(owner.preferencesWindow&&owner.preferencesWindow->isVisible(),"Edit Preferences opens unified window");
+    auto* preferencesShell=owner.preferencesWindow->getContentComponent();
+    const auto navigate=[&](const juce::String& name){
+        auto* nav=dynamic_cast<juce::TextButton*>(preferencesShell->findChildWithID("preferences-nav-"+name));
+        need(nav!=nullptr,"Preferences navigation button");nav->onClick();
+        auto* page=preferencesShell->findChildWithID("preferences-page-"+name);
+        need(page&&page->isVisible()&&nav->getToggleState(),"Preferences selected page visible");
+        need(owner.preferencesWindow->getContentComponent()==preferencesShell&&owner.view.preferencesPage==name,"Single window and selected page preference");
+    };
+    navigate("Audio");navigate("MIDI");navigate("Plugins");navigate("Time / Pitch");navigate("Models & Data");navigate("Audio-to-MIDI");
+    need(ViewSettings::decode(owner.view.encode()).preferencesPage=="Audio-to-MIDI","Last Preferences page persists");
+    snapshot(*preferencesShell,"preferences");
+    owner.preferencesWindow->closeButtonPressed();owner.action(717);
+    need(owner.preferencesWindow->getContentComponent()->findChildWithID("preferences-page-Audio-to-MIDI")!=nullptr,"Reopen restores selected page");
+    owner.preferencesWindow.reset();snapshot(manager,"models");
     view->start_.onClick();owner.view.transcriptionVelocity=77;wait([&]{return busy(owner.app.transcription_status().state);});view->timerCallback();need(owner.app.transcription_status().state==JobState::ready&&view->roles_.size()==1&&view->place_.isEnabled(),"Real result list");view->none_.onClick();need(!view->place_.isEnabled(),"Zero selected disables create");view->all_.onClick();need(view->place_.isEnabled(),"Select all");need(!view->cancel_.isVisible()||!view->cancel_.getBounds().intersects(view->place_.getBounds()),"Result actions overlap");snapshot(*view,"parts");
     view->place_.onClick();need(owner.app.transcription_status().state==JobState::placed&&owner.project()->clips.size()==before.clips.size()+1&&owner.project()->clips.back().midi->notes.front().velocity==100,"Atomic mix placement and captured Preferences");const auto after=*owner.project();need(owner.app.undo()&&*owner.project()==before&&owner.app.redo()&&*owner.project()==after,"Mix Undo/Redo");
     // Undo/Redo changes the revision even when content returns to the same
