@@ -1,5 +1,6 @@
 #pragma once
 #include "Desktop.h"
+#include "LiveStudioExportContext.h"
 #include <algorithm>
 #include <cmath>
 #include <chrono>
@@ -80,7 +81,8 @@ class ExportAudioPanel final : public juce::Component,private juce::Timer {
         const auto selected=liveExport?selectedTracks().size():0;
         const auto mode=liveExport?juce::String(static_cast<int>(selected))+" stems  /  Offline":juce::String("Master Out  /  Offline");
         durationLabel.setText(r?"Duration  "+timeText(seconds)+"    |    "+mode:"Selected range is unavailable",juce::dontSendNotification);
-        start.setEnabled(!busy&&r.has_value()&&(!liveExport||selected>0)&&name.getText().trim().isNotEmpty()&&folder.getText().trim().isNotEmpty());
+        start.setEnabled(!busy&&r.has_value()&&(!liveExport||(selected>0&&selected<=32))&&name.getText().trim().isNotEmpty()&&folder.getText().trim().isNotEmpty());
+        if(liveExport&&selected>32)durationLabel.setText("MR Live supports up to 32 stems",juce::dontSendNotification);
     }
     void enableSettings(bool enabled){
         for(auto* c:std::array<juce::Component*,6>{&wav,&mp3,&browse,&name,&folder,&range})c->setEnabled(enabled);
@@ -108,6 +110,8 @@ class ExportAudioPanel final : public juce::Component,private juce::Timer {
             output=directory.getChildFile(liveExport?filename:filename+(format==1?".wav":".mp3"));
             if(output.exists())throw std::runtime_error("Output already exists. Choose another name.");
             const auto made=directory.createDirectory();if(made.failed())throw std::runtime_error(made.getErrorMessage().toStdString());
+            std::optional<LiveDocument> livePackage;
+            if(liveExport)livePackage=live::studioExportDocument(*owner.project(),r->start,r->end,filename,ids,output);
             busy=true;finished=false;enableSettings(false);reveal.setVisible(false);cancel.setButtonText("Cancel Export");
             barValue=0.;operation.setText("Preparing project and plugins...",juce::dontSendNotification);
             detail.setText({},juce::dontSendNotification);metrics.setText({},juce::dontSendNotification);
@@ -121,7 +125,7 @@ class ExportAudioPanel final : public juce::Component,private juce::Timer {
             const auto destination=std::filesystem::path(output.getFullPathName().toWideCharPointer());
             const bool isMp3=format==2;
             const bool stems=liveExport;
-            work=std::async(std::launch::async,[job,state,destination,isMp3,stems]()->Result{
+            work=std::async(std::launch::async,[job,state,destination,isMp3,stems,livePackage=std::move(livePackage)]()->Result{
                 mrs::audio::WavExportCallbacks callbacks;
                 callbacks.stop=state->stop.get_token();
                 callbacks.continue_render=[state](const auto& p){
@@ -130,6 +134,20 @@ class ExportAudioPanel final : public juce::Component,private juce::Timer {
                 };
                 callbacks.continue_conversion=[state](float p){state->conversion.store(p);return !state->stop.stop_requested();};
                 if(stems){
+                    // Serialize relative paths against the FINAL location,
+                    // then write these bytes inside the private staging folder.
+                    // No file referring to a temporary path is published.
+                    const auto finalFile=juce::File(juce::String(destination.wstring().c_str())).getChildFile("Item.mrlive");
+                    callbacks.finalize_stems=[&](const std::filesystem::path& staged){
+                        const auto json=juce::JSON::toString(livePackage->json(finalFile),false,17);
+                        if(json.getNumBytesAsUTF8()>live::maximumShowBytes)throw std::runtime_error("MR Live show exceeds 64 MiB");
+                        const auto file=juce::File(juce::String(staged.wstring().c_str())).getChildFile("Item.mrlive");
+                        juce::FileOutputStream stream(file);
+                        if(stream.failedToOpen()||!stream.write(json.toRawUTF8(),json.getNumBytesAsUTF8()))
+                            throw std::runtime_error("Cannot write staged MR Live document");
+                        stream.flush();
+                        if(stream.getStatus().failed())throw std::runtime_error("Cannot finalize staged MR Live document");
+                    };
                     const auto batch=job->export_stem_wavs(destination,callbacks);
                     Result aggregate{};
                     aggregate.completed=batch.completed;
@@ -175,7 +193,7 @@ class ExportAudioPanel final : public juce::Component,private juce::Timer {
         if(error.isNotEmpty()){operation.setText(result.completed?"File saved; audio restart failed":"Export failed",juce::dontSendNotification);reveal.setVisible(result.completed);detail.setText(error,juce::dontSendNotification);}
         else if(result.completed){
             barValue=1.;operation.setText(liveExport?"Stem export complete":"Export complete",juce::dontSendNotification);reveal.setVisible(true);
-            detail.setText(result.clipped_samples?"Warning: "+juce::String(static_cast<juce::int64>(result.clipped_samples))+" clipped samples; no normalization applied.": liveExport?"WAV stems saved. Live Item creation is not available in this stage.":"File saved successfully.",juce::dontSendNotification);
+            detail.setText(result.clipped_samples?"Warning: "+juce::String(static_cast<juce::int64>(result.clipped_samples))+" clipped samples; no normalization applied.": liveExport?"MR Live document and WAV stems saved.":"File saved successfully.",juce::dontSendNotification);
         }else{operation.setText("Export cancelled",juce::dontSendNotification);detail.setText(liveExport?"Incomplete stems removed.":"Incomplete file removed.",juce::dontSendNotification);}
         updateRange();repaint();
     }
@@ -183,7 +201,7 @@ public:
     explicit ExportAudioPanel(Desktop& d,bool forLive=false):owner(d),liveExport(forLive){
         setComponentID(liveExport?"export-to-live":"export-audio");
         labelText(heading,liveExport?"Export to MR Live":"Stereo mixdown",false);heading.setFont(Theme::browserFont().withHeight(23.f));
-        labelText(subheading,liveExport?"Audio stage: render selected backing tracks to WAV.":"Render the Master signal directly to disk.");
+        labelText(subheading,liveExport?"Create a portable MR Live Item and its selected backing tracks.":"Render the Master signal directly to disk.");
         labelText(formatLabel,liveExport?"STEREO WAV  /  48 kHz  /  24 bit":"OUTPUT FORMAT");labelText(nameLabel,liveExport?"ITEM / FOLDER NAME":"FILE NAME");
         labelText(folderLabel,"DESTINATION");labelText(rangeLabel,"EXPORT RANGE");
         labelText(durationLabel,"");labelText(operation,"Ready to export",false);labelText(metrics,"");labelText(detail,"");
@@ -215,7 +233,7 @@ public:
                 stemRows.push_back({track.id,std::move(toggle),eligible});
             }
             selectAll.onClick=[this]{setAllTracks(true);};selectNone.onClick=[this]{setAllTracks(false);};
-            start.setButtonText("Export Stems");
+            start.setButtonText("Export Item");
         }
         mrs::Sample end{};for(const auto& c:p->clips)end=std::max(end,c.midi?time.to_samples(c.midi->start+c.midi->length):c.start+c.length);
         if(end>0)ranges[0]=mrs::LoopRange{0,end};
