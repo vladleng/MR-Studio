@@ -516,6 +516,43 @@ void offline_worker_export() {
     CHECK(!app.export_active()&&app.audio_running()&&driver->opens==1);
     CHECK(app.services().projects->state().project==before.project&&app.engine()->state().sample==head.sample);
 }
+void offline_stem_plan() {
+    Directory dir;const auto a=dir.path/"A.wav",b=dir.path/"B.wav";wav(a,2,48000);wav(b,2,48000);
+    Application app;app.new_project(48000);app.import_wavs({a,b});
+    const auto tracks=app.services().projects->state().project->tracks;
+    CHECK(tracks.size()==2);
+    NativeInsert gain;gain.id=new_id();gain.gain=.5f;app.set_inserts(tracks[1].id,{gain});
+    NativeInsert master;master.id=new_id();master.gain=.5f;app.set_inserts(std::nullopt,{master});
+    auto device=std::make_unique<ManualDevice>();auto* driver=device.get();
+    app.connect(std::move(device),{0,48000,128,{}, {0,1}});
+    const auto before=app.services().projects->state();const auto stops=driver->stops;
+    const std::array<Id,2> duplicate{tracks[0].id,tracks[0].id};
+    const std::array<Id,1> missing{new_id()};
+    rejects([&]{app.prepare_stem_export(0,32,{});});
+    rejects([&]{app.prepare_stem_export(0,32,duplicate);});
+    rejects([&]{app.prepare_stem_export(0,32,missing);});
+    CHECK(app.audio_running()&&driver->stops==stops&&!app.export_active());
+    const std::array<Id,2> selection{tracks[1].id,tracks[0].id};
+    auto plan=app.prepare_stem_export(3,37,selection);
+    CHECK(plan->stem_tracks()==std::vector<Id>(selection.begin(),selection.end()));
+    CHECK(app.export_active()&&!app.audio_running());
+    rejects([&]{plan->render({[](std::span<const float>){}});});
+    std::array<std::vector<float>,2> samples;
+    auto worker=std::async(std::launch::async,[&]{
+        return plan->render_stems({[&](std::size_t index,std::span<const float> data){
+            CHECK(index<samples.size());
+            samples[index].insert(samples[index].end(),data.begin(),data.end());
+        }});
+    });
+    const auto result=worker.get();
+    CHECK(result.completed&&result.frames_written==34&&samples[0].size()==68&&samples[1].size()==68);
+    for(float value:samples[0])CHECK(std::abs(value-4000.f/65536.f)<1e-7f);
+    for(float value:samples[1])CHECK(std::abs(value-2000.f/65536.f)<1e-7f);
+    rejects([&]{plan->render_stems({[](std::size_t,std::span<const float>){}});});
+    app.finish_master_export(plan);plan.reset();
+    CHECK(!app.export_active()&&app.audio_running()&&driver->opens==1);
+    CHECK(app.services().projects->state().project==before.project&&app.services().projects->state().revision==before.revision);
+}
 void offline_wav_file() {
     Directory dir;const auto input=dir.path/"input.wav";wav(input,2,48000);
     Application app;app.import_wav(input);
@@ -1434,7 +1471,7 @@ int main(int argc, char** argv) {
         if(name=="sections"){sections();std::cout<<"PASS desktop sections\n";return 0;}
         if(name=="chords"){chords();std::cout<<"PASS desktop chords\n";return 0;}
         if(name=="markers"){markers();std::cout<<"PASS desktop markers\n";return 0;}
-        if(name=="cab_combo")cab_combo();else if(name=="cab_collection")cab_collection();else if(name=="reverb")reverb();else if(name=="cab_ir")cab_ir();else if (name == "inserts") inserts(); else if (name == "multi_input") multi_input(); else if (name == "hardware") hardware(); else if (name == "offline_export") {offline_export();offline_external_ir();offline_wav_file();offline_worker_export();} else if (name == "profiles") profiles(); else if (name == "sends") sends(); else if (name == "buses") buses(); else if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
+        if(name=="cab_combo")cab_combo();else if(name=="cab_collection")cab_collection();else if(name=="reverb")reverb();else if(name=="cab_ir")cab_ir();else if (name == "inserts") inserts(); else if (name == "multi_input") multi_input(); else if (name == "hardware") hardware(); else if (name == "offline_export") {offline_export();offline_external_ir();offline_wav_file();offline_worker_export();offline_stem_plan();} else if (name == "profiles") profiles(); else if (name == "sends") sends(); else if (name == "buses") buses(); else if (name == "mixer") mixer(); else if (name == "workspaces") workspaces(); else if (name == "transport") transport();
         else if (name == "files") files(); else if (name == "assets") assets();
         else if (name == "mono_route") mono_route(); else if (name == "audio") audio_settings(); else if (name == "config") config(); else if (name == "arrangement") arrangement(); else if (name == "waveform") waveform(); else if (name == "nonplaying_edits") nonplaying_edits(); else if (name == "streaming") streaming(); else if (name == "clip_edits") clip_edits(); else if (name == "recording") recording(); else if (name == "project_folders") project_folders(); else throw std::runtime_error("unknown suite");
         std::cout << "PASS desktop " << name << '\n'; return 0;
