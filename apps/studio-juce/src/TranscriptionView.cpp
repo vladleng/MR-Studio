@@ -169,7 +169,6 @@ private:
 class TranscriptionPreferences final:public juce::Component {
 public:
     explicit TranscriptionPreferences(Desktop& owner):owner_(owner){
-        label(nav_,*this,"Audio\n\nMIDI\n\nAudio-to-MIDI\n\nPlugins\n\nModels & Data");
         label(title_,*this,"Audio-to-MIDI");title_.setFont(owner.theme.font(22));
         label(performance_,*this,utf8("ПРОИЗВОДИТЕЛЬНОСТЬ"));label(midi_,*this,utf8("ПОВЕДЕНИЕ MIDI"));
         label(cpu_label_,*this,"CPU Threads");label(device_label_,*this,utf8("Устройство вычислений"));label(quantize_label_,*this,utf8("Квантизация после импорта"));label(grid_label_,*this,utf8("Сетка / сила квантизации"));label(velocity_label_,*this,utf8("Velocity по умолчанию"));label(models_label_,*this,utf8("Управление моделями"));models_label_.setFont(owner.theme.font(14));label(hint_,*this,utf8("Исходное время нот сохраняется при Quantization Off.\nVelocity — fallback, модель не распознаёт динамику."));
@@ -184,11 +183,11 @@ public:
         compatibility_.setButtonText("Compatibility CPU (disable AVX2)");compatibility_.setToggleState(owner.view.transcriptionCompatibility,juce::dontSendNotification);addAndMakeVisible(compatibility_);
         const auto save=[this]{owner_.view.transcriptionCpuThreads=cpu_.getSelectedId()-1;owner_.view.transcriptionCompatibility=compatibility_.getToggleState();owner_.view.transcriptionQuantize=quantize_.getSelectedId()==2;owner_.view.transcriptionGrid=grid_.getSelectedId();owner_.view.transcriptionStrength=static_cast<int>(strength_.getValue());owner_.view.transcriptionVelocity=static_cast<int>(velocity_.getValue());grid_.setEnabled(owner_.view.transcriptionQuantize);strength_.setEnabled(owner_.view.transcriptionQuantize);owner_.saveSettings();};
         cpu_.onChange=save;quantize_.onChange=save;grid_.onChange=save;strength_.onValueChange=save;velocity_.onValueChange=save;compatibility_.onClick=save;grid_.setEnabled(owner.view.transcriptionQuantize);strength_.setEnabled(owner.view.transcriptionQuantize);
-        models_.setButtonText(utf8("Открыть →"));models_.onClick=[this]{showTranscriptionModels(owner_);};addAndMakeVisible(models_);setSize(800,580);
+        models_.setButtonText(utf8("Открыть →"));models_.onClick=[this]{owner_.openPreferences("Models & Data");};addAndMakeVisible(models_);setSize(700,580);
     }
-    void resized()override{const int x=208,w=getWidth()-x-28,r=getWidth()-220;nav_.setBounds(24,72,164,400);title_.setBounds(x,24,w,36);performance_.setBounds(x,84,w,24);cpu_label_.setBounds(x,124,w-200,32);cpu_.setBounds(r,124,192,32);device_label_.setBounds(x,172,w-200,32);device_.setBounds(r,172,192,32);compatibility_.setBounds(x,216,w,32);midi_.setBounds(x,272,w,24);quantize_label_.setBounds(x,312,w-200,32);quantize_.setBounds(r,312,192,32);grid_label_.setBounds(x,360,w-200,32);grid_.setBounds(r,360,88,32);strength_.setBounds(r+96,360,96,32);velocity_label_.setBounds(x,408,w-200,32);velocity_.setBounds(r,408,192,32);hint_.setBounds(x,452,w,48);models_label_.setBounds(x,520,w-200,36);models_.setBounds(r,520,192,36);}
-    void paint(juce::Graphics& g)override{g.fillAll(owner_.theme.role(ColourRole::window,panel));g.setColour(owner_.theme.role(ColourRole::panel,surface));g.fillRoundedRectangle(12,12,180,static_cast<float>(getHeight()-24),6);g.setColour(owner_.theme.role(ColourRole::focus,accent).withAlpha(.18f));g.fillRoundedRectangle(20,122,164,28,4);g.setColour(owner_.theme.role(ColourRole::border,outline));for(int y:{68,260,508})g.drawHorizontalLine(y,208.f,static_cast<float>(getWidth()-28));}
-private:Desktop& owner_;juce::Label nav_,title_,performance_,midi_,cpu_label_,device_label_,quantize_label_,grid_label_,velocity_label_,hint_,models_label_;juce::ComboBox cpu_,device_,quantize_,grid_;juce::Slider strength_,velocity_;juce::ToggleButton compatibility_;juce::TextButton models_;
+    void resized()override{const int x=24,w=getWidth()-x-28,r=getWidth()-220;title_.setBounds(x,24,w,36);performance_.setBounds(x,84,w,24);cpu_label_.setBounds(x,124,w-200,32);cpu_.setBounds(r,124,192,32);device_label_.setBounds(x,172,w-200,32);device_.setBounds(r,172,192,32);compatibility_.setBounds(x,216,w,32);midi_.setBounds(x,272,w,24);quantize_label_.setBounds(x,312,w-200,32);quantize_.setBounds(r,312,192,32);grid_label_.setBounds(x,360,w-200,32);grid_.setBounds(r,360,88,32);strength_.setBounds(r+96,360,96,32);velocity_label_.setBounds(x,408,w-200,32);velocity_.setBounds(r,408,192,32);hint_.setBounds(x,452,w,48);models_label_.setBounds(x,520,w-200,36);models_.setBounds(r,520,192,36);}
+    void paint(juce::Graphics& g)override{g.fillAll(owner_.theme.role(ColourRole::window,panel));g.setColour(owner_.theme.role(ColourRole::border,outline));for(int y:{68,260,508})g.drawHorizontalLine(y,24.f,static_cast<float>(getWidth()-28));}
+private:Desktop& owner_;juce::Label title_,performance_,midi_,cpu_label_,device_label_,quantize_label_,grid_label_,velocity_label_,hint_,models_label_;juce::ComboBox cpu_,device_,quantize_,grid_;juce::Slider strength_,velocity_;juce::ToggleButton compatibility_;juce::TextButton models_;
 };
 
 class TranscriptionPartsList final:public juce::ListBox {
@@ -278,9 +277,10 @@ void showTranscription(Desktop& owner,std::optional<mrs::Id> source,mrs::Transcr
     if(!owner.transcriptionSetup)owner.transcriptionSetup=setup();
     owner.transcriptionWindow=std::make_unique<TranscriptionWindow>(owner,new TranscriptionPanel(owner,std::move(source),placement),"Audio-to-MIDI",owner.transcriptionWindow,placement.target_track.has_value());
 }
-void showTranscriptionPreferences(Desktop& owner){if(owner.standaloneLive)return;if(!owner.transcriptionSetup)owner.transcriptionSetup=setup();if(owner.transcriptionPreferencesWindow){owner.transcriptionPreferencesWindow->toFront(true);return;}owner.transcriptionPreferencesWindow=std::make_unique<TranscriptionWindow>(owner,new TranscriptionPreferences(owner),utf8("Preferences → Audio-to-MIDI"),owner.transcriptionPreferencesWindow);}
+std::unique_ptr<juce::Component> makeTranscriptionPreferencesPage(Desktop& owner){return std::make_unique<TranscriptionPreferences>(owner);}
+void showTranscriptionPreferences(Desktop& owner){if(!owner.standaloneLive)owner.openPreferences("Audio-to-MIDI");}
 void showTranscriptionModels(Desktop& owner){if(owner.standaloneLive)return;if(!owner.transcriptionSetup)owner.transcriptionSetup=setup();if(owner.transcriptionModelsWindow){owner.transcriptionModelsWindow->toFront(true);return;}owner.transcriptionModelsWindow=std::make_unique<TranscriptionWindow>(owner,new ModelManagerPanel(owner),utf8("Audio-to-MIDI · Управление моделями"),owner.transcriptionModelsWindow);}
-void closeTranscription(Desktop& owner){owner.transcriptionWindow.reset();owner.transcriptionPreferencesWindow.reset();owner.transcriptionModelsWindow.reset();if(owner.transcriptionSetup)owner.transcriptionSetup->shutdown();owner.transcriptionSetup.reset();}
+void closeTranscription(Desktop& owner){owner.transcriptionWindow.reset();owner.transcriptionModelsWindow.reset();if(owner.transcriptionSetup)owner.transcriptionSetup->shutdown();owner.transcriptionSetup.reset();}
 
 void transcriptionSmoke(const juce::File& fake){
     const auto root=juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("mrs-transcription-gui-"+juce::Uuid().toString());need(root.createDirectory().wasOk(),"Create transcription smoke root");
