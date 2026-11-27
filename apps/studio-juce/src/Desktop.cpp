@@ -1259,7 +1259,7 @@ void Desktop::timerCallback(){
     else if(wavImportRevision!=importing.revision)message=label(importing.message);
     wavImportRevision=importing.revision;
     const auto stretching=app.stretch_status();
-    if(!importing.busy){if(stretching.busy)message="Preparing Time / Pitch: "+juce::String(static_cast<int>(stretching.progress*100.f))+"% (Esc to cancel)";else if(stretchRevision!=stretching.revision)message=label(stretching.message);}
+    if(!importing.busy){if(stretching.busy)message=label(stretching.message)+": "+juce::String(static_cast<int>(stretching.progress*100.f))+"% (Esc to cancel)";else if(stretchRevision!=stretching.revision)message=label(stretching.message);}
     stretchRevision=stretching.revision;
     // One cheap metadata check every 500ms, and only if explicitly enabled.
     if(++trackHeaderPollTick>=15){trackHeaderPollTick=0;pollTrackHeaderLayout();}if(wasRecording&&!app.recording()&&!app.recording_error().empty())message=label(app.recording_error());if(++previewTick%3==0)updateRecordingPreview();if(!app.recording()){recordingPreview.clear();audioRecordingPreview.clear();}if(dockedEditor&&!dockedClip)dockedEditor.reset();if(preview){if(preview->active()){if(preview->sendBus&&preview->target)app.preview_send_gain(*preview->target,*preview->sendBus,preview->sendGain);else app.preview_mix(preview->target,preview->mix,preview->master);}else cancelPreview();}
@@ -2181,7 +2181,7 @@ void Arrangement::paint(juce::Graphics& g){g.fillAll(juce::Colour(arrangementCan
         if(pending&&r.getWidth()>=100){
             const auto status=owner.app.stretch_status();
             g.setColour(clipInk.withAlpha(.9f));
-            g.drawText(status.busy?"Time / pitch preparing":"Time / pitch not ready",r.toNearestInt().reduced(4).removeFromBottom(16),juce::Justification::centredLeft,true);
+            g.drawText(status.busy?label(status.message):juce::String("Time / pitch not ready"),r.toNearestInt().reduced(4).removeFromBottom(16),juce::Justification::centredLeft,true);
         }
         if(araDropClip&&c.id==*araDropClip){g.setColour(owner.selectionColour());g.drawRoundedRectangle(r.reduced(2.f),cornerRadius,2.f);g.drawText("ARA 2",r.toNearestInt().reduced(6).removeFromBottom(20),juce::Justification::centredRight);}
         if(r.getWidth()>=24){const auto width=r.getWidth();const auto inWidth=static_cast<float>(static_cast<double>(c.fade_in)/c.length*width),outWidth=static_cast<float>(static_cast<double>(c.fade_out)/c.length*width);g.setColour(clipInk.withAlpha(.8f));

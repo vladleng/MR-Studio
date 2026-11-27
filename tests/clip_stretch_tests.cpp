@@ -106,6 +106,28 @@ void cache(){
     auto streamed=std::make_shared<audio::AudioData>();streamed->channels=2;streamed->file=std::make_shared<audio::WavFile>(audio::inspect_wav(original));
     auto fromFile=audio::prepare_stretch_cache(streamed,p.clips[0]);CHECK(fromFile->source_current());
     fs::last_write_time(original,fs::last_write_time(original)+std::chrono::seconds(2));CHECK(!fromFile->source_current());
+    // RED on old session-only cache: reopening the same saved source must
+    // reuse the same disk file, not invoke the render progress callback.
+    const auto project=dir.path/"Persistent";fs::create_directory(project);
+    const auto first=audio::prepare_stretch_cache(source,p.clips[0],{},{},stretch::Backend::signalsmith,project);
+    const auto persistent=first->data->file->path;
+    CHECK(persistent.parent_path()==project/"Cache"/"TimePitch");
+    const auto written=fs::last_write_time(persistent);
+    auto reopened=std::make_shared<audio::AudioData>(*source);
+    bool rendered=false;
+    const auto hit=audio::prepare_stretch_cache(reopened,p.clips[1],{},[&](float value){if(value<1)rendered=true;},stretch::Backend::signalsmith,project);
+    CHECK(!rendered&&hit->data->file->path==persistent&&fs::last_write_time(persistent)==written);
+    CHECK(audio::load_wav(persistent).samples==pcm.samples);
+    auto edited=p.clips[0];edited.stretch->parameters.cents+=1;
+    const auto changed=audio::prepare_stretch_cache(reopened,edited,{},{},stretch::Backend::signalsmith,project);
+    CHECK(changed->data->file->path!=persistent);
+    reopened->samples[0]+=0.1f;
+    const auto newSource=audio::prepare_stretch_cache(reopened,p.clips[0],{},{},stretch::Backend::signalsmith,project);
+    CHECK(newSource->data->file->path!=persistent);
+    fs::resize_file(persistent,12);rendered=false;
+    const auto repaired=audio::prepare_stretch_cache(source,p.clips[0],{},[&](float value){if(value<1)rendered=true;},stretch::Backend::signalsmith,project);
+    CHECK(rendered&&repaired->data->file->path==persistent&&audio::load_wav(persistent).samples==pcm.samples);
+    CHECK(fs::is_regular_file(persistent));
 }
 class Device final:public audio::IAudioDevice{
     audio::DevicePhase phase{audio::DevicePhase::closed};
@@ -153,10 +175,16 @@ void desktop_test(){
     // A stale worker must not install its PCM in a replacement document.
     params.semitones=7;app.set_clip_stretch(id,params);app.new_project();finish(app);CHECK(app.services().projects->state().project->clips.empty());
     app.import_wav(wav);const auto savedId=app.services().projects->state().project->clips[0].id;
-    app.set_clip_stretch(savedId,params);finish(app);app.save_project(dir.path/"Saved"/"project.mrsproject");
-    const auto saved=app.snapshot().project;const auto path=app.path();app.open_project(path);finish(app);
+    app.save_project(dir.path/"Saved"/"project.mrsproject");
+    app.set_clip_stretch(savedId,params);finish(app);app.save_project(app.path());
+    const auto saved=app.snapshot().project;const auto path=app.path();
+    const auto cacheDir=path.parent_path()/"Cache"/"TimePitch";
+    std::map<fs::path,fs::file_time_type> entries;
+    for(const auto& entry:fs::directory_iterator(cacheDir))if(entry.path().extension()==".wav")entries.emplace(entry.path(),fs::last_write_time(entry.path()));
+    CHECK(entries.size()==1);
+    app.open_project(path);finish(app);
     CHECK(app.snapshot().project==saved);CHECK(app.clip_waveform(app.services().projects->state().project->clips[0]));
-    for(const auto& entry:fs::recursive_directory_iterator(path.parent_path()))CHECK(entry.path().filename()!="audio.wav");
+    for(const auto& [file,time]:entries)CHECK(fs::is_regular_file(file)&&fs::last_write_time(file)==time);
     app.set_clip_stretch(savedId,params,true);CHECK(!app.services().projects->state().project->clips[0].stretch);
 }
 }

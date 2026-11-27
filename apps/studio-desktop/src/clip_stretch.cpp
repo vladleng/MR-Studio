@@ -10,6 +10,7 @@ bool processed(const Clip& c){return c.stretch&&!stretch::neutral(c.stretch->par
 struct Application::StretchJob {
     std::stop_source stop;
     std::atomic<float> progress{};
+    std::atomic<bool> checkingCache{};
     std::shared_ptr<IProjectStore> projects;
     std::uint64_t revision{};
     using Entries=std::map<std::string,std::shared_ptr<const audio::StretchCache>>;
@@ -50,7 +51,7 @@ std::shared_ptr<const audio::AudioData> Application::clip_audio(const Clip& c,st
     return entry==stretch_cache_.end()?nullptr:entry->second->data;
 }
 Application::StretchStatus Application::stretch_status() const {
-    auto result=stretch_status_;if(stretch_job_)result.progress=stretch_job_->progress.load();return result;
+    auto result=stretch_status_;if(stretch_job_){result.progress=stretch_job_->progress.load();result.message=stretch_job_->checkingCache.load()?"Checking Time / Pitch cache":"Preparing Time / Pitch";}return result;
 }
 void Application::cancel_stretch(){
     if(stretch_job_){stretch_job_->stop.request_stop();retired_stretch_.push_back(std::move(stretch_job_));}
@@ -107,14 +108,13 @@ void Application::poll_stretch(){
     stretch_checked_revision_=state.revision;
     try{
         struct Request {std::string key;std::shared_ptr<const audio::AudioData> source;Clip clip;stretch::Backend backend;};
-        std::vector<Request> requests;std::set<std::string> needed;std::uintmax_t pendingBytes{};
+        std::vector<Request> requests;std::set<std::string> needed;
         for(const auto& c:state.project->clips)if(!c.midi&&processed(c)){
             const auto source=asset(c.source);const auto key=audio::stretch_cache_key(*source,c,clip_stretch_backend(c));
             if(!needed.insert(key).second)continue;
             const auto bytes=static_cast<std::uintmax_t>(audio_output_extent(c))*source->channels*4;
             if(bytes>512ull*1024*1024)throw std::invalid_argument("One Time / pitch cache entry exceeds 512 MiB; split the source region");
             if(!stretch_cache_.contains(key)){
-                pendingBytes+=bytes+44; // RIFF header
                 requests.push_back({key,source,c,clip_stretch_backend(c)});
             }
         }
@@ -137,16 +137,26 @@ void Application::poll_stretch(){
             if(stretch_status_.busy||stretch_status_.message!=message){stretch_status_.message=message;++stretch_status_.revision;}
             stretch_status_.busy=false;stretch_status_.progress=1;return;
         }
-        audio::validate_stretch_disk_space(pendingBytes,std::filesystem::space(std::filesystem::temp_directory_path()).available);
+        const auto cacheRoot=path_.extension()==".mrsproject"?path_.parent_path():std::filesystem::path{};
         auto job=std::make_shared<StretchJob>();job->projects=services_.projects;job->revision=state.revision;
-        const auto token=job->stop.get_token();auto* progress=&job->progress;
-        job->result=std::async(std::launch::async,[requests=std::move(requests),token,progress]{
+        const auto token=job->stop.get_token();auto* progress=&job->progress;auto* checking=&job->checkingCache;
+        checking->store(!cacheRoot.empty());
+        job->result=std::async(std::launch::async,[requests=std::move(requests),cacheRoot,token,progress,checking]{
             StretchJob::Entries entries;
+            std::map<const audio::AudioData*,audio::StretchSourceFingerprint> fingerprints;
             for(std::size_t i=0;i<requests.size();++i){
                 const auto& r=requests[i];
+                checking->store(!cacheRoot.empty());
+                const audio::StretchSourceFingerprint* fingerprint=nullptr;
+                if(!cacheRoot.empty()){
+                    const auto [at,inserted]=fingerprints.try_emplace(r.source.get());
+                    if(inserted)at->second=audio::fingerprint_stretch_source(*r.source,token);
+                    fingerprint=&at->second;
+                }
                 auto entry=audio::prepare_stretch_cache(r.source,r.clip,token,[&,i](float value){
+                    if(value<1)checking->store(false);
                     progress->store((static_cast<float>(i)+value)/static_cast<float>(requests.size()));
-                },r.backend);
+                },r.backend,cacheRoot,fingerprint);
                 entries.emplace(r.key,std::move(entry));
             }
             return entries;
