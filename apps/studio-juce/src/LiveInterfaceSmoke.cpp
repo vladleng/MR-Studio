@@ -15,6 +15,7 @@
 #include "../../../tests/live_studio_one_reader_checks.hpp"
 #include "../../../tests/live_studio_one_import_plan_checks.hpp"
 #include "ProjectHome.h"
+#include "LiveMedia.h"
 #include <fstream>
 #include <windows.h>
 #include "../../../tests/live_subpatch_runtime_checks.hpp"
@@ -759,6 +760,94 @@ void livePerformanceModeSmoke(const juce::File& fixture) {
     liveCheck(rejected&&live::itemPerformanceMode(host.liveDocument->interfaceState,id)==mrs::PerformanceMode::stop,
               "#31 Mode Undo during Play retains the same transport guard");
     host.app.stop();render();
+}
+// #435: preserve the old document, copy all native references, use content
+// identity across imports, and keep the new Show independent on disk.
+void liveManagedMediaSmoke(const juce::File& wave) {
+    const auto root=wave.getParentDirectory().getChildFile("managed-media-"+juce::Uuid().toString());
+    liveCheck(root.createDirectory().wasOk(),"Create managed media test root");
+    const auto one=root.getChildFile("source-a").getChildFile("Drums.wav");
+    const auto alias=root.getChildFile("source-a").getChildFile("Alias.wav");
+    const auto two=root.getChildFile("source-b").getChildFile("Drums.wav");
+    liveCheck(one.getParentDirectory().createDirectory().wasOk()&&two.getParentDirectory().createDirectory().wasOk()&&
+              wave.copyFileTo(one)&&wave.copyFileTo(alias)&&wave.copyFileTo(two),"Independent WAV fixtures");
+    {
+        std::fstream changed(live::mediaFsPath(two),std::ios::in|std::ios::out|std::ios::binary);
+        changed.seekp(44);changed.put(1);changed.put(2);
+        liveCheck(changed.good(),"Change one PCM sample for collision test");
+    }
+    {
+        Desktop host(true,false,true);
+        const auto request=root.getChildFile("Original.mrlive");
+        host.createLive(request);
+        const auto show=host.documentFile();
+        liveCheck(host.liveDocument->managedMedia&&LiveDocument::read(show).managedMedia&&
+                  show.getSiblingFile("Media").isDirectory()&&!show.getSiblingFile("Mixdown").exists(),
+                  "New native Show has explicit ownership and no Studio Mixdown folder");
+        juce::String first,second;
+        host.editLiveInterface("Two managed Items",[&](auto& state){
+            first=live::addItem(state,"Original name");second=live::addItem(state,"Other");
+        });
+        host.attachLivePlayback(first,one);
+        const auto firstFile=juce::File(live::playback(host.liveDocument->interfaceState,first)["file"].toString());
+        liveCheck(firstFile.existsAsFile()&&firstFile.isAChildOf(show.getSiblingFile("Media"))&&firstFile!=one,
+                  "Imported WAV is owned by Show");
+        host.attachLivePlayback(second,alias);
+        liveCheck(live::playback(host.liveDocument->interfaceState,second)["file"].toString()==firstFile.getFullPathName(),
+                  "Same bytes with a different name are reused across imports");
+        host.editLiveInterface("Save audio version",[&](auto& state){live::saveItem(state,first);});
+        host.attachLivePlayback(first,two);
+        const auto secondFile=juce::File(live::playback(host.liveDocument->interfaceState,first)["file"].toString());
+        liveCheck(secondFile!=firstFile&&secondFile.getFileName()==firstFile.getFileName()&&secondFile.existsAsFile()&&firstFile.existsAsFile(),
+                  "Different bytes with the same name cannot overwrite an existing asset");
+        host.undoLiveInterface();
+        liveCheck(live::playback(host.liveDocument->interfaceState,first)["file"].toString()==firstFile.getFullPathName()&&secondFile.existsAsFile(),
+                  "Undo restores binding without destructively deleting WAVs");
+        host.undoLiveInterface(true);
+        host.editLiveInterface("Rename Item",[&](auto& state){live::put(live::require(state,"items",first),"name","Renamed");});
+        host.saveFile(show);
+        const auto originalBytes=show.loadFileAsString();
+        const auto original=LiveDocument::read(show);
+        const auto raw=juce::JSON::parse(originalBytes);
+        const auto stored=live::playback(raw["interface"],first)["file"].toString();
+        liveCheck(!juce::File::isAbsolutePath(stored)&&stored.startsWith("Media")&&
+                  live::playback(original.interfaceState,first)["file"].toString()==secondFile.getFullPathName(),
+                  "Rename and Save keep stable Item and portable media identity");
+        const auto copyRequest=root.getChildFile("Copy.mrlive");
+        host.saveLiveAs(copyRequest);
+        const auto copy=host.documentFile();
+        const auto read=LiveDocument::read(copy);
+        const auto copied=juce::File(live::playback(read.interfaceState,first)["file"].toString());
+        const auto saved=juce::JSON::parse(read.interfaceState["library"][juce::Identifier(first)].toString());
+        const auto savedFile=juce::File(live::playback(saved,first)["file"].toString());
+        liveCheck(copy!=show&&read.managedMedia&&copied!=secondFile&&savedFile!=firstFile&&
+                  copied.isAChildOf(copy.getSiblingFile("Media"))&&savedFile.isAChildOf(copy.getSiblingFile("Media"))&&
+                  mrs::sha256_file(live::mediaFsPath(copied))==mrs::sha256_file(live::mediaFsPath(secondFile))&&
+                  mrs::sha256_file(live::mediaFsPath(savedFile))==mrs::sha256_file(live::mediaFsPath(firstFile))&&
+                  show.loadFileAsString()==originalBytes&&one.existsAsFile()&&two.existsAsFile(),
+                  "Save As copies both working and saved-only media, leaves originals intact");
+        liveCheck(live::find(read.interfaceState,"items",first)["name"].toString()=="Renamed"&&
+                  live::find(saved,"items",first)["name"].toString()=="Original name",
+                  "Save As preserves Item identity and separate saved settings");
+        // Legacy sources can be unavailable. Fail without changing the
+        // original model, without a published partial Show, and retry safely.
+        auto missing=original.clone();
+        live::put(live::playback(missing.interfaceState,second),"file",root.getChildFile("missing.wav").getFullPathName());
+        const auto before=missing.signature();
+        const auto failRequest=root.getChildFile("Failed.mrlive");
+        bool rejected=false;
+        try { (void)live::writeManagedShowCopy(missing,failRequest); } catch(const std::exception&) { rejected=true; }
+        liveCheck(rejected&&before==missing.signature()&&show.loadFileAsString()==originalBytes&&
+                  !root.getChildFile("Failed").exists(),
+                  "Failed Save As rolls back copied files and never publishes a partial Show");
+        host.newLiveShow();
+        const auto moved=root.getChildFile("Moved");
+        liveCheck(copy.getParentDirectory().moveFileTo(moved),"Move complete Show directory");
+        const auto reopened=LiveDocument::read(moved.getChildFile(copy.getFileName()));
+        liveCheck(reopened.managedMedia&&juce::File(live::playback(reopened.interfaceState,first)["file"].toString()).isAChildOf(moved.getChildFile("Media")),
+                  "Moved project resolves owned WAV relative to new directory");
+    }
+    liveCheck(root.deleteRecursively(),"Clean managed media fixtures");
 }
 void liveImportedAudioSelectionSmoke(const juce::File& fixture,const juce::File& wave) {
     const auto importedWave=juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("import-audio-source",".wav",false);
@@ -3347,6 +3436,7 @@ void liveInterfaceSmoke(const juce::File &fixture) {
             for (int n = 0; n < 96000; ++n)
                 u16(8192);
         }
+        liveManagedMediaSmoke(waveFile);
         liveDisplayPollingSmoke(fixture,waveFile);
         liveItemEditorCommitSmoke(fixture);
     liveOrganizerCommitSmoke(fixture);

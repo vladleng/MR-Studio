@@ -638,7 +638,18 @@ void Desktop::saveLiveAs(const juce::File& requested) try {
         throw std::runtime_error("Cannot save unsupported audio changes in a native Show");
     auto candidate=liveDocument->clone();
     captureLiveInputs(candidate.interfaceState);
-    const auto file=live::writeManagedShowCopy(std::move(candidate),requested);
+    if(candidate.managedMedia && liveFile!=juce::File()) {
+        const auto parent=liveFile.getParentDirectory();
+        const auto selected=requested.withFileExtension("mrlive");
+        const auto root=selected.getParentDirectory().getFileName()==selected.getFileNameWithoutExtension()
+            ? selected.getParentDirectory():selected.getParentDirectory().getChildFile(selected.getFileNameWithoutExtension());
+        const auto source=std::filesystem::weakly_canonical(path(parent));
+        const auto target=std::filesystem::weakly_canonical(path(root));
+        const auto relative=target.lexically_relative(source);
+        if(source==target||(!relative.empty()&&!relative.is_absolute()&&*relative.begin()!=".."))
+            throw std::runtime_error("Save As must create an independent Show outside the current Show folder");
+    }
+    const auto file=live::writeManagedShowCopy(candidate,requested);
     // A different Show owns a different Undo/preload session. Use the existing
     // Open lifecycle so no historical edit can restore a path into the source.
     openFile(file);

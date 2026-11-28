@@ -47,14 +47,15 @@ public:
         if(fs::exists(absoluteFolder)) {
             if(!fs::is_directory(absoluteFolder))
                 throw std::runtime_error("Show media identity directory is not a folder");
+            bool found=false;
             for(const auto& entry:fs::directory_iterator(absoluteFolder)) {
                 if(entry.is_symlink()||!entry.is_regular_file()||
                    !mediaJuceFile(entry.path()).hasFileExtension("wav"))
                     throw std::runtime_error("Unexpected entry in Show media identity directory");
                 // Exactly one content-addressed WAV per digest. A different
                 // name for identical audio reuses the first published file.
-                if(relative!=folder/source.filename() && relative!=folder/entry.path().filename())
-                    throw std::runtime_error("Ambiguous Show media identity directory");
+                if(found)throw std::runtime_error("Ambiguous Show media identity directory");
+                found=true;
                 relative=folder/entry.path().filename();
             }
         }
@@ -100,7 +101,8 @@ inline std::unique_ptr<ShowMediaCopy> beginOwnedMedia(const LiveDocument& docume
 
 // Save As is a new document, never an in-place migration. Reserve its folder
 // exclusively and publish the JSON only after all referenced media are copied.
-inline juce::File writeManagedShowCopy(LiveDocument document,const juce::File& requested) {
+inline juce::File writeManagedShowCopy(const LiveDocument& source,const juce::File& requested) {
+    auto document=source.clone();
     if(!document.projects.empty())throw std::runtime_error("Linked Studio projects cannot be copied as native Shows");
     const auto selected=requested.withFileExtension("mrlive");
     const auto name=selected.getFileNameWithoutExtension();
