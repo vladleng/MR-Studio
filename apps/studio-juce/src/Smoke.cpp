@@ -614,8 +614,14 @@ void projectHomeSmoke(){
     const auto bad=folder.getChildFile("corrupt.mrsproject");check(bad.replaceWithText("not a project"),"corrupt fixture");home.run([&]{home.openFile(bad);});check(home.projectHomeVisible()&&home.app.path()==previous&&!home.message.isEmpty(),"corrupt project preserves loaded session");
     home.action(1);check(!home.projectHomeVisible()&&home.app.path().empty()&&home.project()->tracks.empty(),"New project leaves home with empty workspace");
     auto map=home.project()->time;map.tempos={{0,120},{mrs::ppq,60},{2*mrs::ppq,180}};home.app.set_time_map(map);home.app.seek(36025);std::array<float,256> silence{};home.app.engine()->process(nullptr,silence.data(),128);check(std::abs(home.visualTick()-1200.5)<.001,"visual MIDI position keeps fractional ticks across tempo change");
-    const auto showFile=folder.getChildFile("Lives/First.mrlive");
-    home.createLive(showFile);check(home.liveDocument.has_value()&&showFile.existsAsFile()&&home.app.workspace()==mrs::desktop::Workspace::live,"Home creates a native Live document");
+    const auto requestedShow=folder.getChildFile("Lives/First.mrlive");
+    const auto showFile=folder.getChildFile("Lives/First/First.mrlive");
+    home.createLive(requestedShow);check(home.liveDocument.has_value()&&showFile.existsAsFile()&&home.documentFile()==showFile&&home.app.workspace()==mrs::desktop::Workspace::live,"Home creates a native Live document");
+    check(showFile.getSiblingFile("Media").isDirectory()&&!requestedShow.exists(),"New Show owns its project folder and Media");
+    const auto createdShowBytes=showFile.loadFileAsString();
+    bool collisionRejected=false;
+    try { home.createLive(requestedShow); } catch(const std::exception&) { collisionRejected=true; }
+    check(collisionRejected&&home.documentFile()==showFile&&showFile.loadFileAsString()==createdShowBytes,"New Show never overwrites a previous Show");
     check(!home.documentDirty(),"new empty show has no phantom song changes");
     home.saveFile(showFile);check(LiveDocument::read(showFile).projects.empty(),"saving empty show does not manufacture a song");
     home.openFile(showFile);check(!home.documentDirty(),"empty show reopens cleanly");

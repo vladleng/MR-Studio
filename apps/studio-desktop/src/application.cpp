@@ -2943,7 +2943,8 @@ void Application::prepare_inserts(audio::RenderGraph& result,const audio::Device
             reverb_runtime_.push_back({std::move(loader),target,fx.id,0,std::nullopt});}}
 }
 void Application::connect(std::unique_ptr<audio::IAudioDevice> device, audio::DeviceConfig c) {
-    live_processing_recovery_attempt_.reset();
+    processing_recovery_attempt_.reset();
+    processing_fault_report_active_=false;
     require_not_recording();
     require(static_cast<bool>(device),"missing audio backend");
     const auto defaults=c.inputs;
@@ -3003,7 +3004,8 @@ void Application::poll() {
     if(active_export_)return;
     poll_clip_updates();
     const auto processing=engine_->metrics();
-    const bool timedOut=processing.processing_fault&&processing.worker_timeouts>0;
+    bool timedOut=false;
+    bool pluginFailed=false;
     // A quarantined job still owns its plugin and buffers. Never ask that
     // plugin for editor/parameter/state data until every DSP job has returned.
     if(processing.processing_fault) {
@@ -3013,19 +3015,35 @@ void Application::poll() {
         // Stop/join every owner (including anticipation), then inspect edits.
         if(device_)device_->stop();
         engine_->quiesce();
-    }
+        // The callback is joined. Re-read the counter after publication, not
+        // the possibly earlier metrics snapshot. Keep evidence after prepare
+        // resets the engine counters, even if recovery succeeds immediately.
+        const auto stopped=engine_->metrics();
+        timedOut=stopped.worker_timeouts>0;
+        pluginFailed=plugin_failed();
+        if(!processing_fault_report_active_) {
+            processing_fault_report_={processing_fault_report_.sequence+1,stopped.worker_timeouts,pluginFailed};
+            processing_fault_report_active_=true;
+        }
+    } else processing_fault_report_active_=false;
     poll_staged_playback();
     poll_live_insert_switch();
     poll_reverbs();
     publish_midi_routes();
     publish_inserts();
     for(auto& [key,r]:insert_runtime_){(void)key;if(r.graph && r.graph->consume_edits()){unsaved_=true;++plugin_edit_revision_;}}
-    if(timedOut&&workspace_==Workspace::live&&path_.empty()&&!recording()&&device_&&device_config_) {
+    // #446: a slow preset load can trip the same watchdog in Studio. Keep
+    // the existing native Live scope, but do not require Studio to reconnect
+    // a healthy driver after a completed worker timeout. A failed processor
+    // is NOT healthy and must not be automatically re-used in Studio.
+    const bool nativeLive=workspace_==Workspace::live&&path_.empty();
+    const bool studio=workspace_!=Workspace::live&&!pluginFailed;
+    if(timedOut&&(nativeLive||studio)&&!recording()&&device_&&device_config_) {
         const auto attempt=std::pair{services_.projects->state().project->id,plugin_edit_revision_};
         // At most one recovery for a given project/editor revision. A bad
         // processor cannot drive an automatic stop/rebuild/retry loop.
-        if(live_processing_recovery_attempt_!=attempt) {
-            live_processing_recovery_attempt_=attempt;
+        if(processing_recovery_attempt_!=attempt) {
+            processing_recovery_attempt_=attempt;
             rebuild_audio(true); // stopped + joined, same device/FX, no autoplay
             ++processing_recovery_count_;
         }

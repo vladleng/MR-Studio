@@ -377,6 +377,8 @@ public:
     std::uint64_t insert_generation() const {return insert_generation_;}
     std::uint64_t plugin_edit_revision() const {return plugin_edit_revision_;}
     std::uint64_t processing_recovery_count() const {return processing_recovery_count_;}
+    struct ProcessingFaultReport {std::uint64_t sequence{},worker_timeouts{};bool plugin_failed{};};
+    ProcessingFaultReport processing_fault_report() const noexcept {return processing_fault_report_;}
     void transfer_insert(std::optional<Id> source,const Id& slot,std::optional<Id> destination,std::size_t boundary,bool move);
     bool open_plugin_editor(std::optional<Id>,const Id&,void*,int&,int&);
     void close_plugin_editors();
@@ -479,8 +481,10 @@ private:
     std::uint64_t insert_generation_{};
     std::set<std::string> retained_insert_keys_;
     std::uint64_t plugin_edit_revision_{};
-    std::optional<std::pair<Id,std::uint64_t>> live_processing_recovery_attempt_;
+    std::optional<std::pair<Id,std::uint64_t>> processing_recovery_attempt_;
     std::uint64_t processing_recovery_count_{};
+    ProcessingFaultReport processing_fault_report_{};
+    bool processing_fault_report_active_{};
     std::map<std::string,std::shared_ptr<processing::PreparedGraph>> staged_insert_graphs_;
     // #375: one prepared channel-graph handoff in flight; audio adopts it at a block boundary.
     struct PendingLiveInsertSwitch {

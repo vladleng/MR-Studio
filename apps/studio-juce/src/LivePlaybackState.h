@@ -481,6 +481,8 @@ inline void validatePlaybackRow(const juce::var &row) {
     if ((!row["cue"].isVoid() && !row["cue"].isBool()) || !row.isObject() || !row["file"].isString() ||
         row["file"].toString().isEmpty() || !row["mute"].isBool() || !row["solo"].isBool())
         throw std::runtime_error("Invalid Live Playback binding");
+    if (!row["exportedStemId"].isVoid() && !named(row["exportedStemId"]))
+        throw std::runtime_error("Invalid exported stem identity");
     const auto gain = row["gain"];
     if (!number(gain) || static_cast<double>(gain) < -60. || static_cast<double>(gain) > 12.)
         throw std::runtime_error("Playback gain must be -60..12 dB");
@@ -525,7 +527,14 @@ inline void validatePlayback(const juce::var &state) {
         if (pair.value["id"].isString() &&
             find(state,"channels",pair.value["id"].toString())["type"].toString()!="Playback")
             throw std::runtime_error("Invalid primary Playback channel");
-        for (const auto &row : playbackRows(state, pair.name.toString())) { playbackMix(state, pair.name.toString(), row).validate(); validatePlaybackRegions(playbackRegions(state,pair.name.toString(),row)); }
+        std::set<juce::String> exportedIds;
+        for (const auto &row : playbackRows(state, pair.name.toString())) {
+            const auto id=row["exportedStemId"];
+            if(!id.isVoid() && (!named(id)||!exportedIds.insert(id.toString()).second))
+                throw std::runtime_error("Duplicate or invalid exported stem identity");
+            playbackMix(state, pair.name.toString(), row).validate();
+            validatePlaybackRegions(playbackRegions(state,pair.name.toString(),row));
+        }
         const auto stems = pair.value["stems"];
         if (!stems.isVoid()) {
             if (!stems.isArray() || stems.size() > 31)

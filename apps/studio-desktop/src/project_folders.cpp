@@ -40,8 +40,8 @@ void ensure_project_folders(const fs::path& project_file) {
     const auto root = fs::absolute(project_file).parent_path();
     directory(root); directory(root/"Media"); directory(root/"Mixdown");
 }
-MediaCopy::MediaCopy(fs::path folder) : root_(fs::absolute(folder).lexically_normal()) {
-    directory(root_); directory(root_/"Media"); directory(root_/"Mixdown");
+MediaCopy::MediaCopy(fs::path folder, bool include_mixdown) : root_(fs::absolute(folder).lexically_normal()) {
+    directory(root_); directory(root_/"Media"); if (include_mixdown) directory(root_/"Mixdown");
 }
 MediaCopy::~MediaCopy() {
     if (!committed_) for (const auto& path : created_) { std::error_code ec; fs::remove(path,ec); }

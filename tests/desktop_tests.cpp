@@ -1,5 +1,6 @@
 #include <mrs/desktop.hpp>
 #include <mrs/offline_device.hpp>
+#include "audio_state_test_access.hpp"
 #include <chrono>
 #include <cmath>
 #include <thread>
@@ -907,6 +908,52 @@ void mixer() {
     CHECK(raw.frames() == 1024); for (const auto value : raw.samples) CHECK(value == 0.25f);
 }
 
+void studio_worker_timeout_recovery() {
+    Directory dir;
+    Application app;
+    app.new_project(44100);
+    const auto track=app.add_audio_track("Monitoring");
+    app.set_track_input(track,0);
+    app.set_track_monitoring(track,true);
+    app.save_project(dir.path/"Recovery.mrsproject");
+    auto device=std::make_unique<ManualDevice>();auto* manual=device.get();
+    app.connect(std::move(device),{0,44100,128,{0},{0,1},2});
+    std::array<float,128> input{};input.fill(.25f);
+    std::array<float,256> output{};
+    app.seek(1234);app.engine()->process(input.data(),output.data(),128);app.poll();
+    const auto project=app.services().projects->state();
+    const auto position=app.engine()->state();
+    const auto generation=app.insert_generation(),recovered=app.processing_recovery_count();
+    const auto faultSequence=app.processing_fault_report().sequence;
+    CHECK(app.workspace()!=Workspace::live&&!app.path().empty()&&app.audio_running());
+    // Inject the exact latched state of a completed watchdog fault with the
+    // manual device quiescent; no sleeps, vendor plugin or concurrent DSP.
+    audio::AudioEngineTestAccess::worker_timeout(*app.engine());
+    app.engine()->process(input.data(),output.data(),128);
+    CHECK(std::all_of(output.begin(),output.end(),[](float v){return v==0.f;}));
+    app.poll();
+    CHECK(app.audio_running()&&!app.engine()->metrics().processing_fault&&
+          app.processing_recovery_count()==recovered+1&&manual->opens==1);
+    CHECK(app.processing_fault_report().sequence==faultSequence+1&&
+          app.processing_fault_report().worker_timeouts==1&&!app.processing_fault_report().plugin_failed);
+    CHECK(app.engine()->state().sample==position.sample&&app.engine()->state().playback==position.playback&&
+          app.insert_generation()==generation&&app.services().projects->state().project==project.project&&
+          app.services().projects->state().revision==project.revision);
+    app.engine()->process(input.data(),output.data(),128);
+    CHECK(std::any_of(output.begin(),output.end(),[](float v){return v!=0.f;}));
+    // Persistent failure without a new editor revision remains latched,
+    // rather than spinning in automatic stop/rebuild/restart cycles.
+    audio::AudioEngineTestAccess::worker_timeout(*app.engine());
+    app.poll();app.poll();
+    CHECK(!app.audio_running()&&app.engine()->metrics().processing_fault&&
+          app.processing_recovery_count()==recovered+1);
+    // A different fault category is not a worker timeout and stays explicit.
+    app.connect(std::make_unique<ManualDevice>(),{0,44100,128,{0},{0,1},2});
+    audio::AudioEngineTestAccess::processing_fault(*app.engine());
+    app.poll();
+    CHECK(!app.audio_running()&&app.engine()->metrics().processing_fault&&
+          app.processing_fault_report().worker_timeouts==0&&app.processing_recovery_count()==recovered+1);
+}
 void audio_settings() {
     Application app;
     app.connect(audio::make_offline_device(),{0,48000,128,{}, {0,1}}); CHECK(app.audio_running());
@@ -1568,6 +1615,7 @@ int main(int argc, char** argv) {
         if(argc==3&&std::string_view(argv[1])=="cab_combo_real"){cab_combo_real(std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(argv[2]))));return 0;}
         if (argc != 2) throw std::runtime_error("expected suite");
         std::string name = argv[1];
+        if(name=="processing_recovery"){studio_worker_timeout_recovery();std::cout<<"PASS desktop processing_recovery\n";return 0;}
         if(name=="drum_maps"){drum_maps();std::cout<<"PASS desktop drum_maps\n";return 0;}
         if(name=="track_folders"){track_folders();std::cout<<"PASS desktop track_folders\n";return 0;}
         if(name=="remove_tracks"){remove_tracks();std::cout<<"PASS desktop remove_tracks\n";return 0;}

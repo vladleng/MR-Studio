@@ -24,6 +24,7 @@
 #include "ProjectHome.h"
 #include "LiveWorkspace.h"
 #include "LiveLayout.h"
+#include "LiveMedia.h"
 #include "WaveformView.h"
 #include <fstream>
 #include <charconv>
@@ -532,7 +533,36 @@ bool Desktop::songDirty() const{
 juce::File Desktop::documentFile() const{return liveDocument?liveFile:juce::File(juce::String(app.path().wstring().c_str()));}
 void Desktop::createLive(const juce::File& requested){
     if(!standaloneLive&&!testing){launchLive(requested.withFileExtension("mrlive"),true);return;}
-    auto file=requested.withFileExtension("mrlive");LiveDocument showState;showState.title=file.getFileNameWithoutExtension();showState.ensureInterface(LiveLayout().defaults);showState.write(file);
+    const auto selected=requested.withFileExtension("mrlive");
+    const auto name=selected.getFileNameWithoutExtension();
+    if(name.trim().isEmpty() || name=="." || name=="..")
+        throw std::runtime_error("Choose a Show name");
+    const auto root=selected.getParentDirectory().getFileName()==name
+        ? selected.getParentDirectory() : selected.getParentDirectory().getChildFile(name);
+    const auto file=root.getChildFile(selected.getFileName());
+    // A named Show owns its directory. Never overwrite a previous Show or
+    // adopt a folder that may already contain unrelated user files.
+    if(selected.exists() || root.exists())
+        throw std::runtime_error("Show destination exists; choose a new Show name");
+    LiveDocument showState;showState.title=name;showState.managedMedia=true;showState.ensureInterface(LiveLayout().defaults);
+    if(app.recording())throw std::runtime_error("Stop recording before creating a new show");
+    std::filesystem::create_directories(path(root.getParentDirectory()));
+    if(!std::filesystem::create_directory(path(root)))
+        throw std::runtime_error("Show destination exists; choose a new Show name");
+    const auto media=root.getChildFile("Media");
+    bool madeMedia=false;
+    try {
+        madeMedia=std::filesystem::create_directory(path(media));
+        if(!madeMedia)throw std::runtime_error("Cannot create Show Media directory");
+        showState.write(file);
+    } catch (...) {
+        // Remove only our empty directories. Never delete an existing file,
+        // even if an external process has written into the new directory.
+        std::error_code ec;
+        if(madeMedia)std::filesystem::remove(path(media),ec);
+        std::filesystem::remove(path(root),ec);
+        throw;
+    }
     const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";
     closeEditors();cancelPreview();app.new_project(session?prefs.rate:48000);liveDocument=std::move(showState);liveFile=file;prepareLiveInterface(true);
     resetDevice();app.workspace(mrs::desktop::Workspace::live);remember();refresh(true);showProjectHome(false);reconnectDevice(session);
@@ -599,10 +629,43 @@ catch(const std::exception& error){
     reportSaveError(juce::String::fromUTF8(error.what()));
     throw; // Callers must retain dirty state and stop pending close/open actions.
 }
+void Desktop::saveLiveAs(const juce::File& requested) try {
+    if(!standaloneLive||!liveDocument)throw std::runtime_error("Open a native Show first");
+    if(app.recording()||app.engine()->state().playback==mrs::PlaybackState::playing||
+       livePlaybackLoading||livePendingItem.isNotEmpty()||liveAutoToken)
+        throw std::runtime_error("Stop Playback and finish the Item switch before Save As");
+    if(songDirty()&&!transientLiveRuntime())
+        throw std::runtime_error("Cannot save unsupported audio changes in a native Show");
+    auto candidate=liveDocument->clone();
+    captureLiveInputs(candidate.interfaceState);
+    if(candidate.managedMedia && liveFile!=juce::File()) {
+        const auto parent=liveFile.getParentDirectory();
+        const auto selected=requested.withFileExtension("mrlive");
+        const auto root=selected.getParentDirectory().getFileName()==selected.getFileNameWithoutExtension()
+            ? selected.getParentDirectory():selected.getParentDirectory().getChildFile(selected.getFileNameWithoutExtension());
+        const auto source=std::filesystem::weakly_canonical(path(parent));
+        const auto target=std::filesystem::weakly_canonical(path(root));
+        const auto relative=target.lexically_relative(source);
+        if(source==target||(!relative.empty()&&!relative.is_absolute()&&*relative.begin()!=".."))
+            throw std::runtime_error("Save As must create an independent Show outside the current Show folder");
+    }
+    const auto file=live::writeManagedShowCopy(candidate,requested);
+    // A different Show owns a different Undo/preload session. Use the existing
+    // Open lifecycle so no historical edit can restore a path into the source.
+    openFile(file);
+} catch(const std::exception& error) {
+    reportSaveError(juce::String::fromUTF8(error.what()));
+    throw;
+}
 void Desktop::importFiles(const juce::StringArray& files){closeEditors();std::vector<std::filesystem::path> paths;for(const auto& f:files)paths.push_back(path(juce::File(f)));app.queue_wav_import(paths);refresh(true);}
 void Desktop::choose(int chooserOptions,std::function<void(const juce::File&)> callback,juce::String pattern){
     const auto studio=juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("MR Studio").getChildFile("Projects");
-    const bool showFiles=pattern=="*.mrlive";const auto initial=showFiles?(liveFile==juce::File()?studio.getSiblingFile("Lives"):liveFile):(app.path().empty()?studio:juce::File(juce::String(app.path().wstring().c_str())));
+    const bool showFiles=pattern=="*.mrlive";auto initial=showFiles?(liveFile==juce::File()?studio.getSiblingFile("Lives"):liveFile):(app.path().empty()?studio:juce::File(juce::String(app.path().wstring().c_str())));
+    // New Show and Save As should default to sibling projects, not create a
+    // new project inside the currently open managed Show.
+    if(showFiles && (chooserOptions&juce::FileBrowserComponent::saveMode) && liveFile!=juce::File() &&
+       liveFile.getParentDirectory().getFileName()==liveFile.getFileNameWithoutExtension())
+        initial=liveFile.getParentDirectory().getParentDirectory();
     chooser=std::make_unique<juce::FileChooser>(standaloneLive?"MR Live":"Moon River Studio",initial,pattern,true);
     juce::Component::SafePointer<Desktop> safe(this);
     chooser->launchAsync(chooserOptions,[safe,callback=std::move(callback)](const juce::FileChooser& result){
@@ -756,7 +819,7 @@ void Desktop::confirmDiscard(std::function<void()> nextAction,bool songOnly){if(
     alert->addButton("Save",1);alert->addButton("Discard",2);alert->addButton("Cancel",0,juce::KeyPress(juce::KeyPress::escapeKey));
     juce::Component::SafePointer<Desktop> safe(this);alert->enterModalState(true,juce::ModalCallbackFunction::create([safe,nextAction](int n){if(!safe)return;
         if(n==2)nextAction();else if(n==1)safe->run([&]{if(safe->documentFile()!=juce::File()){safe->saveFile(safe->documentFile());nextAction();}
-            else safe->choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[safe,nextAction](auto f){if(safe){safe->saveFile(f.withFileExtension(safe->liveDocument?"mrlive":"mrsproject"));nextAction();}},safe->liveDocument?"*.mrlive":"*.mrsproject");});
+            else safe->choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[safe,nextAction](auto f){if(safe){if(safe->standaloneLive)safe->saveLiveAs(f);else safe->saveFile(f.withFileExtension(safe->liveDocument?"mrlive":"mrsproject"));nextAction();}},safe->liveDocument?"*.mrlive":"*.mrsproject");});
     }),true);
 }
 juce::StringArray Desktop::getMenuBarNames(){return {"File","Options","Edit","Track","Transport","AI: "+label(std::string(app.ai_permissions().enabled?mrs::ai::permission_name(app.ai_permissions().mode):std::string_view("OFF")))};}
@@ -949,13 +1012,17 @@ void Desktop::action(int n){
     if(n==717){if(!standaloneLive&&!app.recording())openPreferences();return;}
     if(n==9)return;
     if(n==702){confirmDiscard([this]{choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& file){importLiveShow(file);},"*.json");});return;}
-    if(n==701){if(standaloneLive){confirmDiscard([this]{run([this]{newLiveShow();});});return;}auto createShow=[this]{choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[this](const auto& file){createLive(file);},"*.mrlive");};createShow();return;}
+    if(n==701){
+        auto createShow=[this]{choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[this](const auto& file){createLive(file);},"*.mrlive");};
+        if(standaloneLive)confirmDiscard(createShow);else createShow();
+        return;
+    }
     if(n==8){confirmDiscard([this]{run([&]{closeEditors();cancelPreview();app.pause();app.new_project();liveDocument.reset();liveFile=juce::File();prepareLiveInterface(false);app.workspace(mrs::desktop::Workspace::arrange);resetDevice();selectedTrack.reset();selectedClip.reset();selectedClips.clear();refresh(true);showProjectHome(true);projectSessionStarted=false;home->rescan();});});return;}
     if(n==6){app.pause();showProjectHome(true);home->rescan();return;}
     if(n>=1000){auto at=static_cast<std::size_t>(n-1000);if(at<prefs.recent_projects.size()){const auto f=juce::File(label(prefs.recent_projects[at]));confirmDiscard([this,f]{run([&]{openFile(f);});});}return;}
     if(n==1 || n==2){confirmDiscard([this,n]{run([&]{if(n==1){const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";closeEditors();const bool leavingLive=liveDocument.has_value()||app.workspace()==mrs::desktop::Workspace::live;app.new_project(session?prefs.rate:48000);liveDocument.reset();liveFile=juce::File();prepareLiveInterface(false);if(leavingLive)app.workspace(mrs::desktop::Workspace::arrange);resetDevice();selectedClip.reset();selectedTrack.reset();refresh(true);showProjectHome(false);reconnectDevice(session);}else choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& f){openFile(f);},"*.mrsproject;*.mrlive");});});}
     else if(n==3){if(documentFile()==juce::File())action(4);else saveFile(documentFile());}
-    else if(n==4)choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[this](const auto& f){saveFile(f.withFileExtension(liveDocument?"mrlive":"mrsproject"));},liveDocument?"*.mrlive":"*.mrsproject");
+    else if(n==4)choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[this](const auto& f){if(standaloneLive)saveLiveAs(f);else saveFile(f.withFileExtension(liveDocument?"mrlive":"mrsproject"));},liveDocument?"*.mrlive":"*.mrsproject");
     else if(n==5)choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& f){importFiles({f.getFullPathName()});},"*.wav");
     else if((n==10||n==11)&&app.workspace()==mrs::desktop::Workspace::live&&(liveShowEditing||(liveDocument&&liveDocument->projects.empty()))){undoLiveInterface(n==11);}
     else if(n==10 || n==11){if(!app.history_preserves_plugins(n==11))closeEditors(true);if(n==10)app.undo();else app.redo();refresh(true);}
@@ -1059,7 +1126,7 @@ juce::String Desktop::footerStatus(){
             s+="  |  XR "+juce::String(static_cast<juce::int64>(metrics.input_underflows+metrics.input_overflows+metrics.output_underflows+metrics.output_overflows));
             s+="  |  Late "+juce::String(static_cast<juce::int64>(metrics.deadline_misses));
             s+="  |  D "+juce::String(static_cast<juce::int64>(metrics.disk_underruns));
-            s+="  |  W "+juce::String(metrics.processing_workers);if(metrics.process_buffer_frames)s+="  |  A "+juce::String(metrics.anticipation_active?metrics.ahead_buffered_frames:0)+"/"+juce::String(metrics.process_buffer_frames)+(metrics.mixed_anticipation?" mixed":metrics.anticipation_active?juce::String():" direct")+" U"+juce::String(static_cast<juce::int64>(metrics.ahead_underruns));if(metrics.processing_fault)s+=" PROCESSING FAULT: reconnect audio";}}
+            s+="  |  W "+juce::String(metrics.processing_workers);if(metrics.process_buffer_frames)s+="  |  A "+juce::String(metrics.anticipation_active?metrics.ahead_buffered_frames:0)+"/"+juce::String(metrics.process_buffer_frames)+(metrics.mixed_anticipation?" mixed":metrics.anticipation_active?juce::String():" direct")+" U"+juce::String(static_cast<juce::int64>(metrics.ahead_underruns));if(metrics.processing_fault)s+=metrics.worker_timeouts?" PROCESSING FAULT (worker timeout): reconnect audio":" PROCESSING FAULT: reconnect audio";}}
     return s;
 }
 void Desktop::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));if(shellTheme&&!homeVisible)paintShell(g);g.setFont(theme.font(12));
@@ -1251,7 +1318,20 @@ void Desktop::focusLost(FocusChangeType){if(!juce::KeyPress::isKeyCurrentlyDown(
 void Desktop::timerCallback(){
     // Recover a missed key-up (e.g. focus moved out of the editor/window).
     if(spaceHeld&&!juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey))spaceKey(false);
-    if(app.export_active())return;try{const bool wasRecording=app.recording();app.poll();syncLivePlayback();pollLivePreflightJobs();
+    if(app.export_active())return;try{const bool wasRecording=app.recording();app.poll();
+    const auto fault=app.processing_fault_report();
+    if(fault.sequence!=reportedProcessingFault) {
+        reportedProcessingFault=fault.sequence;
+        mrs::diagnostics::event("processing_fault worker_timeouts="+std::to_string(fault.worker_timeouts)+
+            " plugin_failed="+std::to_string(fault.plugin_failed)+" device="+app.audio_name()+
+            " workers="+std::to_string(prefs.processing_workers)+" buffer="+std::to_string(prefs.buffer));
+    }
+    const auto recovered=app.processing_recovery_count();
+    if(recovered!=reportedProcessingRecovery) {
+        reportedProcessingRecovery=recovered;
+        mrs::diagnostics::event("processing_recovered count="+std::to_string(recovered));
+    }
+    syncLivePlayback();pollLivePreflightJobs();
 #if defined(MRS_PROJECT_IMPORT_UI)
     pollProjectImportPreview();pollProjectImportCreate();
 #endif
@@ -2862,6 +2942,9 @@ void exportAudioSmoke(){
     const auto item=exported.interfaceState["items"][0]["id"].toString();
     const auto rows=live::playbackRows(exported.interfaceState,item);
     check(rows.size()==1&&rows[0]["file"].toString()==stemFile.getFullPathName(),"native item relinks exported WAV");
+    check(rows[0]["exportedStemId"].toString()==juce::String::fromUTF8(stems->selectedTracks().front().value.c_str()),"export persists stable source track identity");
+    const auto saved=juce::JSON::parse(exported.interfaceState["library"][juce::Identifier(item)].toString());
+    check(live::playback(saved,item)["exportedStemId"]==rows[0]["exportedStemId"],"saved export version retains media identity");
     check(exported.interfaceState["setlists"][0]["entries"].size()==0,"export does not insert performance entry");
     check(d.app.services().projects->state().project==before.project,"stem export preserves project");
     d.exportWindow->closeButtonPressed();

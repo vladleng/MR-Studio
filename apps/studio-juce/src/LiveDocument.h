@@ -13,6 +13,9 @@ struct LiveDocument {
     int active{-1};
     juce::var interfaceState;
     std::map<juce::String, int> itemProjects;
+    // Old shows and standalone exported Item packages remain readable without
+    // claiming ownership of the directory in which they happen to reside.
+    bool managedMedia{};
 
     static juce::String projectLabel(const juce::File &file) {
         const auto label = file.getFileNameWithoutExtension().trim().substring(0, 120);
@@ -71,6 +74,7 @@ struct LiveDocument {
         live::put(value, "version", interfaceState.isObject() ? 2 : 1);
         live::put(value, "title", title);
         live::put(value, "active", active);
+        if (managedMedia) live::put(value, "managedMedia", true);
         juce::Array<juce::var> refs;
         for (const auto &project : projects)
             refs.add(absolute ? project.getFullPathName() : project.getRelativePathFrom(file.getParentDirectory()));
@@ -101,6 +105,9 @@ struct LiveDocument {
         LiveDocument result;
         result.title = value["title"].toString();
         result.active = static_cast<int>(value["active"]);
+        if (!value["managedMedia"].isVoid() && !value["managedMedia"].isBool())
+            throw std::runtime_error("Invalid Show media ownership flag");
+        result.managedMedia = static_cast<bool>(value["managedMedia"]);
         if (value["projects"].size() > 1024)
             throw std::runtime_error("Too many MR Live project references");
         for (const auto &ref : *value["projects"].getArray()) {

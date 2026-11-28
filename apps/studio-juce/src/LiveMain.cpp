@@ -262,10 +262,12 @@ class LiveApplication final : public juce::JUCEApplication {
                 check(direct.documentFile() == saved && direct.liveDocument->interfaceState["items"].size() == 3 &&
                           !direct.projectHomeVisible(),
                       "Direct quoted mrlive argument opens the show without Studio Home");
-                direct.action(701);
+                // Startup's intentionally untitled workspace is distinct from
+                // the explicit New Show menu, which now chooses a project folder.
+                direct.newLiveShow();
                 check(direct.documentFile() == juce::File() &&
                           direct.liveDocument->interfaceState["items"].size() == 0 && !direct.documentDirty(),
-                      "New Live show is immediately editable without choosing a save location");
+                      "Untitled Live startup remains immediately editable");
                 direct.editLiveInterface("First edit", [](auto &state) { ui::live::addItem(state, "Untitled item"); });
                 check(direct.documentDirty(), "The first edit of an untitled show enables unsaved-change protection");
                 direct.undoLiveInterface();
@@ -298,6 +300,21 @@ class LiveApplication final : public juce::JUCEApplication {
                 direct.run([&] { startLive(direct, {}); });
                 check(direct.documentFile() == juce::File() && !direct.documentDirty() && direct.message.isNotEmpty(),
                       "Missing last show falls back to the empty workspace");
+                const auto namedRequest=juce::File::getSpecialLocation(juce::File::tempDirectory)
+                    .getChildFile("mr-live-managed-show-"+juce::Uuid().toString()+".mrlive");
+                const auto namedRoot=namedRequest.getSiblingFile(namedRequest.getFileNameWithoutExtension());
+                const auto namedFile=namedRoot.getChildFile(namedRequest.getFileName());
+                startLive(direct, "--new-show "+namedRequest.getFullPathName().quoted());
+                check(direct.documentFile()==namedFile && namedFile.existsAsFile() &&
+                      namedRoot.getChildFile("Media").isDirectory() && !direct.documentDirty(),
+                      "Explicit new Show creates project folder and Media");
+                const auto namedBytes=namedFile.loadFileAsString();
+                bool duplicateRejected=false;
+                try { direct.createLive(namedRequest); } catch(const std::exception&) { duplicateRejected=true; }
+                check(duplicateRejected && direct.documentFile()==namedFile && namedFile.loadFileAsString()==namedBytes,
+                      "Duplicate new Show leaves the existing document unchanged");
+                direct.newLiveShow();
+                check(namedRoot.deleteRecursively(), "Managed Show fixture cleanup");
                 check(saved.deleteFile(), "MR Live application fixture cleanup");
                 ui::Desktop studio(true, true);
                 const auto project = studio.project();
