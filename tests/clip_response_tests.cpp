@@ -1,6 +1,7 @@
 #include <mrs/desktop.hpp>
 #include <mrs/arrangement.hpp>
 #include <array>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -129,6 +130,56 @@ void wav(const std::filesystem::path& file){std::ofstream f(file,std::ios::binar
     f.write("RIFF",4);put(36+48000*4,4);f.write("WAVEfmt ",8);put(16,4);put(1,2);put(2,2);put(48000,4);put(192000,4);put(4,2);put(16,2);f.write("data",4);put(48000*4,4);
     for(unsigned i=0;i<48000;++i){put(8192,2);put(8192,2);}
 }
+void midi_move_stream_budget(const std::filesystem::path& directory){
+    // Existing large Studio projects may contain more than the historical
+    // 32-stream edit guard. Build a valid saved project without going through
+    // that guard; use one sparse WAV to keep fixture disk usage bounded.
+    const auto file=directory/"stream.wav";
+    constexpr unsigned frames=40'000'003;
+    {
+        std::ofstream f(file,std::ios::binary);
+        const auto put=[&](unsigned n,int bytes){for(int i=0;i<bytes;++i)f.put(static_cast<char>((n>>(8*i))&255));};
+        f.write("RIFF",4);put(36+frames*4,4);f.write("WAVEfmt ",8);put(16,4);
+        put(1,2);put(2,2);put(48000,4);put(192000,4);put(4,2);put(16,2);
+        f.write("data",4);put(frames*4,4);
+        f.seekp(static_cast<std::streamoff>(44)+frames*4-1);f.put(0);
+    }
+    check(bool(audio::open_wav(file).file),"fixture must be disk streamed");
+    Counts counts;Application app;app.import_wav(file);
+    const auto first=app.add_instrument_track("MIDI 1"),second=app.add_instrument_track("MIDI 2");
+    const auto one=app.create_midi_clip(first,0,ppq),two=app.create_midi_clip(first,2*ppq,ppq);
+    auto doc=app.snapshot();const auto original=doc.project.clips.front();
+    for(unsigned i=1;i<33;++i){auto clip=original;clip.id=new_id();clip.start=i*48000;clip.length=48000;doc.project.clips.push_back(clip);}
+    doc.project.clips.front().length=48000;
+    const auto saved=directory/"stream.mrsproject";
+    persistence::save_project(saved,doc);app.open_project(saved);
+    app.connect(std::make_unique<Device>(counts),{0,48000,128,{}, {0,1}});
+    const auto engine=app.engine();const auto generation=app.insert_generation();
+    const auto voices=engine->stopped_graph().voices;
+    check(voices.size()==33&&std::all_of(voices.begin(),voices.end(),[](const auto& voice){return bool(voice.stream);}),"expected 33 live disk streams");
+    const auto before=*app.services().projects->state().project;
+    const Timeline time(before.time,before.sample_rate);
+    const auto verify=[&]{
+        check(app.audio_running()&&app.engine()==engine&&app.insert_generation()==generation,"MIDI edit rebuilt engine or plugins");
+        const auto& current=engine->stopped_graph().voices;
+        check(current.size()==voices.size(),"MIDI edit changed disk voice count");
+        for(std::size_t i=0;i<voices.size();++i)check(current[i].stream==voices[i].stream&&current[i].start==voices[i].start&&current[i].length==voices[i].length,"MIDI edit replaced disk stream");
+    };
+    const auto midi=[&](const Id& id){
+        const auto p=app.services().projects->state().project;
+        const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==id;});
+        check(c!=p->clips.end()&&c->midi.has_value(),"missing MIDI clip");return *c;
+    };
+    app.move_clip(one,second,time.to_samples(ppq));
+    check(midi(one).track==second&&midi(one).midi->start==ppq,"single MIDI move");
+    verify();check(app.undo()&&*app.services().projects->state().project==before,"single MIDI move undo");
+    verify();check(app.redo()&&midi(one).track==second,"single MIDI move redo");verify();
+    check(app.undo(),"restore initial MIDI clips");
+    app.move_clips({one,two},time.to_samples(ppq),1);
+    check(midi(one).track==second&&midi(one).midi->start==ppq&&midi(two).track==second&&midi(two).midi->start==3*ppq,"group MIDI move");
+    verify();check(app.undo()&&*app.services().projects->state().project==before,"group MIDI move undo");verify();
+    check(app.redo()&&midi(two).midi->start==3*ppq,"group MIDI move redo");verify();
+}
 void application_edits(const std::filesystem::path& file,bool buffered){
     Counts counts;Application app;app.new_project();app.import_wav(file);
     const auto id=app.services().projects->state().project->clips.front().id,track=app.services().projects->state().project->clips.front().track;
@@ -167,6 +218,6 @@ void application_edits(const std::filesystem::path& file,bool buffered){
 }
 int main(){try{shared_state();voice_publication();publication_race();auto directory=std::filesystem::temp_directory_path()/("mrs-clip-response-"+mrs::new_id().value);std::filesystem::create_directory(directory);
     struct Cleanup{std::filesystem::path path;~Cleanup(){std::error_code e;std::filesystem::remove_all(path,e);}}cleanup{directory};
-    auto file=directory/"fixture.wav";wav(file);application_edits(file,false);application_edits(file,true);
+    auto file=directory/"fixture.wav";wav(file);application_edits(file,false);application_edits(file,true);midi_move_stream_budget(directory);
     std::cout<<"PASS immutable opaque snapshots, value serialization, callback no alloc/free, PCM handoff/cancel, clip edits/Undo, plugin retention, queued Play, buffered restart rollback\n";
 }catch(const std::exception& e){std::cerr<<"FAIL: "<<e.what()<<'\n';return 1;}}
