@@ -621,6 +621,7 @@ private:
         duplicate{"Duplicate"},remove{"Del clip"},zoomIn{"Zoom +"},zoomOut{"Zoom -"},fit{"Fit"},snapButton{"Snap off"},clickButton{"Click"},countButton{"Count off"},pointerTool{"Pointer (1)"},knifeTool{"Knife (3)"};
     int lastCountBars{1}; // Toolbar off/on restores the last enabled count in this session.
     unsigned diagnosticTick{};
+    std::uint64_t reportedProcessingFault{},reportedProcessingRecovery{};
     struct MixPreview {std::optional<mrs::Id> target;mrs::Track::Mix mix;float master;std::function<bool()> active;std::optional<mrs::Id> sendBus{};float sendGain{};};
     std::optional<MixPreview> preview;
 };

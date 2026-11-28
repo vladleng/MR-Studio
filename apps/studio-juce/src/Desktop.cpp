@@ -1126,7 +1126,7 @@ juce::String Desktop::footerStatus(){
             s+="  |  XR "+juce::String(static_cast<juce::int64>(metrics.input_underflows+metrics.input_overflows+metrics.output_underflows+metrics.output_overflows));
             s+="  |  Late "+juce::String(static_cast<juce::int64>(metrics.deadline_misses));
             s+="  |  D "+juce::String(static_cast<juce::int64>(metrics.disk_underruns));
-            s+="  |  W "+juce::String(metrics.processing_workers);if(metrics.process_buffer_frames)s+="  |  A "+juce::String(metrics.anticipation_active?metrics.ahead_buffered_frames:0)+"/"+juce::String(metrics.process_buffer_frames)+(metrics.mixed_anticipation?" mixed":metrics.anticipation_active?juce::String():" direct")+" U"+juce::String(static_cast<juce::int64>(metrics.ahead_underruns));if(metrics.processing_fault)s+=" PROCESSING FAULT: reconnect audio";}}
+            s+="  |  W "+juce::String(metrics.processing_workers);if(metrics.process_buffer_frames)s+="  |  A "+juce::String(metrics.anticipation_active?metrics.ahead_buffered_frames:0)+"/"+juce::String(metrics.process_buffer_frames)+(metrics.mixed_anticipation?" mixed":metrics.anticipation_active?juce::String():" direct")+" U"+juce::String(static_cast<juce::int64>(metrics.ahead_underruns));if(metrics.processing_fault)s+=metrics.worker_timeouts?" PROCESSING FAULT (worker timeout): reconnect audio":" PROCESSING FAULT: reconnect audio";}}
     return s;
 }
 void Desktop::paint(juce::Graphics& g){g.fillAll(juce::Colour(surface));if(shellTheme&&!homeVisible)paintShell(g);g.setFont(theme.font(12));
@@ -1318,7 +1318,20 @@ void Desktop::focusLost(FocusChangeType){if(!juce::KeyPress::isKeyCurrentlyDown(
 void Desktop::timerCallback(){
     // Recover a missed key-up (e.g. focus moved out of the editor/window).
     if(spaceHeld&&!juce::KeyPress::isKeyCurrentlyDown(juce::KeyPress::spaceKey))spaceKey(false);
-    if(app.export_active())return;try{const bool wasRecording=app.recording();app.poll();syncLivePlayback();pollLivePreflightJobs();
+    if(app.export_active())return;try{const bool wasRecording=app.recording();app.poll();
+    const auto fault=app.processing_fault_report();
+    if(fault.sequence!=reportedProcessingFault) {
+        reportedProcessingFault=fault.sequence;
+        mrs::diagnostics::event("processing_fault worker_timeouts="+std::to_string(fault.worker_timeouts)+
+            " plugin_failed="+std::to_string(fault.plugin_failed)+" device="+app.audio_name()+
+            " workers="+std::to_string(prefs.processing_workers)+" buffer="+std::to_string(prefs.buffer));
+    }
+    const auto recovered=app.processing_recovery_count();
+    if(recovered!=reportedProcessingRecovery) {
+        reportedProcessingRecovery=recovered;
+        mrs::diagnostics::event("processing_recovered count="+std::to_string(recovered));
+    }
+    syncLivePlayback();pollLivePreflightJobs();
 #if defined(MRS_PROJECT_IMPORT_UI)
     pollProjectImportPreview();pollProjectImportCreate();
 #endif
