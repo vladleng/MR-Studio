@@ -3519,13 +3519,33 @@ void liveInterfaceSmoke(const juce::File &fixture) {
         render();
         liveCheck(std::abs(audio[200]) < fullLevel * .75f && playbackDesktop.project()->tracks.front().mix.solo,
                   "Item gain and Solo reach the Core mixer");
-        playbackDesktop.setLivePlaybackMix(-6., true, true);
+        // Shared Core explicitly prioritizes Solo over a stored Mute.
+        playbackDesktop.setLivePlaybackMix(-6., true, false);
         render();
-        liveCheck(std::abs(audio[200]) < .0001f, "Mute silences rendered audio");
+        liveCheck(playbackDesktop.project()->tracks.front().mix.mute &&
+                      !playbackDesktop.project()->tracks.front().mix.solo &&
+                      std::abs(audio[200]) < .0001f,
+                  "Mute without Solo silences rendered audio");
         playbackDesktop.undoLiveInterface();
         playbackDesktop.syncLivePlayback();
         render();
-        liveCheck(std::abs(audio[200]) > .01f, "Show Undo restores audible mixer state");
+        liveCheck(!playbackDesktop.project()->tracks.front().mix.mute &&
+                      playbackDesktop.project()->tracks.front().mix.solo &&
+                      std::abs(audio[200]) > .01f,
+                  "Show Undo restores audible mixer state");
+        playbackDesktop.setLivePlaybackMix(-6., true, true);
+        render();
+        liveCheck(playbackDesktop.project()->tracks.front().mix.mute &&
+                      playbackDesktop.project()->tracks.front().mix.solo &&
+                      std::abs(audio[200]) > .01f,
+                  "Explicit Solo overrides stored Mute in the shared Core");
+        playbackDesktop.undoLiveInterface();
+        playbackDesktop.syncLivePlayback();
+        render();
+        liveCheck(!playbackDesktop.project()->tracks.front().mix.mute &&
+                      playbackDesktop.project()->tracks.front().mix.solo &&
+                      std::abs(audio[200]) > .01f,
+                  "Show Undo restores unmuted Solo after Mute plus Solo");
         playbackDesktop.action(31);
         render();
         liveCheck(playbackDesktop.app.engine()->state().playback == mrs::PlaybackState::paused,
