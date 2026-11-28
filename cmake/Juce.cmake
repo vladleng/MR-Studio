@@ -372,7 +372,7 @@ get_target_property(mrs_live_host_definitions MoonRiverStudioJuce COMPILE_DEFINI
 list(FILTER mrs_live_host_definitions EXCLUDE REGEX "^MRS_(TRANSCRIPTION|DRUM_MAP)_UI=")
 list(FILTER mrs_live_host_sources EXCLUDE REGEX "DrumMapEditor\\.cpp$")
 get_target_property(mrs_live_host_options MoonRiverStudioJuce COMPILE_OPTIONS)
-juce_add_gui_app(MRLiveJuce VERSION 0.9.3 PRODUCT_NAME "MR Live")
+juce_add_gui_app(MRLiveJuce VERSION ${MRS_LIVE_BINARY_VERSION} PRODUCT_NAME "MR Live")
 target_sources(MRLiveJuce PRIVATE ${mrs_live_host_sources} apps/studio-juce/src/LiveMain.cpp)
 target_compile_features(MRLiveJuce PRIVATE cxx_std_20)
 target_compile_definitions(MRLiveJuce PRIVATE ${mrs_live_host_definitions})
