@@ -2942,6 +2942,9 @@ void exportAudioSmoke(){
     const auto item=exported.interfaceState["items"][0]["id"].toString();
     const auto rows=live::playbackRows(exported.interfaceState,item);
     check(rows.size()==1&&rows[0]["file"].toString()==stemFile.getFullPathName(),"native item relinks exported WAV");
+    check(rows[0]["exportedStemId"].toString()==juce::String::fromUTF8(stems->selectedTracks().front().value.c_str()),"export persists stable source track identity");
+    const auto saved=juce::JSON::parse(exported.interfaceState["library"][juce::Identifier(item)].toString());
+    check(live::playback(saved,item)["exportedStemId"]==rows[0]["exportedStemId"],"saved export version retains media identity");
     check(exported.interfaceState["setlists"][0]["entries"].size()==0,"export does not insert performance entry");
     check(d.app.services().projects->state().project==before.project,"stem export preserves project");
     d.exportWindow->closeButtonPressed();

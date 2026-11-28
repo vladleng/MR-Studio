@@ -2,6 +2,7 @@
 #include "LiveDocument.h"
 #include <mrs/project_folders.hpp>
 #include <mrs/sha256.hpp>
+#include <mrs/audio.hpp>
 #include <filesystem>
 #include <memory>
 
@@ -13,6 +14,52 @@ inline fs::path mediaFsPath(const juce::File& file) {
 }
 inline juce::File mediaJuceFile(const fs::path& path) {
     return juce::File(juce::String(path.wstring().c_str()));
+}
+
+// Change only the WAV reference of a known exported stem. The caller owns
+// the detached Show edit and MediaCopy transaction. Keep concert settings,
+// including trims/regions, and reject incompatible source lengths. Legacy
+// manually imported WAVs do not acquire an identity by name or position.
+inline void validateExportedStemExtent(const juce::var& state,const juce::String& item,
+                                      const juce::var& row,const mrs::audio::WavFile& wav) {
+    const auto seconds=static_cast<double>(wav.frame_count)/wav.sample_rate;
+    const auto tolerance=1./wav.sample_rate;
+    if(static_cast<double>(row["trimStart"])>=seconds||
+       (!row["trimEnd"].isVoid()&&static_cast<double>(row["trimEnd"])>seconds+tolerance))
+        throw std::runtime_error("Replacement WAV is too short for the Item trim");
+    const auto regions=playbackRegions(state,item,row);
+    if(const auto* entries=regions.getArray())
+        for(const auto& region:*entries) {
+            const auto end=(static_cast<double>(region["offset"])+static_cast<double>(region["length"]))*
+                playbackSecondsPerBar(state,item);
+            if(end>seconds+tolerance)
+                throw std::runtime_error("Replacement WAV is too short for an Item region");
+        }
+}
+inline void replaceExportedStemFile(juce::var& state,const juce::String& item,
+                                    juce::var current,const juce::File& file) {
+    const auto identity=current["exportedStemId"];
+    if(!named(identity))throw std::runtime_error("Missing exported stem identity");
+    const auto wav=mrs::audio::inspect_wav(mediaFsPath(file));
+    validateExportedStemExtent(state,item,current,wav);
+    const auto stored=state["library"][juce::Identifier(item)];
+    if(stored.isString()) {
+        auto saved=juce::JSON::parse(stored.toString());
+        bool changed=false;
+        for(auto row:playbackRows(saved,item)) {
+            if(row["exportedStemId"]!=identity)continue;
+            validateExportedStemExtent(saved,item,row,wav);
+            if(row["file"]!=file.getFullPathName()) {
+                put(row,"file",file.getFullPathName());
+                changed=true;
+            }
+        }
+        if(changed) {
+            validatePlayback(saved);
+            put(map(state,"library"),item,juce::JSON::toString(saved,true,17));
+        }
+    }
+    put(current,"file",file.getFullPathName());
 }
 
 // Immutable imported media identity is its SHA-256, not an Item name or

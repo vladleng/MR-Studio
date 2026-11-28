@@ -96,6 +96,9 @@ inline LiveDocument studioExportDocument(const mrs::Project& project,mrs::Sample
         if(i>0)put(require(show,"channels",channel),"playbackParent",primaryPlaybackId(show));
         const auto file=directory.getChildFile("stem-"+juce::String(static_cast<int>(i+1))+".wav");
         bindPlaybackSource(show,context.targetItemId,channel,file.getFullPathName(),false);
+        auto row=playbackStem(show,context.targetItemId,playbackStemForChannel(show,context.targetItemId,channel));
+        // Stable source-track identity; filename, order, and channel title are not identity.
+        put(row,"exportedStemId",juce::String::fromUTF8(track->id.value.c_str()));
     }
     saveItem(show,context.targetItemId);
     // Browser only: never insert a performance entry or start playback.

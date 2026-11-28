@@ -1174,7 +1174,12 @@ void Desktop::attachLivePlayback(const juce::String &id,const juce::File &file,
         selected=requested.isNotEmpty()?requested:primary;
         live::ensureIndependentPlaybackTarget(state,id,selected);
         const auto owned=media?media->own(file):file;
-        live::bindPlaybackSource(state,id,selected,owned.getFullPathName(),true);
+        auto existing=live::playbackStem(state,id,live::playbackStemForChannel(state,id,selected));
+        if(existing.isObject()&&live::playbackChannelId(state,existing)==selected&&
+           live::named(existing["exportedStemId"]))
+            live::replaceExportedStemFile(state,id,existing,owned);
+        else
+            live::bindPlaybackSource(state,id,selected,owned.getFullPathName(),true);
     });
     if(media)media->commit();
     livePlaybackSelectedChannel=selected;
@@ -1204,7 +1209,8 @@ void Desktop::commitLiveRelink(const juce::String& item,const juce::String& stem
     editLiveInterface("Relink Playback WAV",[&](auto& state){auto row=live::playbackStem(state,item,stem);
         if(!row.isObject())throw std::runtime_error("Playback source was removed");
         const auto owned=media?media->own(file):file;
-        live::put(row,"file",owned.getFullPathName());
+        if(live::named(row["exportedStemId"]))live::replaceExportedStemFile(state,item,row,owned);
+        else live::put(row,"file",owned.getFullPathName());
     });
     if(media)media->commit();
     invalidateLivePlayback(item);syncLivePlayback();

@@ -955,7 +955,6 @@ void studio_worker_timeout_recovery() {
           app.processing_fault_report().worker_timeouts==0&&app.processing_recovery_count()==recovered+1);
 }
 void audio_settings() {
-    studio_worker_timeout_recovery();
     Application app;
     app.connect(audio::make_offline_device(),{0,48000,128,{}, {0,1}}); CHECK(app.audio_running());
     app.connect(audio::make_offline_device(),{0,48000,64,{0}, {0,1}}); CHECK(app.audio_running() && app.engine()->config().input_channels == 1);
@@ -1616,6 +1615,7 @@ int main(int argc, char** argv) {
         if(argc==3&&std::string_view(argv[1])=="cab_combo_real"){cab_combo_real(std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(argv[2]))));return 0;}
         if (argc != 2) throw std::runtime_error("expected suite");
         std::string name = argv[1];
+        if(name=="processing_recovery"){studio_worker_timeout_recovery();std::cout<<"PASS desktop processing_recovery\n";return 0;}
         if(name=="drum_maps"){drum_maps();std::cout<<"PASS desktop drum_maps\n";return 0;}
         if(name=="track_folders"){track_folders();std::cout<<"PASS desktop track_folders\n";return 0;}
         if(name=="remove_tracks"){remove_tracks();std::cout<<"PASS desktop remove_tracks\n";return 0;}

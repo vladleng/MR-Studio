@@ -805,6 +805,54 @@ void liveManagedMediaSmoke(const juce::File& wave) {
                   "Undo restores binding without destructively deleting WAVs");
         host.undoLiveInterface(true);
         host.editLiveInterface("Rename Item",[&](auto& state){live::put(live::require(state,"items",first),"name","Renamed");});
+        // A separate explicitly exported Item shares current media across
+        // saved versions. The legacy/manual replacement above remains independent.
+        juce::String exported;
+        host.editLiveInterface("Exported Item",[&](auto& state){exported=live::addItem(state,"Exported");});
+        host.attachLivePlayback(exported,one);
+        host.editLiveInterface("Export identity and saved settings",[&](auto& state){
+            auto row=live::playback(state,exported);
+            live::put(row,"exportedStemId","stable-source-track");
+            live::put(row,"gain",-4.);
+            live::put(row,"trimEnd",.75);
+            live::saveItem(state,exported);
+            live::put(row,"gain",-8.);
+            live::put(row,"trimEnd",.5);
+        });
+        host.attachLivePlayback(exported,two);
+        const auto exportedSaved=[&]{
+            return juce::JSON::parse(host.liveDocument->interfaceState["library"][juce::Identifier(exported)].toString());
+        };
+        liveCheck(live::playback(exportedSaved(),exported)["file"].toString()==secondFile.getFullPathName()&&
+                  static_cast<double>(live::playback(exportedSaved(),exported)["gain"])==-4.&&
+                  static_cast<double>(live::playback(exportedSaved(),exported)["trimEnd"])==.75&&
+                  static_cast<double>(live::playback(host.liveDocument->interfaceState,exported)["gain"])==-8.&&
+                  static_cast<double>(live::playback(host.liveDocument->interfaceState,exported)["trimEnd"])==.5,
+                  "Exported stem replacement synchronizes only the saved file reference");
+        host.undoLiveInterface();
+        liveCheck(live::playback(exportedSaved(),exported)["file"].toString()==firstFile.getFullPathName(),
+                  "Undo restores both exported stem references");
+        host.undoLiveInterface(true);
+        liveCheck(live::playback(exportedSaved(),exported)["file"].toString()==secondFile.getFullPathName(),
+                  "Redo restores current exported stem in saved version");
+        // 0.625-second WAV, valid for working trim but too short for saved trim.
+        const auto shorter=root.getChildFile("Short.wav");
+        liveCheck(one.copyFileTo(shorter),"Copy WAV for extent conflict");
+        {
+            constexpr std::uint32_t bytes=120000;
+            std::fstream header(live::mediaFsPath(shorter),std::ios::in|std::ios::out|std::ios::binary);
+            const auto u32=[&](std::uint32_t n){for(unsigned i=0;i<4;++i)header.put(static_cast<char>((n>>(8*i))&255));};
+            header.seekp(4);u32(36+bytes);header.seekp(40);u32(bytes);
+            liveCheck(header.good(),"Write short WAV header");
+            header.close();
+            std::filesystem::resize_file(live::mediaFsPath(shorter),44+bytes);
+        }
+        const auto beforeConflict=host.liveDocument->signature();
+        bool extentRejected=false;
+        try {host.attachLivePlayback(exported,shorter);} catch(const std::exception&) {extentRejected=true;}
+        liveCheck(extentRejected&&host.liveDocument->signature()==beforeConflict&&
+                  live::playback(exportedSaved(),exported)["file"].toString()==secondFile.getFullPathName(),
+                  "Short replacement cannot silently invalidate a saved version");
         host.saveFile(show);
         const auto originalBytes=show.loadFileAsString();
         const auto original=LiveDocument::read(show);
@@ -820,6 +868,13 @@ void liveManagedMediaSmoke(const juce::File& wave) {
         const auto copied=juce::File(live::playback(read.interfaceState,first)["file"].toString());
         const auto saved=juce::JSON::parse(read.interfaceState["library"][juce::Identifier(first)].toString());
         const auto savedFile=juce::File(live::playback(saved,first)["file"].toString());
+        const auto copiedExported=live::playback(read.interfaceState,exported);
+        const auto exportedCopyVersion=juce::JSON::parse(read.interfaceState["library"][juce::Identifier(exported)].toString());
+        liveCheck(copiedExported["exportedStemId"].toString()=="stable-source-track"&&
+                  copiedExported["file"]==live::playback(exportedCopyVersion,exported)["file"]&&
+                  copiedExported["file"].toString()==copied.getFullPathName()&&
+                  static_cast<double>(live::playback(exportedCopyVersion,exported)["gain"])==-4.,
+                  "Save As preserves exported identity, shared current media and saved mix");
         liveCheck(copy!=show&&read.managedMedia&&copied!=secondFile&&savedFile!=firstFile&&
                   copied.isAChildOf(copy.getSiblingFile("Media"))&&savedFile.isAChildOf(copy.getSiblingFile("Media"))&&
                   mrs::sha256_file(live::mediaFsPath(copied))==mrs::sha256_file(live::mediaFsPath(secondFile))&&
