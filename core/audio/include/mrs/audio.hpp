@@ -286,6 +286,9 @@ struct OfflineStemRenderCallbacks {
     std::function<void(std::size_t,std::span<const float>)> write_stem;
     std::function<bool(const OfflineRenderProgress&)> continue_render{};
 };
+// Backward closure of the selected Master routes. Includes main bus inputs
+// and nonzero sends feeding any retained channel. Indices remain unchanged.
+std::vector<bool> stem_render_dependencies(const RenderGraph&,std::span<const std::size_t>);
 OfflineRenderResult render_stem_range(RenderConfig, RenderGraph, Sample begin, Sample end,
                                       std::span<const std::size_t> tracks,
                                       const OfflineStemRenderCallbacks&);

@@ -556,6 +556,22 @@ void offline_stem_plan() {
     app.finish_master_export(plan);plan.reset();
     CHECK(!app.export_active()&&app.audio_running()&&driver->opens==1);
     CHECK(app.services().projects->state().project==before.project&&app.services().projects->state().revision==before.revision);
+    // Inject a late worker-side failure, then finish and retry from the same
+    // project/device. No published partial folder, no consumed plan reuse.
+    auto failing=app.prepare_stem_export(3,37,selection);
+    audio::WavExportCallbacks fail;
+    fail.finalize_stems=[](const auto&){throw std::runtime_error("Injected package failure");};
+    const auto retry=dir.path/"retry";
+    auto failed=std::async(std::launch::async,[&]{return failing->export_stem_wavs(retry,fail);});
+    rejects([&]{(void)failed.get();});
+    app.finish_master_export(failing);
+    CHECK(!std::filesystem::exists(retry)&&app.audio_running()&&!app.export_active());
+    rejects([&]{failing->render_stems({[](std::size_t,std::span<const float>){}});});
+    auto second=app.prepare_stem_export(3,37,selection);
+    auto again=std::async(std::launch::async,[&]{return second->export_stem_wavs(retry);});
+    CHECK(again.get().completed);app.finish_master_export(second);
+    CHECK(app.audio_running()&&!app.export_active()&&driver->opens==1);
+    CHECK(app.services().projects->state().project==before.project&&app.services().projects->state().revision==before.revision);
 }
 void offline_stem_wavs() {
     Directory dir;

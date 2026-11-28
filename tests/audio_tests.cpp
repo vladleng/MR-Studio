@@ -709,6 +709,42 @@ void offline_stems() {
         CHECK(combined[2*i]==(i<2?.125f:.1875f));
         CHECK(combined[2*i+1]==(i<2?.25f:.375f));
     }
+    // A slow vendor processor is legal offline. It must stay on the render
+    // owner even if the input configuration requests RT workers/watchdog.
+    struct Slow final:IProcessor {
+        std::thread::id owner;std::atomic<unsigned>& calls;std::atomic<bool>& wrong;
+        Slow(std::thread::id id,std::atomic<unsigned>& c,std::atomic<bool>& w):owner(id),calls(c),wrong(w){}
+        std::vector<ParameterInfo> parameters()const override{return {};}
+        void prepare(ProcessConfig)override{}
+        void restore(const PluginState&)override{}
+        PluginState capture()const override{return {};}
+        bool set_parameter(std::uint32_t,float)noexcept override{return false;}
+        std::optional<float> parameter_value(std::uint32_t)const noexcept override{return {};}
+        std::uint32_t latency()const noexcept override{return 0;}
+        bool live_safe()const noexcept override{return true;}
+        void warm()override{}
+        void reset()noexcept override{}
+        void process(ProcessBlock)noexcept override{
+            if(std::this_thread::get_id()!=owner)wrong=true;
+            ++calls;std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        }
+    };
+    std::atomic<unsigned> selected_calls{},excluded_calls{};std::atomic<bool> wrong{};
+    const auto slow=[&](auto& calls){
+        auto state=demo_graph();state.nodes.front().parameters.clear();
+        return std::make_shared<PreparedGraph>(GraphSnapshot{std::make_shared<const GraphState>(state),0,false,false},
+            ProcessConfig{48000,2,4},[&](const auto&){return std::make_unique<Slow>(std::this_thread::get_id(),calls,wrong);});
+    };
+    auto selective=make_graph();selective.inserts={slow(selected_calls),slow(selected_calls),slow(excluded_calls)};
+    selected_calls=0;excluded_calls=0;wrong=false;
+    RenderConfig offline{48000,0,2,4};offline.processing_workers=3;offline.worker_wait_ms=1;offline.adaptive_parallel=false;
+    const auto slow_result=render_stem_range(offline,std::move(selective),0,8,tracks,{[](std::size_t,std::span<const float>){}});
+    CHECK(slow_result.completed&&slow_result.frames_written==8&&selected_calls.load()>0&&excluded_calls.load()==0&&!wrong.load());
+    // Main inputs and active sends recursively feed selected buses.
+    RenderGraph routes;routes.mixer.resize(5);routes.outputs={2,no_mixer_track,3,no_mixer_track,no_mixer_track};
+    routes.sends={ {},{{3,.5f,false}},{},{},{{3,0.f,false}} };
+    const std::array<std::size_t,1> bus{3};
+    CHECK(stem_render_dependencies(routes,bus)==std::vector<bool>({true,true,true,true,false}));
     bool unexpected_write=false;
     const auto sink=[&](std::size_t,std::span<const float>){unexpected_write=true;};
     const std::array<std::size_t,2> duplicate{0,0};

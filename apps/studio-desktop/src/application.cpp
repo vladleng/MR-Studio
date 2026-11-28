@@ -2644,6 +2644,11 @@ audio::StemWavExportResult Application::PreparedMasterExport::export_stem_wavs(
 void Application::finish_master_export(const std::shared_ptr<PreparedMasterExport>& plan){
     require_ai_owner();
     require(plan&&active_export_==plan,"Export plan is not active");
+    // The caller has joined the offline worker. Destroy its independently
+    // prepared plugin instances on this owner BEFORE restarting live DSP,
+    // even if an external reference to the consumed plan remains.
+    plan->used_.store(true);
+    plan->graph_=audio::RenderGraph{};
     active_export_.reset();
     const bool restart=std::exchange(export_restart_device_,false);
     if(restart)device_->start();
@@ -2695,17 +2700,39 @@ std::shared_ptr<Application::PreparedMasterExport> Application::prepare_audio_ex
     try {
         auto project=*services_.projects->state().project;
         require(engine_->state().playback!=PlaybackState::playing,"Stop playback before export");
+        // Retain original channel indices, routing and mute/solo state.
+        // Prune only the private render snapshot, before plugin state capture,
+        // WAV/ARA loading or offline processor instantiation.
+        audio::RenderGraph routing;
+        std::vector<Id> routing_ids;
+        project_mixer(&project,routing,routing_ids,{});
+        const auto needed=stem_tracks.empty()?std::vector<bool>(routing_ids.size(),true):
+            audio::stem_render_dependencies(routing,stem_indices);
+        const auto keep=[&](const std::string& key){
+            if(stem_tracks.empty())return true;
+            const auto at=std::find_if(routing_ids.begin(),routing_ids.end(),[&](const auto& id){return id.value==key;});
+            return at!=routing_ids.end()&&needed[static_cast<std::size_t>(at-routing_ids.begin())];
+        };
+        if(!stem_tracks.empty()){
+            project.master_inserts.clear();
+            for(auto& t:project.tracks)if(!keep(t.id.value)){t.inserts.clear();t.midi_output.clear();}
+            std::erase_if(project.clips,[&](const auto& clip){return !keep(clip.track.value);});
+            std::erase_if(project.ara_bindings,[&](const auto& binding){
+                return std::none_of(project.clips.begin(),project.clips.end(),[&](const auto& clip){return !clip.midi&&clip.source==binding.source;});
+            });
+        }
         for(const auto& t:project.tracks)require(t.midi_output.empty(),"External MIDI cannot be rendered offline");
         // Reuse the existing stopped-state capture contract, writing only into
         // a private project copy. Fail rather than omit an unavailable plugin.
         for(const auto& [key,runtime]:insert_runtime_){
-            (void)key;
+            if(!keep(key))continue;
             require(!runtime.settings_failed&&!runtime.pending&&(!runtime.graph||!runtime.graph->failed()),"Resolve pending or failed plugin state before export");
         }
-        require(instrument_errors_.empty(),"Resolve unavailable instruments before export");
+        require(std::none_of(instrument_errors_.begin(),instrument_errors_.end(),[&](const auto& error){return keep(error.first);}),"Resolve unavailable instruments before export");
         // Don't export an old persisted IR/preset while a newer selection is
         // loading or awaiting the normal control-thread model acknowledgement.
         for(const auto& runtime:reverb_runtime_){
+            if(!keep(runtime.track?runtime.track->value:std::string{}))continue;
             const auto status=runtime.loader->snapshot();
             require(!runtime.tone&&status->phase!=audio::ReverbLoadPhase::loading&&
                 (!status->active||status->active_revision==runtime.observed),
@@ -2713,7 +2740,7 @@ std::shared_ptr<Application::PreparedMasterExport> Application::prepare_audio_ex
         }
         capture_insert_state(project,{},true);
         auto graph_state=*graphs_->state().graph;
-        if(prepared_&&prepared_->snapshot().graph==graphs_->state().graph)graph_state=prepared_->capture();
+        if(stem_tracks.empty()&&prepared_&&prepared_->snapshot().graph==graphs_->state().graph)graph_state=prepared_->capture();
         audio::RenderGraph graph;
         std::vector<Id> tracks;
         project_mixer(&project,graph,tracks,{});
@@ -2766,7 +2793,10 @@ std::shared_ptr<Application::PreparedMasterExport> Application::prepare_audio_ex
             }
             return prepared;
         };
-        for(const auto& t:project.tracks)if(t.kind!=TrackKind::midi)graph.inserts.push_back(chain(t.inserts,t.kind==TrackKind::instrument));
+        for(const auto& t:project.tracks)if(t.kind!=TrackKind::midi){
+            try{graph.inserts.push_back(chain(t.inserts,t.kind==TrackKind::instrument));}
+            catch(const std::exception& error){throw std::runtime_error("Offline preparation: "+t.name+": "+error.what());}
+        }
         if(stem_tracks.empty()) {
             graph.master_inserts=chain(project.master_inserts,false);
             graph.processors=std::make_shared<processing::PreparedGraph>(
@@ -2774,7 +2804,7 @@ std::shared_ptr<Application::PreparedMasterExport> Application::prepare_audio_ex
                 processing::ProcessConfig{project.sample_rate,2,block,block,false,true});
         }
         audio::RenderConfig config{project.sample_rate,0,2,block};
-        if(device_config_)config.processing_workers=device_config_->processing_workers;
+        // Independent serial offline policy: never inherit real-time workers.
         auto plan=std::make_shared<PreparedMasterExport>();
         plan->config_=config;plan->graph_=std::move(graph);plan->begin_=begin;plan->end_=end;
         plan->stem_ids_.assign(stem_tracks.begin(),stem_tracks.end());

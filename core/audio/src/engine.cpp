@@ -1210,6 +1210,30 @@ public:
     bool failed() const noexcept override{return failed_;}
 };
 }
+std::vector<bool> stem_render_dependencies(const RenderGraph& graph,std::span<const std::size_t> selected){
+    const auto n=graph.mixer.size();
+    if((!graph.outputs.empty()&&graph.outputs.size()!=n)||(!graph.sends.empty()&&graph.sends.size()!=n))
+        throw std::invalid_argument("Invalid stem routing dimensions");
+    std::vector<bool> needed(n);
+    for(const auto index:selected){if(index>=n)throw std::invalid_argument("Invalid stem channel");needed[index]=true;}
+    for(std::size_t i=0;i<n;++i){
+        if(!graph.outputs.empty()&&graph.outputs[i]!=no_mixer_track&&graph.outputs[i]>=n)
+            throw std::invalid_argument("Invalid stem output route");
+        if(!graph.sends.empty())for(const auto& send:graph.sends[i])
+            if(send.destination>=n)throw std::invalid_argument("Invalid stem send route");
+    }
+    bool changed;
+    do{
+        changed=false;
+        for(std::size_t i=0;i<n;++i)if(!needed[i]){
+            const bool main=!graph.outputs.empty()&&graph.outputs[i]!=no_mixer_track&&needed[graph.outputs[i]];
+            const bool send=!graph.sends.empty()&&std::any_of(graph.sends[i].begin(),graph.sends[i].end(),
+                [&](const auto& s){return s.gain!=0.f&&needed[s.destination];});
+            if(main||send){needed[i]=true;changed=true;}
+        }
+    }while(changed);
+    return needed;
+}
 static OfflineRenderResult render_range(RenderConfig config, RenderGraph graph, Sample begin, Sample end,
                                         const OfflineRenderCallbacks& callbacks,
                                         std::span<const std::size_t> selected,
@@ -1230,8 +1254,23 @@ static OfflineRenderResult render_range(RenderConfig config, RenderGraph graph, 
                 throw std::invalid_argument("stem must be a unique channel routed directly to Master");
             seen[track]=true;
         }
-        // A stem is captured at the compensated Master input, not after its
-        // potentially nonlinear processing. Keep all upstream tracks/sends.
+        // Keep original mixer slots and routes for mute/solo admission, but
+        // remove independent voices and DSP before allocating offline caches.
+        const auto needed=stem_render_dependencies(graph,selected);
+        const auto n=needed.size();
+        if((!graph.inserts.empty()&&graph.inserts.size()!=n)||
+           (!graph.midi_notes.empty()&&graph.midi_notes.size()!=n)||
+           (!graph.midi_events.empty()&&graph.midi_events.size()!=n))
+            throw std::invalid_argument("Invalid stem graph dimensions");
+        for(const auto& voice:graph.voices)if(voice.mixer_track!=no_mixer_track&&voice.mixer_track>=n)
+            throw std::invalid_argument("Invalid stem voice route");
+        std::erase_if(graph.voices,[&](const auto& voice){return voice.mixer_track==no_mixer_track||!needed[voice.mixer_track];});
+        for(std::size_t i=0;i<n;++i)if(!needed[i]){
+            if(!graph.inserts.empty())graph.inserts[i].reset();
+            if(!graph.midi_notes.empty())graph.midi_notes[i].clear();
+            if(!graph.midi_events.empty())graph.midi_events[i].clear();
+        }
+        // Stems are compensated Master inputs, not nonlinear Master outputs.
         graph.processors.reset();
         graph.master_inserts.reset();
         graph.master_gain=1.f;
@@ -1275,6 +1314,11 @@ static OfflineRenderResult render_range(RenderConfig config, RenderGraph graph, 
     graph.editor_renderers.clear();
     graph.click.playback=graph.click.recording=false;
     graph.count_frames=0;
+    // Offline has no device deadline. A vendor can legitimately take much
+    // longer than the real-time worker watchdog on a block (disk streaming,
+    // internal oversampling, sample loading). Run on the exclusive offline
+    // owner for now; never reuse or time out a live DSP worker.
+    config.processing_workers=1;
     config.worker_mmcss=false;
     auto engine=std::make_unique<AudioEngine>();
     engine->prepare(config,std::move(graph));
@@ -1304,10 +1348,20 @@ static OfflineRenderResult render_range(RenderConfig config, RenderGraph graph, 
         auto output=std::span<float>(stereo).first(count*2);
         for(std::size_t i=0;i<captures.size();++i)
             captures[i].stereo=std::span<float>(stem_buffers[i]).first(count*2);
-        if (!engine->render_master_block(std::span<float>(scratch).first(count*config.output_channels),output,captures))
-            throw std::runtime_error("offline Master processing failed");
-        if(std::any_of(chains.begin(),chains.end(),[](const auto& chain){return chain&&chain->failed();}))
-            throw std::runtime_error("offline plugin processing failed");
+        const auto rendered=engine->render_master_block(std::span<float>(scratch).first(count*config.output_channels),output,captures);
+        const auto location=" at sample "+std::to_string(progress.processed)+" ("+
+            std::to_string(static_cast<double>(progress.processed)/config.sample_rate)+" s)";
+        for(std::size_t i=0;i<chains.size();++i)if(chains[i]&&chains[i]->failed()){
+            std::string detail=i+2<chains.size()?"mixer channel "+std::to_string(i+1):"Master";
+            for(const auto& node:chains[i]->snapshot().graph->nodes)detail+=" ["+node.processor_id+"]";
+            throw std::runtime_error("Offline plugin processing failed: "+detail+location);
+        }
+        if(!rendered){
+            if(std::any_of(disk_voices.begin(),disk_voices.end(),[](const auto& voice){return voice->failed();}))
+                throw std::runtime_error("Offline disk voice cache failed"+location);
+            if(engine->metrics().worker_timeouts)throw std::runtime_error("Offline worker timeout"+location);
+            throw std::runtime_error("Offline engine could not advance the render block"+location);
+        }
         const Sample next=progress.processed+static_cast<Sample>(count);
         const auto from=std::max(first,progress.processed);
         if (next>from) {
