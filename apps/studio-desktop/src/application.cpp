@@ -2075,6 +2075,12 @@ bool Application::history(bool redo) {
     std::erase_if(midi_before.clips,[](const auto& clip){return clip.midi.has_value();});std::erase_if(midi_after.clips,[](const auto& clip){return clip.midi.has_value();});
     const auto historyName=services_.projects->history_name(redo);
     const bool midiEdit=historyName=="Delete clip"||historyName=="Remove selected clips"||historyName=="Split MIDI clip"||historyName=="Merge MIDI clips"||historyName=="Duplicate clip"||historyName=="Split selected clips"||historyName=="Resize selected clips";
+    // Pure MIDI clip history (including single/group moves) uses the same
+    // schedule-only publication as the forward edit. Audio clips and every
+    // other project field must be unchanged; AI marker edits retain their
+    // existing separate contract.
+    const bool pureMidi=midi_before==midi_after&&before.markers==after.markers&&before.clips!=after.clips;
+    if(pureMidi)return edit_timing(after,nullptr,redo,true,true);
     if((historyName.starts_with("AI proposal (")||midiEdit)&&midi_before==midi_after&&before.clips!=after.clips)return edit_timing(after,nullptr,redo,true,midiEdit);
     auto time_before=before;time_before.time=after.time;if(time_before==after&&before.time!=after.time)return edit_timing(after,nullptr,redo);
     // Chord/marker metadata has no DSP/MIDI/transport effect. Preserve processor state,
@@ -2259,7 +2265,8 @@ void Application::configure_playback_regions(const std::vector<PlaybackStem>& st
 }
 void Application::move_clip(const Id& id, const Id& track, Sample start) {
     const auto p=services_.projects->state().project;const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==id;});require(c!=p->clips.end(),"unknown clip");
-    if(c->midi)edit(MoveMidiClip{id,track,Timeline(p->time,p->sample_rate).to_ticks(start)});else edit(MoveAudioClip{id,track,start});
+    if(c->midi){const MoveMidiClip command{id,track,Timeline(p->time,p->sample_rate).to_ticks(start)};auto candidate=*p;command.apply(candidate);edit_timing(std::move(candidate),&command,{},true,true);}
+    else edit(MoveAudioClip{id,track,start});
 }
 void Application::trim_clip(const Id& id, Sample start, Sample end) {
     require_not_playing();const auto p=services_.projects->state().project;const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==id;});require(c!=p->clips.end(),"unknown clip");
@@ -2308,7 +2315,14 @@ void Application::split_sections(const std::vector<ArrangerSection>& expected,Ti
 void Application::split_chords(const std::vector<Chord>& expected,Tick tick){auto values=expected;bool changed=false;for(std::size_t i=0;i<expected.size();++i)if(expected[i].start<tick&&tick<expected[i].end){values[i].end=tick;auto right=expected[i];right.id=new_id();right.start=tick;values.push_back(right);changed=true;}require(changed,"Split point must be inside a selected chord");edit_metadata(EditChordGroup{expected,std::move(values)});}
 void Application::remove_clip(const Id& id) {const auto p=services_.projects->state().project;const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==id;});const RemoveClip command{id};if(c!=p->clips.end()&&c->midi){auto candidate=*p;command.apply(candidate);edit_timing(std::move(candidate),&command,{},true,true);}else edit(command); }
 void Application::move_clips(std::vector<Id> ids,Sample delta,int track_delta){
-    struct MoveClips final:ICommand{std::vector<Id> ids;Sample delta;int track_delta;std::string_view name()const override{return "Move selected clips";}void apply(Project& p)const override{const Timeline time(p.time,p.sample_rate);for(const auto& id:ids){const auto c=std::find_if(p.clips.begin(),p.clips.end(),[&](const auto& clip){return clip.id==id;});require(c!=p.clips.end(),"unknown selected clip");const auto t=std::find_if(p.tracks.begin(),p.tracks.end(),[&](const auto& track){return track.id==c->track;});const auto index=static_cast<int>(t-p.tracks.begin())+track_delta;require(index>=0&&index<static_cast<int>(p.tracks.size()),"group exceeds track range");const auto start=clip_start(*c,time);require(delta>=-start&&delta<=max_sample-start,"group exceeds timeline range");if(c->midi)MoveMidiClip{id,p.tracks[static_cast<std::size_t>(index)].id,time.to_ticks(start+delta)}.apply(p);else MoveAudioClip{id,p.tracks[static_cast<std::size_t>(index)].id,start+delta}.apply(p);}}} command;require(!ids.empty(),"Select clips to move");command.ids=std::move(ids);command.delta=delta;command.track_delta=track_delta;if(delta||track_delta)edit(command,{},true);
+    struct MoveClips final:ICommand{std::vector<Id> ids;Sample delta;int track_delta;std::string_view name()const override{return "Move selected clips";}void apply(Project& p)const override{const Timeline time(p.time,p.sample_rate);for(const auto& id:ids){const auto c=std::find_if(p.clips.begin(),p.clips.end(),[&](const auto& clip){return clip.id==id;});require(c!=p.clips.end(),"unknown selected clip");const auto t=std::find_if(p.tracks.begin(),p.tracks.end(),[&](const auto& track){return track.id==c->track;});const auto index=static_cast<int>(t-p.tracks.begin())+track_delta;require(index>=0&&index<static_cast<int>(p.tracks.size()),"group exceeds track range");const auto start=clip_start(*c,time);require(delta>=-start&&delta<=max_sample-start,"group exceeds timeline range");if(c->midi)MoveMidiClip{id,p.tracks[static_cast<std::size_t>(index)].id,time.to_ticks(start+delta)}.apply(p);else MoveAudioClip{id,p.tracks[static_cast<std::size_t>(index)].id,start+delta}.apply(p);}}} command;require(!ids.empty(),"Select clips to move");command.ids=std::move(ids);command.delta=delta;command.track_delta=track_delta;if(!delta&&!track_delta)return;
+    const auto p=services_.projects->state().project;
+    const bool onlyMidi=std::all_of(command.ids.begin(),command.ids.end(),[&](const auto& id){
+        const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==id;});
+        return c!=p->clips.end()&&c->midi.has_value();
+    });
+    if(onlyMidi){auto candidate=*p;command.apply(candidate);edit_timing(std::move(candidate),&command,{},true,true);}
+    else edit(command,{},true);
 }
 
 void Application::remove_clips(std::vector<Id> ids){struct RemoveClips final:ICommand{std::vector<Id> ids;std::string_view name()const override{return "Remove selected clips";}void apply(Project& p)const override{for(const auto& id:ids)RemoveClip{id}.apply(p);}} command;command.ids=std::move(ids);require(!command.ids.empty(),"Select clips to delete");const auto p=services_.projects->state().project;const bool onlyMidi=std::all_of(command.ids.begin(),command.ids.end(),[&](const auto& id){const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==id;});return c!=p->clips.end()&&c->midi.has_value();});if(onlyMidi){auto candidate=*p;command.apply(candidate);edit_timing(std::move(candidate),&command,{},true,true);}else edit(command);}
