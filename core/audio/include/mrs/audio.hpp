@@ -276,6 +276,26 @@ struct OfflineRenderResult {
 };
 OfflineRenderResult render_master_range(RenderConfig, RenderGraph, Sample begin, Sample end,
                                         const OfflineRenderCallbacks&);
+// First stem slice: explicitly selected channels routed directly to Master,
+// including terminal buses. Preserve the prepared mix and PDC up to Master
+// input; never bake Master processors/fader into individual files. Nonterminal
+// channels and hardware-bypass routes are rejected until grouping is defined.
+// Selection is by prepared mixer index; sink receives each selected channel in
+// request order for the same exact timeline range. Stage all files atomically.
+struct OfflineStemRenderCallbacks {
+    std::function<void(std::size_t,std::span<const float>)> write_stem;
+    std::function<bool(const OfflineRenderProgress&)> continue_render{};
+};
+// Backward closure of the selected Master routes. Includes main bus inputs
+// and nonzero sends feeding any retained channel. Indices remain unchanged.
+std::vector<bool> stem_render_dependencies(const RenderGraph&,std::span<const std::size_t>);
+OfflineRenderResult render_stem_range(RenderConfig, RenderGraph, Sample begin, Sample end,
+                                      std::span<const std::size_t> tracks,
+                                      const OfflineStemRenderCallbacks&);
+struct StemBlockCapture {
+    std::size_t track{};
+    std::span<float> stereo;
+};
 class AudioEngine {
 public:
     struct LiveMidi {std::uint64_t generation{};std::size_t track{};processing::MidiEvent event;std::uint64_t timestamp_ns{};std::uint32_t audition_release_ms{};};
@@ -377,7 +397,8 @@ public:
     // No streams/recording/external MIDI/performance or loop/count-in yet.
     // Caller supplies disjoint buffers; false means discard the entire block.
     // Stereo captures Master after FX/fader, before click/physical output clipping.
-    bool render_master_block(std::span<float> device_scratch, std::span<float> stereo) noexcept;
+    bool render_master_block(std::span<float> device_scratch, std::span<float> stereo,
+                             std::span<const StemBlockCapture> stems = {}) noexcept;
     // Backend passes measured callback body duration, on the same audio thread.
     void observe(std::uint64_t duration_ns, std::uint32_t frames, std::uint32_t flags) noexcept;
     RealtimeState state() const; // control-thread bounded coherent mailbox read
@@ -400,7 +421,8 @@ public:
     const ProcessingDomains& processing_domains() const; // candidate plan, control thread
 private:
     friend struct AudioEngineTestAccess; // deterministic stopped-engine mailbox regression
-    void process_block(const float*,float*,std::uint32_t,std::uint32_t,float* master_capture = nullptr) noexcept;
+    void process_block(const float*,float*,std::uint32_t,std::uint32_t,float* master_capture = nullptr,
+                       std::span<const StemBlockCapture> stems = {}) noexcept;
     // Device consumer only, after project FX; never mixed into speculative packets.
     void mix_library_preview(float*,std::uint32_t,const float* envelope=nullptr,float level=1.f) noexcept;
     Metronome metronome_;

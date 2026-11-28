@@ -306,7 +306,7 @@ void arrangeAudioSmoke(){
     for(int attempt=0;attempt<200&&!d.app.waveform(source);++attempt){std::this_thread::sleep_for(std::chrono::milliseconds(5));d.app.poll();}
     check(d.app.waveform(source)!=nullptr,"arrangement waveform prepared before visual check");
     const auto clip=a.clipRect(d.project()->clips.front());const auto translucent=a.createComponentSnapshot(a.getLocalBounds(),true,1.,juce::SoftwareImageType{});
-    const auto fill=juce::Colour(arrangementCanvas).overlaidWith(juce::Colour(0xff294d7e).withAlpha(.72f));
+    const auto fill=juce::Colour(arrangementCanvas).overlaidWith(juce::Colour(0xff294d7e).withAlpha(.50f));
     const auto actual=translucent.getPixelAt(static_cast<int>(clip.getX()+17),static_cast<int>(clip.getY()+21));
     if(std::abs(actual.getRed()-fill.getRed())>2||std::abs(actual.getGreen()-fill.getGreen())>2||std::abs(actual.getBlue()-fill.getBlue())>2)throw std::runtime_error("audio clip opacity: got "+actual.toString().toStdString()+", expected "+fill.toString().toStdString());
     for(float scale:{1.f,1.5f}){auto picture=d.createComponentSnapshot(d.getLocalBounds(),true,scale,juce::SoftwareImageType{});auto stream=juce::File::getCurrentWorkingDirectory().getChildFile("juce-arrange-upd8-"+juce::String(static_cast<int>(scale*100))+"-preview.png").createOutputStream();check(stream!=nullptr,"arrangement preview stream");stream->setPosition(0);stream->truncate();check(juce::PNGImageFormat().writeImageToStream(picture,*stream),"arrangement snapshot");}

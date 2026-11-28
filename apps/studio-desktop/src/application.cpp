@@ -2075,6 +2075,12 @@ bool Application::history(bool redo) {
     std::erase_if(midi_before.clips,[](const auto& clip){return clip.midi.has_value();});std::erase_if(midi_after.clips,[](const auto& clip){return clip.midi.has_value();});
     const auto historyName=services_.projects->history_name(redo);
     const bool midiEdit=historyName=="Delete clip"||historyName=="Remove selected clips"||historyName=="Split MIDI clip"||historyName=="Merge MIDI clips"||historyName=="Duplicate clip"||historyName=="Split selected clips"||historyName=="Resize selected clips";
+    // Pure MIDI clip history (including single/group moves) uses the same
+    // schedule-only publication as the forward edit. Audio clips and every
+    // other project field must be unchanged; AI marker edits retain their
+    // existing separate contract.
+    const bool pureMidi=midi_before==midi_after&&before.markers==after.markers&&before.clips!=after.clips;
+    if(pureMidi)return edit_timing(after,nullptr,redo,true,true);
     if((historyName.starts_with("AI proposal (")||midiEdit)&&midi_before==midi_after&&before.clips!=after.clips)return edit_timing(after,nullptr,redo,true,midiEdit);
     auto time_before=before;time_before.time=after.time;if(time_before==after&&before.time!=after.time)return edit_timing(after,nullptr,redo);
     // Chord/marker metadata has no DSP/MIDI/transport effect. Preserve processor state,
@@ -2259,7 +2265,8 @@ void Application::configure_playback_regions(const std::vector<PlaybackStem>& st
 }
 void Application::move_clip(const Id& id, const Id& track, Sample start) {
     const auto p=services_.projects->state().project;const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==id;});require(c!=p->clips.end(),"unknown clip");
-    if(c->midi)edit(MoveMidiClip{id,track,Timeline(p->time,p->sample_rate).to_ticks(start)});else edit(MoveAudioClip{id,track,start});
+    if(c->midi){const MoveMidiClip command{id,track,Timeline(p->time,p->sample_rate).to_ticks(start)};auto candidate=*p;command.apply(candidate);edit_timing(std::move(candidate),&command,{},true,true);}
+    else edit(MoveAudioClip{id,track,start});
 }
 void Application::trim_clip(const Id& id, Sample start, Sample end) {
     require_not_playing();const auto p=services_.projects->state().project;const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==id;});require(c!=p->clips.end(),"unknown clip");
@@ -2308,7 +2315,14 @@ void Application::split_sections(const std::vector<ArrangerSection>& expected,Ti
 void Application::split_chords(const std::vector<Chord>& expected,Tick tick){auto values=expected;bool changed=false;for(std::size_t i=0;i<expected.size();++i)if(expected[i].start<tick&&tick<expected[i].end){values[i].end=tick;auto right=expected[i];right.id=new_id();right.start=tick;values.push_back(right);changed=true;}require(changed,"Split point must be inside a selected chord");edit_metadata(EditChordGroup{expected,std::move(values)});}
 void Application::remove_clip(const Id& id) {const auto p=services_.projects->state().project;const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==id;});const RemoveClip command{id};if(c!=p->clips.end()&&c->midi){auto candidate=*p;command.apply(candidate);edit_timing(std::move(candidate),&command,{},true,true);}else edit(command); }
 void Application::move_clips(std::vector<Id> ids,Sample delta,int track_delta){
-    struct MoveClips final:ICommand{std::vector<Id> ids;Sample delta;int track_delta;std::string_view name()const override{return "Move selected clips";}void apply(Project& p)const override{const Timeline time(p.time,p.sample_rate);for(const auto& id:ids){const auto c=std::find_if(p.clips.begin(),p.clips.end(),[&](const auto& clip){return clip.id==id;});require(c!=p.clips.end(),"unknown selected clip");const auto t=std::find_if(p.tracks.begin(),p.tracks.end(),[&](const auto& track){return track.id==c->track;});const auto index=static_cast<int>(t-p.tracks.begin())+track_delta;require(index>=0&&index<static_cast<int>(p.tracks.size()),"group exceeds track range");const auto start=clip_start(*c,time);require(delta>=-start&&delta<=max_sample-start,"group exceeds timeline range");if(c->midi)MoveMidiClip{id,p.tracks[static_cast<std::size_t>(index)].id,time.to_ticks(start+delta)}.apply(p);else MoveAudioClip{id,p.tracks[static_cast<std::size_t>(index)].id,start+delta}.apply(p);}}} command;require(!ids.empty(),"Select clips to move");command.ids=std::move(ids);command.delta=delta;command.track_delta=track_delta;if(delta||track_delta)edit(command,{},true);
+    struct MoveClips final:ICommand{std::vector<Id> ids;Sample delta;int track_delta;std::string_view name()const override{return "Move selected clips";}void apply(Project& p)const override{const Timeline time(p.time,p.sample_rate);for(const auto& id:ids){const auto c=std::find_if(p.clips.begin(),p.clips.end(),[&](const auto& clip){return clip.id==id;});require(c!=p.clips.end(),"unknown selected clip");const auto t=std::find_if(p.tracks.begin(),p.tracks.end(),[&](const auto& track){return track.id==c->track;});const auto index=static_cast<int>(t-p.tracks.begin())+track_delta;require(index>=0&&index<static_cast<int>(p.tracks.size()),"group exceeds track range");const auto start=clip_start(*c,time);require(delta>=-start&&delta<=max_sample-start,"group exceeds timeline range");if(c->midi)MoveMidiClip{id,p.tracks[static_cast<std::size_t>(index)].id,time.to_ticks(start+delta)}.apply(p);else MoveAudioClip{id,p.tracks[static_cast<std::size_t>(index)].id,start+delta}.apply(p);}}} command;require(!ids.empty(),"Select clips to move");command.ids=std::move(ids);command.delta=delta;command.track_delta=track_delta;if(!delta&&!track_delta)return;
+    const auto p=services_.projects->state().project;
+    const bool onlyMidi=std::all_of(command.ids.begin(),command.ids.end(),[&](const auto& id){
+        const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==id;});
+        return c!=p->clips.end()&&c->midi.has_value();
+    });
+    if(onlyMidi){auto candidate=*p;command.apply(candidate);edit_timing(std::move(candidate),&command,{},true,true);}
+    else edit(command,{},true);
 }
 
 void Application::remove_clips(std::vector<Id> ids){struct RemoveClips final:ICommand{std::vector<Id> ids;std::string_view name()const override{return "Remove selected clips";}void apply(Project& p)const override{for(const auto& id:ids)RemoveClip{id}.apply(p);}} command;command.ids=std::move(ids);require(!command.ids.empty(),"Select clips to delete");const auto p=services_.projects->state().project;const bool onlyMidi=std::all_of(command.ids.begin(),command.ids.end(),[&](const auto& id){const auto c=std::find_if(p->clips.begin(),p->clips.end(),[&](const auto& clip){return clip.id==id;});return c!=p->clips.end()&&c->midi.has_value();});if(onlyMidi){auto candidate=*p;command.apply(candidate);edit_timing(std::move(candidate),&command,{},true,true);}else edit(command);}
@@ -2603,14 +2617,38 @@ audio::Mp3ExportResult Application::export_mp3(const std::filesystem::path& dest
     },callbacks);
 }
 audio::OfflineRenderResult Application::PreparedMasterExport::render(const audio::OfflineRenderCallbacks& callbacks){
+    if(!stem_ids_.empty())throw std::logic_error("Use render_stems for a stem export plan");
     if(used_.exchange(true))throw std::logic_error("Export plan already rendered");
     // A copy retains all processors on the control owner while the temporary
     // engine and its workers are destroyed here.
     return audio::render_master_range(config_,graph_,begin_,end_,callbacks);
 }
+audio::OfflineRenderResult Application::PreparedMasterExport::render_stems(const audio::OfflineStemRenderCallbacks& callbacks){
+    if(stem_ids_.empty())throw std::logic_error("Not a stem export plan");
+    if(!callbacks.write_stem)throw std::invalid_argument("Invalid stem export sink");
+    if(used_.exchange(true))throw std::logic_error("Export plan already rendered");
+    return audio::render_stem_range(config_,graph_,begin_,end_,stem_indices_,{
+        [&](std::size_t mixer_index,std::span<const float> data){
+            const auto index=std::find(stem_indices_.begin(),stem_indices_.end(),mixer_index);
+            if(index==stem_indices_.end())throw std::logic_error("Unexpected stem mixer index");
+            callbacks.write_stem(static_cast<std::size_t>(index-stem_indices_.begin()),data);
+        },callbacks.continue_render
+    });
+}
+audio::StemWavExportResult Application::PreparedMasterExport::export_stem_wavs(
+        const std::filesystem::path& destination,const audio::WavExportCallbacks& callbacks){
+    if(stem_ids_.empty())throw std::logic_error("Not a stem export plan");
+    return audio::export_stem_wavs24(destination,rate(),end()-begin(),stem_ids_.size(),
+        [this](const auto& sink){return render_stems(sink);},callbacks);
+}
 void Application::finish_master_export(const std::shared_ptr<PreparedMasterExport>& plan){
     require_ai_owner();
     require(plan&&active_export_==plan,"Export plan is not active");
+    // The caller has joined the offline worker. Destroy its independently
+    // prepared plugin instances on this owner BEFORE restarting live DSP,
+    // even if an external reference to the consumed plan remains.
+    plan->used_.store(true);
+    plan->graph_=audio::RenderGraph{};
     active_export_.reset();
     const bool restart=std::exchange(export_restart_device_,false);
     if(restart)device_->start();
@@ -2624,12 +2662,34 @@ audio::OfflineRenderResult Application::export_master(Sample begin,Sample end,co
     finish_master_export(plan);return rendered;
 }
 std::shared_ptr<Application::PreparedMasterExport> Application::prepare_master_export(Sample begin,Sample end) {
+    return prepare_audio_export(begin,end,{});
+}
+std::shared_ptr<Application::PreparedMasterExport> Application::prepare_stem_export(Sample begin,Sample end,std::span<const Id> tracks) {
+    require(!tracks.empty(),"Select at least one stem track");
+    return prepare_audio_export(begin,end,tracks);
+}
+std::shared_ptr<Application::PreparedMasterExport> Application::prepare_audio_export(Sample begin,Sample end,std::span<const Id> stem_tracks) {
     require_ai_owner();
     require_not_playing();
     require(workspace_!=Workspace::live&&!performance_plan_,"Audio export is Studio-only");
     require(begin>=0&&end>begin&&end<=max_sample,"Invalid export range");
     require(!preparing_project_&&!pending_live_insert_switch_.transition&&!staged_insert_target_&&staged_insert_graphs_.empty()&&retained_insert_keys_.empty(),"Wait for pending graph changes before export");
     require(stretch_ready(true),"Wait for current time / pitch preparation before export");
+    std::vector<std::size_t> stem_indices;
+    if(!stem_tracks.empty()) {
+        require(stem_tracks.size()<=audio::max_mixer_tracks,"Too many selected stems");
+        const auto project=services_.projects->state().project;
+        std::vector<Id> mixer_ids;
+        for(const auto& track:project->tracks)if(track.kind!=TrackKind::midi)mixer_ids.push_back(track.id);
+        for(const auto& id:stem_tracks) {
+            const auto track=std::find_if(project->tracks.begin(),project->tracks.end(),[&](const auto& t){return t.id==id;});
+            require(track!=project->tracks.end()&&track->kind!=TrackKind::midi,"Missing or unsupported stem track");
+            require(!track->output&&track->hardware_outputs.empty(),"Stem must be routed directly to Master");
+            const auto index=static_cast<std::size_t>(std::find(mixer_ids.begin(),mixer_ids.end(),id)-mixer_ids.begin());
+            require(index<audio::max_mixer_tracks&&std::find(stem_indices.begin(),stem_indices.end(),index)==stem_indices.end(),"Duplicate or invalid stem track");
+            stem_indices.push_back(index);
+        }
+    }
     const auto phase=device_?device_->status().phase:audio::DevicePhase::closed;
     require(phase!=audio::DevicePhase::error,"Recover audio device before export");
     const bool restart=phase==audio::DevicePhase::running;
@@ -2640,17 +2700,39 @@ std::shared_ptr<Application::PreparedMasterExport> Application::prepare_master_e
     try {
         auto project=*services_.projects->state().project;
         require(engine_->state().playback!=PlaybackState::playing,"Stop playback before export");
+        // Retain original channel indices, routing and mute/solo state.
+        // Prune only the private render snapshot, before plugin state capture,
+        // WAV/ARA loading or offline processor instantiation.
+        audio::RenderGraph routing;
+        std::vector<Id> routing_ids;
+        project_mixer(&project,routing,routing_ids,{});
+        const auto needed=stem_tracks.empty()?std::vector<bool>(routing_ids.size(),true):
+            audio::stem_render_dependencies(routing,stem_indices);
+        const auto keep=[&](const std::string& key){
+            if(stem_tracks.empty())return true;
+            const auto at=std::find_if(routing_ids.begin(),routing_ids.end(),[&](const auto& id){return id.value==key;});
+            return at!=routing_ids.end()&&needed[static_cast<std::size_t>(at-routing_ids.begin())];
+        };
+        if(!stem_tracks.empty()){
+            project.master_inserts.clear();
+            for(auto& t:project.tracks)if(!keep(t.id.value)){t.inserts.clear();t.midi_output.clear();}
+            std::erase_if(project.clips,[&](const auto& clip){return !keep(clip.track.value);});
+            std::erase_if(project.ara_bindings,[&](const auto& binding){
+                return std::none_of(project.clips.begin(),project.clips.end(),[&](const auto& clip){return !clip.midi&&clip.source==binding.source;});
+            });
+        }
         for(const auto& t:project.tracks)require(t.midi_output.empty(),"External MIDI cannot be rendered offline");
         // Reuse the existing stopped-state capture contract, writing only into
         // a private project copy. Fail rather than omit an unavailable plugin.
         for(const auto& [key,runtime]:insert_runtime_){
-            (void)key;
+            if(!keep(key))continue;
             require(!runtime.settings_failed&&!runtime.pending&&(!runtime.graph||!runtime.graph->failed()),"Resolve pending or failed plugin state before export");
         }
-        require(instrument_errors_.empty(),"Resolve unavailable instruments before export");
+        require(std::none_of(instrument_errors_.begin(),instrument_errors_.end(),[&](const auto& error){return keep(error.first);}),"Resolve unavailable instruments before export");
         // Don't export an old persisted IR/preset while a newer selection is
         // loading or awaiting the normal control-thread model acknowledgement.
         for(const auto& runtime:reverb_runtime_){
+            if(!keep(runtime.track?runtime.track->value:std::string{}))continue;
             const auto status=runtime.loader->snapshot();
             require(!runtime.tone&&status->phase!=audio::ReverbLoadPhase::loading&&
                 (!status->active||status->active_revision==runtime.observed),
@@ -2658,7 +2740,7 @@ std::shared_ptr<Application::PreparedMasterExport> Application::prepare_master_e
         }
         capture_insert_state(project,{},true);
         auto graph_state=*graphs_->state().graph;
-        if(prepared_&&prepared_->snapshot().graph==graphs_->state().graph)graph_state=prepared_->capture();
+        if(stem_tracks.empty()&&prepared_&&prepared_->snapshot().graph==graphs_->state().graph)graph_state=prepared_->capture();
         audio::RenderGraph graph;
         std::vector<Id> tracks;
         project_mixer(&project,graph,tracks,{});
@@ -2711,15 +2793,22 @@ std::shared_ptr<Application::PreparedMasterExport> Application::prepare_master_e
             }
             return prepared;
         };
-        for(const auto& t:project.tracks)if(t.kind!=TrackKind::midi)graph.inserts.push_back(chain(t.inserts,t.kind==TrackKind::instrument));
-        graph.master_inserts=chain(project.master_inserts,false);
-        graph.processors=std::make_shared<processing::PreparedGraph>(
-            processing::GraphSnapshot{std::make_shared<const processing::GraphState>(std::move(graph_state)),0,false,false},
-            processing::ProcessConfig{project.sample_rate,2,block,block,false,true});
+        for(const auto& t:project.tracks)if(t.kind!=TrackKind::midi){
+            try{graph.inserts.push_back(chain(t.inserts,t.kind==TrackKind::instrument));}
+            catch(const std::exception& error){throw std::runtime_error("Offline preparation: "+t.name+": "+error.what());}
+        }
+        if(stem_tracks.empty()) {
+            graph.master_inserts=chain(project.master_inserts,false);
+            graph.processors=std::make_shared<processing::PreparedGraph>(
+                processing::GraphSnapshot{std::make_shared<const processing::GraphState>(std::move(graph_state)),0,false,false},
+                processing::ProcessConfig{project.sample_rate,2,block,block,false,true});
+        }
         audio::RenderConfig config{project.sample_rate,0,2,block};
-        if(device_config_)config.processing_workers=device_config_->processing_workers;
+        // Independent serial offline policy: never inherit real-time workers.
         auto plan=std::make_shared<PreparedMasterExport>();
         plan->config_=config;plan->graph_=std::move(graph);plan->begin_=begin;plan->end_=end;
+        plan->stem_ids_.assign(stem_tracks.begin(),stem_tracks.end());
+        plan->stem_indices_=std::move(stem_indices);
         export_restart_device_=restart;active_export_=plan;return plan;
     }catch(...){
         const auto original=std::current_exception();

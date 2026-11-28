@@ -5,6 +5,7 @@
 #include <cmath>
 #include <fstream>
 #include <limits>
+#include <memory>
 #include <numbers>
 #include <stdexcept>
 #include <vector>
@@ -12,6 +13,12 @@
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#elif defined(__linux__)
+#include <cerrno>
+#include <fcntl.h>
+#include <linux/fs.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 #endif
 
 namespace mrs::audio {
@@ -276,6 +283,105 @@ WavExportResult export_file(const std::filesystem::path& requested,std::uint32_t
 WavExportResult export_wav24(const std::filesystem::path& destination,std::uint32_t source_rate,
         Sample source_frames,const MasterRenderSource& render,const WavExportCallbacks& callbacks){
     return export_file(destination,source_rate,source_frames,render,callbacks,false);
+}
+StemWavExportResult export_stem_wavs24(const std::filesystem::path& requested,
+        std::uint32_t source_rate,Sample source_frames,std::size_t stem_count,
+        const StemRenderSource& render,const WavExportCallbacks& callbacks){
+    if(source_rate<8000||source_rate>768000||source_frames<=0||!render||
+       !stem_count||stem_count>max_mixer_tracks)
+        throw std::invalid_argument("Invalid stem export source");
+    const bool convert=source_rate!=export_rate;
+    const auto limit=riff_payload/(convert?8u:6u);
+    if(static_cast<std::uint64_t>(source_frames)>limit)
+        throw std::invalid_argument("Stem exceeds RIFF size limit");
+    const auto frames=(static_cast<std::uint64_t>(source_frames)*export_rate+source_rate-1)/source_rate;
+    if(!frames||frames>limit)throw std::invalid_argument("Stem exceeds RIFF size limit");
+    if(callbacks.stop.stop_requested())return {};
+    const auto destination=fs::absolute(requested).lexically_normal();
+    if(destination.filename().empty()||occupied(destination))
+        throw std::invalid_argument("Stem export directory already exists; choose a new directory");
+    ExportStage staging(destination);
+    const auto payload=staging.directory/"stems";
+    if(!fs::create_directory(payload))throw std::runtime_error("Cannot create staged stem directory");
+    const auto output=[&](std::size_t i){return payload/("stem-"+std::to_string(i+1)+".wav");};
+    const auto input=[&](std::size_t i){return convert?
+        staging.directory/("source-"+std::to_string(i+1)+".wav"):output(i);};
+    const auto check_cancel=[&]{if(callbacks.stop.stop_requested())throw ExportCancelled{};};
+    const auto conversion_progress=[&](std::size_t i,float p){
+        check_cancel();
+        if(callbacks.continue_conversion&&!callbacks.continue_conversion(
+            (static_cast<float>(i)+p)/static_cast<float>(stem_count)))throw ExportCancelled{};
+    };
+    try{
+        StemWavExportResult result;
+        result.stems.reserve(stem_count);
+        {
+            std::vector<std::unique_ptr<ExportWavWriter>> writers;
+            writers.reserve(stem_count);
+            for(std::size_t i=0;i<stem_count;++i){
+                check_cancel();
+                writers.push_back(std::make_unique<ExportWavWriter>(input(i),source_rate,source_frames,!convert));
+            }
+            const auto rendered=render({
+                [&](std::size_t index,std::span<const float> block){
+                    check_cancel();
+                    if(index>=writers.size())throw std::runtime_error("Unexpected stem sink index");
+                    writers[index]->write(block);
+                },
+                [&](const OfflineRenderProgress& p){
+                    return !callbacks.stop.stop_requested()&&(!callbacks.continue_render||callbacks.continue_render(p));
+                }
+            });
+            if(!rendered.completed)return {};
+            check_cancel();
+            if(rendered.frames_written!=source_frames)throw std::runtime_error("Unexpected rendered stem duration");
+            for(auto& writer:writers)result.stems.push_back(writer->finish());
+        }
+        if(convert){
+            std::vector<float> block(8192*2);
+            for(std::size_t i=0;i<stem_count;++i){
+                const auto resampled=staging.directory/"resampled.wav";
+                conversion_progress(i,0.f);
+                try{
+                    resample_wav_file(input(i),resampled,export_rate,callbacks.stop,
+                        [&](float p){conversion_progress(i,p*.5f);});
+                }catch(const std::runtime_error& error){
+                    if(callbacks.stop.stop_requested()&&std::string_view(error.what())=="WAV import cancelled")throw ExportCancelled{};
+                    throw;
+                }
+                const auto wav=inspect_wav(resampled);
+                if(wav.sample_rate!=export_rate||wav.channels!=2||wav.frame_count!=static_cast<Sample>(frames))
+                    throw std::runtime_error("Unexpected stem SRC geometry");
+                ExportWavWriter writer(output(i),export_rate,wav.frame_count,true);
+                for(Sample first=0;first<wav.frame_count;){
+                    check_cancel();
+                    const auto count=std::min<Sample>(8192,wav.frame_count-first);
+                    auto data=std::span<float>(block).first(static_cast<std::size_t>(count)*2);
+                    wav.read(first,data);writer.write(data);first+=count;
+                    conversion_progress(i,.5f+.5f*static_cast<float>(static_cast<double>(first)/wav.frame_count));
+                }
+                result.stems[i]=writer.finish();
+                fs::remove(resampled);
+                fs::remove(input(i));
+            }
+        }
+        check_cancel();
+        if(callbacks.finalize_stems)callbacks.finalize_stems(payload);
+        check_cancel();
+        // An atomic, no-replace directory move is required; a sequence of file
+        // publications could expose a partial set or overwrite another export.
+#ifdef _WIN32
+        if(!MoveFileExW(payload.c_str(),destination.c_str(),MOVEFILE_WRITE_THROUGH))
+            throw std::runtime_error("Cannot publish stem directory; destination may already exist");
+#elif defined(__linux__) && defined(SYS_renameat2)
+        if(::syscall(SYS_renameat2,AT_FDCWD,payload.c_str(),AT_FDCWD,destination.c_str(),RENAME_NOREPLACE)!=0)
+            throw fs::filesystem_error("Cannot publish stem directory",payload,destination,std::error_code(errno,std::generic_category()));
+#else
+        throw std::runtime_error("Atomic no-replace stem directory publication is unavailable on this platform");
+#endif
+        result.completed=true;
+        return result;
+    }catch(const ExportCancelled&){return {};}
 }
 Mp3ExportResult export_mp3(const std::filesystem::path& destination,std::uint32_t source_rate,
         Sample source_frames,const MasterRenderSource& render,const WavExportCallbacks& callbacks){

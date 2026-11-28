@@ -776,7 +776,7 @@ juce::PopupMenu Desktop::getMenuForIndex(int n,const juce::String&){juce::PopupM
     }
     // Existing menus retain their action IDs after inserting Options next to File.
     const int originalIndex = n > 1 ? n - 1 : n;
-    if(originalIndex==0){m.addItem(6,"Project home");m.addItem(8,"Close project",projectSessionStarted);m.addItem(1,"New project");m.addItem(2,"Open project...");m.addItem(3,"Save");m.addItem(4,"Save as...");m.addItem(5,"Import WAV...");if(!standaloneLive)m.addItem(exportAudioAction,"Export Audio... (Ctrl+E)",!homeVisible&&!liveDocument&&!app.recording()&&!app.export_active()&&app.engine()->state().playback!=mrs::PlaybackState::playing);
+    if(originalIndex==0){m.addItem(6,"Project home");m.addItem(8,"Close project",projectSessionStarted);m.addItem(1,"New project");m.addItem(2,"Open project...");m.addItem(3,"Save");m.addItem(4,"Save as...");m.addItem(5,"Import WAV...");if(!standaloneLive){const bool canExport=!homeVisible&&!liveDocument&&!app.recording()&&!app.export_active()&&app.engine()->state().playback!=mrs::PlaybackState::playing;m.addItem(exportAudioAction,"Export Audio... (Ctrl+E)",canExport);m.addItem(exportToLiveAction,"Export to MR Live...",canExport);}
 #if defined(MRS_PROJECT_IMPORT_UI)
         if(!standaloneLive)m.addSubMenu("Import Project...",projectImportMenu());
 #endif
@@ -889,7 +889,7 @@ void Desktop::openDrumMaps(std::optional<mrs::Id> target) {
 void Desktop::menuItemSelected(int n,int){action(n);}
 void Desktop::action(int n){
     if(app.export_active())return;
-    if(n==exportAudioAction){run([&]{showExportAudio();});return;}
+    if(n==exportAudioAction||n==exportToLiveAction){run([&]{showExportAudio(n==exportToLiveAction);});return;}
 #if defined(MRS_DRUM_MAP_UI)
     if (n == 720) {
         auto track = activeMidiEditorTrack();
@@ -2781,17 +2781,37 @@ void exportAudioSmoke(){
         ~TemporaryDirectory(){root.deleteRecursively();}
     } temp;
     check(temp.root.createDirectory().wasOk(),"create export smoke directory");
+    {
+        mrs::Project musical;musical.sample_rate=48000;
+        musical.time.tempos={{0,100.},{4*mrs::ppq,120.},{16*mrs::ppq,90.}};
+        musical.time.meters={{1,4,4},{5,3,4}};
+        musical.sections={{mrs::new_id(),"Verse",0,8*mrs::ppq},{mrs::new_id(),"Chorus",8*mrs::ppq,16*mrs::ppq}};
+        musical.chords={{mrs::new_id(),"Dm7",3*mrs::ppq,5*mrs::ppq},{mrs::new_id(),"G7",7*mrs::ppq,9*mrs::ppq}};
+        const mrs::Timeline timing(musical.time,musical.sample_rate);
+        const auto begin=timing.to_samples(4*mrs::ppq),end=timing.to_samples(12*mrs::ppq);
+        const auto context=live::studioExportContext(musical,begin,end,"Song");
+        check(context.bpm&&*context.bpm==120.&&context.sourceMeter=="4/4"&&context.lengthBars&&*context.lengthBars==2.,"rebased active tempo meter and length");
+        check(context.sections.size()==2&&static_cast<double>(context.sections[0]["start"])==0.&&static_cast<double>(context.sections[1]["length"])==1.,"clip and rebase sections");
+        check(context.chords.size()==2&&static_cast<double>(context.chords[0]["start"])==0.&&static_cast<double>(context.chords[0]["length"])==.25&&context.chords[0]["symbol"].toString()=="Dm7","clip and rebase authored chords");
+        bool rejected=false;try{(void)live::studioExportContext(musical,0,end,"Song");}catch(const std::exception&){rejected=true;}
+        check(rejected,"variable tempo rejected");
+        rejected=false;try{(void)live::studioExportContext(musical,begin+1,end,"Song");}catch(const std::exception&){rejected=true;}
+        check(rejected,"off-grid range rejected");
+    }
     const auto source=temp.root.getChildFile("input.wav");
     const auto sourcePath=std::filesystem::path(source.getFullPathName().toWideCharPointer());
-    std::array<float,4096> tone; tone.fill(.125f);
-    {mrs::audio::Recorder writer(sourcePath,48000,0,{0});writer.capture(tone.data(),1,4096,0);writer.finish();}
+    std::vector<float> tone(96000,.125f);
+    {mrs::audio::Recorder writer(sourcePath,48000,0,{0});
+     for(std::size_t first=0;first<tone.size();first+=4096)
+        writer.capture(tone.data()+first,1,static_cast<std::uint32_t>(std::min<std::size_t>(4096,tone.size()-first)),first);
+     writer.finish();}
     Desktop d(true);
     d.app.import_wav(sourcePath);d.refresh(true);d.showProjectHome(false);
     d.view.exportFormat=1;d.view.exportRange=1;
     d.action(Desktop::exportAudioAction);
     check(d.exportWindow&&d.exportWindow->isVisible(),"File menu opens export window");
     auto* exportPanel=dynamic_cast<ExportAudioPanel*>(d.exportWindow->getContentComponent());
-    check(exportPanel&&exportPanel->selectedRange()==mrs::LoopRange{0,4096},"export range reflects source");
+    check(exportPanel&&exportPanel->selectedRange()==mrs::LoopRange{0,96000},"export range reflects source");
     check(exportPanel->start.isEnabled(),"valid export ready");
     exportPanel->mp3.onClick();check(exportPanel->format==2&&exportPanel->mp3.getToggleState(),"MP3 selection");
     exportPanel->wav.onClick();check(exportPanel->format==1&&exportPanel->wav.getToggleState(),"WAV selection");
@@ -2808,7 +2828,7 @@ void exportAudioSmoke(){
     if(exportPanel->busy||!exportPanel->finished||d.app.export_active())throw std::runtime_error("export did not complete: "+exportPanel->detail.getText().toStdString());
     const auto result=temp.root.getChildFile("mix.wav");
     const auto info=mrs::audio::inspect_wav(std::filesystem::path(result.getFullPathName().toWideCharPointer()));
-    check(info.sample_rate==48000&&info.bits==24&&info.channels==2&&info.frame_count==4096,"WAV produced through dialog");
+    check(info.sample_rate==48000&&info.bits==24&&info.channels==2&&info.frame_count==96000,"WAV produced through dialog");
     check(d.app.services().projects->state().project==before.project,"export preserves project");
     exportPanel->start.onClick();
     check(!exportPanel->busy&&exportPanel->operation.getText()=="Export failed"&&result.existsAsFile(),"dialog refuses overwrite");
@@ -2816,18 +2836,47 @@ void exportAudioSmoke(){
     check(!d.exportWindow->isVisible()&&!d.app.export_active(),"close export window");
     d.showExportAudio();check(d.exportWindow&&d.exportWindow->isVisible(),"reopen export window");
     d.exportWindow->closeButtonPressed();
+    d.action(Desktop::exportToLiveAction);
+    check(d.exportWindow&&d.exportWindow->isVisible(),"File menu opens stem export window");
+    auto* stems=dynamic_cast<ExportAudioPanel*>(d.exportWindow->getContentComponent());
+    check(stems&&stems->liveExport&&stems->stemRows.size()==1,"stem mode reflects source tracks");
+    check(!stems->start.isEnabled(),"empty stem selection disables export");
+    stems->selectAll.onClick();check(stems->selectedTracks().size()==1&&stems->start.isEnabled(),"All selects eligible tracks");
+    stems->selectNone.onClick();check(stems->selectedTracks().empty()&&!stems->start.isEnabled(),"None clears selection");
+    stems->selectAll.onClick();
+    check(!stems->trackViewport.getBounds().isEmpty()&&!stems->stemRows[0].toggle->getBounds().isEmpty(),"stem list layout");
+    stems->folder.setText(temp.root.getFullPathName(),false);
+    stems->name.setText("backing",false);stems->updateRange();stems->start.onClick();
+    check(stems->busy&&d.app.export_active(),"stem worker started");
+    const auto stemLimit=std::chrono::steady_clock::now()+std::chrono::seconds(15);
+    while(stems->busy&&std::chrono::steady_clock::now()<stemLimit){
+        stems->timerCallback();std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    if(stems->busy||!stems->finished||d.app.export_active())throw std::runtime_error("stem export did not complete: "+stems->detail.getText().toStdString());
+    const auto stemFile=temp.root.getChildFile("backing").getChildFile("stem-1.wav");
+    const auto stemInfo=mrs::audio::inspect_wav(std::filesystem::path(stemFile.getFullPathName().toWideCharPointer()));
+    check(stemInfo.sample_rate==48000&&stemInfo.bits==24&&stemInfo.channels==2&&stemInfo.frame_count==96000,"stem WAV produced through dialog");
+    const auto liveFile=temp.root.getChildFile("backing").getChildFile("Item.mrlive");
+    const auto exported=LiveDocument::read(liveFile);
+    check(exported.interfaceState["items"].size()==1,"one native item exported");
+    const auto item=exported.interfaceState["items"][0]["id"].toString();
+    const auto rows=live::playbackRows(exported.interfaceState,item);
+    check(rows.size()==1&&rows[0]["file"].toString()==stemFile.getFullPathName(),"native item relinks exported WAV");
+    check(exported.interfaceState["setlists"][0]["entries"].size()==0,"export does not insert performance entry");
+    check(d.app.services().projects->state().project==before.project,"stem export preserves project");
+    d.exportWindow->closeButtonPressed();
 }
 }
 
 // Keep Win32 caption macros out of all JUCE headers and GUI implementation.
 #include "GraphiteWindow.h"
-void ui::Desktop::showExportAudio(){
+void ui::Desktop::showExportAudio(bool forLive){
     if(standaloneLive||homeVisible||liveDocument||app.workspace()==mrs::desktop::Workspace::live||app.recording()||app.engine()->state().playback==mrs::PlaybackState::playing||busyGesture())return;
     if(exportWindow&&exportWindow->isVisible()){exportWindow->toFront(true);return;}
     exportWindow.reset();
-    auto* content=new ExportAudioPanel(*this);
-    exportWindow=std::make_unique<EditorWindow>("Export Audio",content,false);
-    exportWindow->setLookAndFeel(&theme);exportWindow->setResizable(true,false);exportWindow->setResizeLimits(520,570,1000,850);
+    auto* content=new ExportAudioPanel(*this,forLive);
+    exportWindow=std::make_unique<EditorWindow>(forLive?"Export to MR Live":"Export Audio",content,false);
+    exportWindow->setLookAndFeel(&theme);exportWindow->setResizable(true,false);exportWindow->setResizeLimits(forLive?600:520,forLive?740:570,1000,900);
     exportWindow->setOwner(*this);exportWindow->getProperties().set("mrs-hide-on-close",false);
     exportWindow->onClose=[content]{content->requestClose();};
     exportWindow->setVisible(true);applyGraphiteWindowCaption(*exportWindow);exportWindow->enterModalState(true,nullptr,false);
