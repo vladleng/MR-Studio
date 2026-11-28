@@ -840,6 +840,31 @@ void liveManagedMediaSmoke(const juce::File& wave) {
         liveCheck(rejected&&before==missing.signature()&&show.loadFileAsString()==originalBytes&&
                   !root.getChildFile("Failed").exists(),
                   "Failed Save As rolls back copied files and never publishes a partial Show");
+        // Legacy v2 is still a normal external-reference Show. Open and
+        // ordinary Save do not claim its directory or copy anything.
+        auto legacy=original.clone();legacy.managedMedia=false;
+        live::put(live::playback(legacy.interfaceState,first),"file",two.getFullPathName());
+        live::put(live::playback(legacy.interfaceState,second),"file",alias.getFullPathName());
+        auto legacySaved=juce::JSON::parse(legacy.interfaceState["library"][juce::Identifier(first)].toString());
+        live::put(live::playback(legacySaved,first),"file",one.getFullPathName());
+        live::put(live::map(legacy.interfaceState,"library"),first,juce::JSON::toString(legacySaved,true,17));
+        const auto legacyFile=root.getChildFile("Legacy.mrlive");
+        legacy.write(legacyFile);
+        host.openFile(legacyFile);
+        liveCheck(!host.liveDocument->managedMedia&&!legacyFile.getSiblingFile("Media").exists()&&
+                  live::playback(host.liveDocument->interfaceState,first)["file"].toString()==two.getFullPathName(),
+                  "Open legacy Show without in-place migration");
+        host.saveFile(legacyFile);
+        const auto legacyBytes=legacyFile.loadFileAsString();
+        liveCheck(!LiveDocument::read(legacyFile).managedMedia&&!legacyFile.getSiblingFile("Media").exists(),
+                  "Ordinary legacy Save does not migrate");
+        host.saveLiveAs(root.getChildFile("Legacy Copy.mrlive"));
+        const auto legacyCopy=host.documentFile();
+        const auto migrated=LiveDocument::read(legacyCopy);
+        const auto migratedFile=juce::File(live::playback(migrated.interfaceState,first)["file"].toString());
+        liveCheck(migrated.managedMedia&&migratedFile.isAChildOf(legacyCopy.getSiblingFile("Media"))&&
+                  migratedFile.existsAsFile()&&legacyFile.loadFileAsString()==legacyBytes&&two.existsAsFile(),
+                  "Only Save As creates portable copy of legacy Show, preserving original");
         host.newLiveShow();
         const auto moved=root.getChildFile("Moved");
         liveCheck(copy.getParentDirectory().moveFileTo(moved),"Move complete Show directory");
