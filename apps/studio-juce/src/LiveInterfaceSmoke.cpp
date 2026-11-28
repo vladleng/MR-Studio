@@ -832,7 +832,8 @@ void liveManagedMediaSmoke(const juce::File& wave) {
         // Legacy sources can be unavailable. Fail without changing the
         // original model, without a published partial Show, and retry safely.
         auto missing=original.clone();
-        live::put(live::playback(missing.interfaceState,second),"file",root.getChildFile("missing.wav").getFullPathName());
+        auto missingRow=live::playback(missing.interfaceState,second);
+        live::put(missingRow,"file",root.getChildFile("missing.wav").getFullPathName());
         const auto before=missing.signature();
         const auto failRequest=root.getChildFile("Failed.mrlive");
         bool rejected=false;
@@ -843,10 +844,12 @@ void liveManagedMediaSmoke(const juce::File& wave) {
         // Legacy v2 is still a normal external-reference Show. Open and
         // ordinary Save do not claim its directory or copy anything.
         auto legacy=original.clone();legacy.managedMedia=false;
-        live::put(live::playback(legacy.interfaceState,first),"file",two.getFullPathName());
-        live::put(live::playback(legacy.interfaceState,second),"file",alias.getFullPathName());
+        auto firstLegacyRow=live::playback(legacy.interfaceState,first),secondLegacyRow=live::playback(legacy.interfaceState,second);
+        live::put(firstLegacyRow,"file",two.getFullPathName());
+        live::put(secondLegacyRow,"file",alias.getFullPathName());
         auto legacySaved=juce::JSON::parse(legacy.interfaceState["library"][juce::Identifier(first)].toString());
-        live::put(live::playback(legacySaved,first),"file",one.getFullPathName());
+        auto savedLegacyRow=live::playback(legacySaved,first);
+        live::put(savedLegacyRow,"file",one.getFullPathName());
         live::put(live::map(legacy.interfaceState,"library"),first,juce::JSON::toString(legacySaved,true,17));
         const auto legacyFile=root.getChildFile("Legacy.mrlive");
         legacy.write(legacyFile);
