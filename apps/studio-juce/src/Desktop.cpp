@@ -532,7 +532,36 @@ bool Desktop::songDirty() const{
 juce::File Desktop::documentFile() const{return liveDocument?liveFile:juce::File(juce::String(app.path().wstring().c_str()));}
 void Desktop::createLive(const juce::File& requested){
     if(!standaloneLive&&!testing){launchLive(requested.withFileExtension("mrlive"),true);return;}
-    auto file=requested.withFileExtension("mrlive");LiveDocument showState;showState.title=file.getFileNameWithoutExtension();showState.ensureInterface(LiveLayout().defaults);showState.write(file);
+    const auto selected=requested.withFileExtension("mrlive");
+    const auto name=selected.getFileNameWithoutExtension();
+    if(name.trim().isEmpty() || name=="." || name=="..")
+        throw std::runtime_error("Choose a Show name");
+    const auto root=selected.getParentDirectory().getFileName()==name
+        ? selected.getParentDirectory() : selected.getParentDirectory().getChildFile(name);
+    const auto file=root.getChildFile(selected.getFileName());
+    // A named Show owns its directory. Never overwrite a previous Show or
+    // adopt a folder that may already contain unrelated user files.
+    if(selected.exists() || root.exists())
+        throw std::runtime_error("Show destination exists; choose a new Show name");
+    LiveDocument showState;showState.title=name;showState.ensureInterface(LiveLayout().defaults);
+    if(app.recording())throw std::runtime_error("Stop recording before creating a new show");
+    std::filesystem::create_directories(path(root.getParentDirectory()));
+    if(!std::filesystem::create_directory(path(root)))
+        throw std::runtime_error("Show destination exists; choose a new Show name");
+    const auto media=root.getChildFile("Media");
+    bool madeMedia=false;
+    try {
+        madeMedia=std::filesystem::create_directory(path(media));
+        if(!madeMedia)throw std::runtime_error("Cannot create Show Media directory");
+        showState.write(file);
+    } catch (...) {
+        // Remove only our empty directories. Never delete an existing file,
+        // even if an external process has written into the new directory.
+        std::error_code ec;
+        if(madeMedia)std::filesystem::remove(path(media),ec);
+        std::filesystem::remove(path(root),ec);
+        throw;
+    }
     const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";
     closeEditors();cancelPreview();app.new_project(session?prefs.rate:48000);liveDocument=std::move(showState);liveFile=file;prepareLiveInterface(true);
     resetDevice();app.workspace(mrs::desktop::Workspace::live);remember();refresh(true);showProjectHome(false);reconnectDevice(session);
@@ -602,7 +631,12 @@ catch(const std::exception& error){
 void Desktop::importFiles(const juce::StringArray& files){closeEditors();std::vector<std::filesystem::path> paths;for(const auto& f:files)paths.push_back(path(juce::File(f)));app.queue_wav_import(paths);refresh(true);}
 void Desktop::choose(int chooserOptions,std::function<void(const juce::File&)> callback,juce::String pattern){
     const auto studio=juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("MR Studio").getChildFile("Projects");
-    const bool showFiles=pattern=="*.mrlive";const auto initial=showFiles?(liveFile==juce::File()?studio.getSiblingFile("Lives"):liveFile):(app.path().empty()?studio:juce::File(juce::String(app.path().wstring().c_str())));
+    const bool showFiles=pattern=="*.mrlive";auto initial=showFiles?(liveFile==juce::File()?studio.getSiblingFile("Lives"):liveFile):(app.path().empty()?studio:juce::File(juce::String(app.path().wstring().c_str())));
+    // New Show and Save As should default to sibling projects, not create a
+    // new project inside the currently open managed Show.
+    if(showFiles && (chooserOptions&juce::FileBrowserComponent::saveMode) && liveFile!=juce::File() &&
+       liveFile.getParentDirectory().getFileName()==liveFile.getFileNameWithoutExtension())
+        initial=liveFile.getParentDirectory().getParentDirectory();
     chooser=std::make_unique<juce::FileChooser>(standaloneLive?"MR Live":"Moon River Studio",initial,pattern,true);
     juce::Component::SafePointer<Desktop> safe(this);
     chooser->launchAsync(chooserOptions,[safe,callback=std::move(callback)](const juce::FileChooser& result){
@@ -949,7 +983,11 @@ void Desktop::action(int n){
     if(n==717){if(!standaloneLive&&!app.recording())openPreferences();return;}
     if(n==9)return;
     if(n==702){confirmDiscard([this]{choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& file){importLiveShow(file);},"*.json");});return;}
-    if(n==701){if(standaloneLive){confirmDiscard([this]{run([this]{newLiveShow();});});return;}auto createShow=[this]{choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[this](const auto& file){createLive(file);},"*.mrlive");};createShow();return;}
+    if(n==701){
+        auto createShow=[this]{choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[this](const auto& file){createLive(file);},"*.mrlive");};
+        if(standaloneLive)confirmDiscard(createShow);else createShow();
+        return;
+    }
     if(n==8){confirmDiscard([this]{run([&]{closeEditors();cancelPreview();app.pause();app.new_project();liveDocument.reset();liveFile=juce::File();prepareLiveInterface(false);app.workspace(mrs::desktop::Workspace::arrange);resetDevice();selectedTrack.reset();selectedClip.reset();selectedClips.clear();refresh(true);showProjectHome(true);projectSessionStarted=false;home->rescan();});});return;}
     if(n==6){app.pause();showProjectHome(true);home->rescan();return;}
     if(n>=1000){auto at=static_cast<std::size_t>(n-1000);if(at<prefs.recent_projects.size()){const auto f=juce::File(label(prefs.recent_projects[at]));confirmDiscard([this,f]{run([&]{openFile(f);});});}return;}
