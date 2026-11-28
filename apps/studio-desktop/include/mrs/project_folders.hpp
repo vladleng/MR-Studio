@@ -16,7 +16,7 @@ void ensure_project_folders(const std::filesystem::path& project_file);
 // until the archive/command commits. Never delete user originals or existing files.
 class MediaCopy {
 public:
-    explicit MediaCopy(std::filesystem::path project_folder);
+    explicit MediaCopy(std::filesystem::path project_folder, bool include_mixdown = true);
     ~MediaCopy();
     MediaCopy(const MediaCopy&) = delete;
     std::filesystem::path media(const std::filesystem::path& source);

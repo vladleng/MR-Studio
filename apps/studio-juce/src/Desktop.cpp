@@ -24,6 +24,7 @@
 #include "ProjectHome.h"
 #include "LiveWorkspace.h"
 #include "LiveLayout.h"
+#include "LiveMedia.h"
 #include "WaveformView.h"
 #include <fstream>
 #include <charconv>
@@ -543,7 +544,7 @@ void Desktop::createLive(const juce::File& requested){
     // adopt a folder that may already contain unrelated user files.
     if(selected.exists() || root.exists())
         throw std::runtime_error("Show destination exists; choose a new Show name");
-    LiveDocument showState;showState.title=name;showState.ensureInterface(LiveLayout().defaults);
+    LiveDocument showState;showState.title=name;showState.managedMedia=true;showState.ensureInterface(LiveLayout().defaults);
     if(app.recording())throw std::runtime_error("Stop recording before creating a new show");
     std::filesystem::create_directories(path(root.getParentDirectory()));
     if(!std::filesystem::create_directory(path(root)))
@@ -627,6 +628,23 @@ void Desktop::saveFile(const juce::File& f) try {
 catch(const std::exception& error){
     reportSaveError(juce::String::fromUTF8(error.what()));
     throw; // Callers must retain dirty state and stop pending close/open actions.
+}
+void Desktop::saveLiveAs(const juce::File& requested) try {
+    if(!standaloneLive||!liveDocument)throw std::runtime_error("Open a native Show first");
+    if(app.recording()||app.engine()->state().playback==mrs::PlaybackState::playing||
+       livePlaybackLoading||livePendingItem.isNotEmpty()||liveAutoToken)
+        throw std::runtime_error("Stop Playback and finish the Item switch before Save As");
+    if(songDirty()&&!transientLiveRuntime())
+        throw std::runtime_error("Cannot save unsupported audio changes in a native Show");
+    auto candidate=liveDocument->clone();
+    captureLiveInputs(candidate.interfaceState);
+    const auto file=live::writeManagedShowCopy(std::move(candidate),requested);
+    // A different Show owns a different Undo/preload session. Use the existing
+    // Open lifecycle so no historical edit can restore a path into the source.
+    openFile(file);
+} catch(const std::exception& error) {
+    reportSaveError(juce::String::fromUTF8(error.what()));
+    throw;
 }
 void Desktop::importFiles(const juce::StringArray& files){closeEditors();std::vector<std::filesystem::path> paths;for(const auto& f:files)paths.push_back(path(juce::File(f)));app.queue_wav_import(paths);refresh(true);}
 void Desktop::choose(int chooserOptions,std::function<void(const juce::File&)> callback,juce::String pattern){
@@ -790,7 +808,7 @@ void Desktop::confirmDiscard(std::function<void()> nextAction,bool songOnly){if(
     alert->addButton("Save",1);alert->addButton("Discard",2);alert->addButton("Cancel",0,juce::KeyPress(juce::KeyPress::escapeKey));
     juce::Component::SafePointer<Desktop> safe(this);alert->enterModalState(true,juce::ModalCallbackFunction::create([safe,nextAction](int n){if(!safe)return;
         if(n==2)nextAction();else if(n==1)safe->run([&]{if(safe->documentFile()!=juce::File()){safe->saveFile(safe->documentFile());nextAction();}
-            else safe->choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[safe,nextAction](auto f){if(safe){safe->saveFile(f.withFileExtension(safe->liveDocument?"mrlive":"mrsproject"));nextAction();}},safe->liveDocument?"*.mrlive":"*.mrsproject");});
+            else safe->choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[safe,nextAction](auto f){if(safe){if(safe->standaloneLive)safe->saveLiveAs(f);else safe->saveFile(f.withFileExtension(safe->liveDocument?"mrlive":"mrsproject"));nextAction();}},safe->liveDocument?"*.mrlive":"*.mrsproject");});
     }),true);
 }
 juce::StringArray Desktop::getMenuBarNames(){return {"File","Options","Edit","Track","Transport","AI: "+label(std::string(app.ai_permissions().enabled?mrs::ai::permission_name(app.ai_permissions().mode):std::string_view("OFF")))};}
@@ -993,7 +1011,7 @@ void Desktop::action(int n){
     if(n>=1000){auto at=static_cast<std::size_t>(n-1000);if(at<prefs.recent_projects.size()){const auto f=juce::File(label(prefs.recent_projects[at]));confirmDiscard([this,f]{run([&]{openFile(f);});});}return;}
     if(n==1 || n==2){confirmDiscard([this,n]{run([&]{if(n==1){const bool session=app.audio_name()!="Offline clock (no sound)"&&app.audio_name()!="Disconnected";closeEditors();const bool leavingLive=liveDocument.has_value()||app.workspace()==mrs::desktop::Workspace::live;app.new_project(session?prefs.rate:48000);liveDocument.reset();liveFile=juce::File();prepareLiveInterface(false);if(leavingLive)app.workspace(mrs::desktop::Workspace::arrange);resetDevice();selectedClip.reset();selectedTrack.reset();refresh(true);showProjectHome(false);reconnectDevice(session);}else choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& f){openFile(f);},"*.mrsproject;*.mrlive");});});}
     else if(n==3){if(documentFile()==juce::File())action(4);else saveFile(documentFile());}
-    else if(n==4)choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[this](const auto& f){saveFile(f.withFileExtension(liveDocument?"mrlive":"mrsproject"));},liveDocument?"*.mrlive":"*.mrsproject");
+    else if(n==4)choose(juce::FileBrowserComponent::saveMode|juce::FileBrowserComponent::canSelectFiles|juce::FileBrowserComponent::warnAboutOverwriting,[this](const auto& f){if(standaloneLive)saveLiveAs(f);else saveFile(f.withFileExtension(liveDocument?"mrlive":"mrsproject"));},liveDocument?"*.mrlive":"*.mrsproject");
     else if(n==5)choose(juce::FileBrowserComponent::openMode|juce::FileBrowserComponent::canSelectFiles,[this](const auto& f){importFiles({f.getFullPathName()});},"*.wav");
     else if((n==10||n==11)&&app.workspace()==mrs::desktop::Workspace::live&&(liveShowEditing||(liveDocument&&liveDocument->projects.empty()))){undoLiveInterface(n==11);}
     else if(n==10 || n==11){if(!app.history_preserves_plugins(n==11))closeEditors(true);if(n==10)app.undo();else app.redo();refresh(true);}

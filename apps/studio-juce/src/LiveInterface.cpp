@@ -6,6 +6,7 @@
 #include "LiveClipProjection.h"
 #include "LivePerformanceEdit.h"
 #include "LiveClipEdit.h"
+#include "LiveMedia.h"
 
 namespace {
 // B1: switch-phase timings for the local diagnostic journal. UI thread only.
@@ -864,6 +865,7 @@ void Desktop::updateLiveDirty() {
     const auto& saved=*liveSavedSnapshot;
     liveDirty=liveDocument->title!=saved.title ||
         liveDocument->active!=saved.active ||
+        liveDocument->managedMedia!=saved.managedMedia ||
         liveDocument->projects!=saved.projects ||
         liveDocument->itemProjects!=saved.itemProjects ||
         !live::sameShowValue(liveDocument->interfaceState,saved.interfaceState);
@@ -1110,6 +1112,7 @@ void Desktop::addLivePlaybackStems(const juce::String &id,const juce::Array<juce
     for(const auto &file:files)
         if(!file.existsAsFile() || !file.hasFileExtension("wav"))
             throw std::runtime_error("Select existing WAV files");
+    auto media=live::beginOwnedMedia(*liveDocument,liveFile);
     juce::String selected;
     editLiveInterface("Add Playback stems",[&](auto &state) {
         ensurePlaybackChannel(state);
@@ -1143,10 +1146,12 @@ void Desktop::addLivePlaybackStems(const juce::String &id,const juce::Array<juce
             // A primary lane cannot become a child of a separate Playback group.
             if(target==primary && selected!=primary && used.contains(selected))
                 throw std::runtime_error("Invalid Playback group channel");
-            live::bindPlaybackSource(state,id,target,file.getFullPathName(),false);
+            const auto owned=media?media->own(file):file;
+            live::bindPlaybackSource(state,id,target,owned.getFullPathName(),false);
             used.insert(target);
         }
     });
+    if(media)media->commit();
     if(selected.isNotEmpty())livePlaybackSelectedChannel=selected;
     syncLivePlayback();
 }
@@ -1157,6 +1162,7 @@ void Desktop::attachLivePlayback(const juce::String &id,const juce::File &file,
     if(app.recording())throw std::runtime_error("Stop recording before changing Playback");
     if(!file.existsAsFile() || !file.hasFileExtension("wav"))
         throw std::runtime_error("Select an existing WAV file");
+    auto media=live::beginOwnedMedia(*liveDocument,liveFile);
     juce::String selected;
     editLiveInterface("Attach Playback WAV",[&](auto &state) {
         ensurePlaybackChannel(state);
@@ -1167,8 +1173,10 @@ void Desktop::attachLivePlayback(const juce::String &id,const juce::File &file,
             throw std::runtime_error("Playback channel was removed");
         selected=requested.isNotEmpty()?requested:primary;
         live::ensureIndependentPlaybackTarget(state,id,selected);
-        live::bindPlaybackSource(state,id,selected,file.getFullPathName(),true);
+        const auto owned=media?media->own(file):file;
+        live::bindPlaybackSource(state,id,selected,owned.getFullPathName(),true);
     });
+    if(media)media->commit();
     livePlaybackSelectedChannel=selected;
     livePlaybackStem=live::playbackStemForChannel(liveDocument->interfaceState,id,selected);
     invalidateLivePlayback(id);syncLivePlayback();
@@ -1192,10 +1200,13 @@ void Desktop::invalidateLivePlayback(const juce::String& id){
 void Desktop::commitLiveRelink(const juce::String& item,const juce::String& stem,const juce::File& file){
     requireLiveRepair(item);
     if(!file.existsAsFile())throw std::runtime_error("Replacement WAV is missing");
+    auto media=live::beginOwnedMedia(*liveDocument,liveFile);
     editLiveInterface("Relink Playback WAV",[&](auto& state){auto row=live::playbackStem(state,item,stem);
         if(!row.isObject())throw std::runtime_error("Playback source was removed");
-        live::put(row,"file",file.getFullPathName());
+        const auto owned=media?media->own(file):file;
+        live::put(row,"file",owned.getFullPathName());
     });
+    if(media)media->commit();
     invalidateLivePlayback(item);syncLivePlayback();
 }
 
